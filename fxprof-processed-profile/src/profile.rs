@@ -1043,8 +1043,9 @@ impl Profile {
     ///
     /// ```
     /// use fxprof_processed_profile::{
-    ///     Profile, Category, CategoryColor, Marker, MarkerFieldFormat, MarkerTiming,
-    ///     StaticSchemaMarker, StaticSchemaMarkerField, StringHandle, ThreadHandle, Timestamp,
+    ///     Profile, Category, CategoryColor, Marker, MarkerStringFieldFormat, MarkerTiming,
+    ///     StaticSchema, StaticSchemaMarker, StaticSchemaMarkerField, StringHandle,
+    ///     ThreadHandle, Timestamp,
     /// };
     ///
     /// # fn fun() {
@@ -1065,31 +1066,25 @@ impl Profile {
     /// }
     ///
     /// impl StaticSchemaMarker for TextMarker {
+    ///     type FieldsType = StringHandle;
+    ///
     ///     const UNIQUE_MARKER_TYPE_NAME: &'static str = "Text";
     ///
     ///     const CHART_LABEL: Option<&'static str> = Some("{marker.data.text}");
     ///     const TABLE_LABEL: Option<&'static str> = Some("{marker.name} - {marker.data.text}");
     ///
-    ///     const FIELDS: &'static [StaticSchemaMarkerField] = &[StaticSchemaMarkerField {
+    ///     const FIELDS: StaticSchema<Self::FieldsType> = StaticSchema(StaticSchemaMarkerField {
     ///         key: "text",
     ///         label: "Contents",
-    ///         format: MarkerFieldFormat::String,
-    ///     }];
+    ///         format: MarkerStringFieldFormat::String,
+    ///     });
     ///
     ///     fn name(&self, _profile: &mut Profile) -> StringHandle {
     ///         self.name
     ///     }
     ///
-    ///     fn string_field_value(&self, _field_index: u32) -> StringHandle {
+    ///     fn field_values(&self) -> StringHandle {
     ///         self.text
-    ///     }
-    ///
-    ///     fn number_field_value(&self, _field_index: u32) -> f64 {
-    ///         unreachable!()
-    ///     }
-    ///
-    ///     fn flow_field_value(&self, _field_index: u32) -> u64 {
-    ///         unreachable!()
     ///     }
     /// }
     /// ```

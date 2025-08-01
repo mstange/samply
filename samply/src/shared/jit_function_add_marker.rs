@@ -1,5 +1,5 @@
 use fxprof_processed_profile::{
-    Category, CategoryColor, MarkerFieldFormat, Profile, StaticSchemaMarker,
+    Category, CategoryColor, MarkerStringFieldFormat, Profile, StaticSchema, StaticSchemaMarker,
     StaticSchemaMarkerField, StringHandle,
 };
 
@@ -7,6 +7,8 @@ use fxprof_processed_profile::{
 pub struct JitFunctionAddMarker(pub StringHandle);
 
 impl StaticSchemaMarker for JitFunctionAddMarker {
+    type FieldsType = StringHandle;
+
     const UNIQUE_MARKER_TYPE_NAME: &'static str = "JitFunctionAdd";
 
     const CATEGORY: Category<'static> = Category("JIT", CategoryColor::Green);
@@ -17,25 +19,17 @@ impl StaticSchemaMarker for JitFunctionAddMarker {
     const TOOLTIP_LABEL: Option<&'static str> = Some("{marker.data.n}");
     const TABLE_LABEL: Option<&'static str> = Some("{marker.data.n}");
 
-    const FIELDS: &'static [StaticSchemaMarkerField] = &[StaticSchemaMarkerField {
+    const FIELDS: StaticSchema<Self::FieldsType> = StaticSchema(StaticSchemaMarkerField {
         key: "n",
         label: "Function",
-        format: MarkerFieldFormat::String,
-    }];
+        format: MarkerStringFieldFormat::String,
+    });
 
     fn name(&self, profile: &mut Profile) -> StringHandle {
         profile.handle_for_string("JitFunctionAdd")
     }
 
-    fn string_field_value(&self, _field_index: u32) -> StringHandle {
+    fn field_values(&self) -> StringHandle {
         self.0
-    }
-
-    fn number_field_value(&self, _field_index: u32) -> f64 {
-        unreachable!()
-    }
-
-    fn flow_field_value(&self, _field_index: u32) -> u64 {
-        unreachable!()
     }
 }
