@@ -1,11 +1,11 @@
 use serde::ser::{Serialize, SerializeMap, SerializeSeq, Serializer};
 
-use crate::markers::{InternalMarkerSchema, MarkerFieldFormatKind};
+use crate::markers::{InternalMarkerSchema, MarkerFieldValueConsumer};
 use crate::serialization_helpers::SerializableOptionalTimestampColumn;
 use crate::string_table::{ProfileStringTable, StringHandle};
 use crate::{
-    CategoryHandle, Marker, MarkerFieldFormat, MarkerHandle, MarkerTiming, MarkerTypeHandle,
-    Timestamp,
+    CategoryHandle, Marker, MarkerHandle, MarkerStringFieldFormat, MarkerTiming, MarkerTypeHandle,
+    RuntimeSchemaMarkerFieldFormat, Timestamp,
 };
 
 #[derive(Debug, Clone, Default)]
@@ -75,25 +75,20 @@ impl MarkerTable {
         self.marker_phases.push(phase);
         self.marker_type_handles.push(marker_type_handle);
         self.marker_stacks.push(None);
-        for (field_index, field) in schema.fields().iter().enumerate() {
-            match field.format.kind() {
-                MarkerFieldFormatKind::String => {
-                    let string_index = marker.string_field_value(field_index as u32);
-                    self.marker_field_string_values.push(string_index);
-                }
-                MarkerFieldFormatKind::Number => {
-                    let number_value = marker.number_field_value(field_index as u32);
-                    self.marker_field_number_values.push(number_value)
-                }
-                MarkerFieldFormatKind::Flow => {
-                    let flow_value = marker.flow_field_value(field_index as u32);
-                    // Convert flow ID to hex string and store as StringHandle
-                    let hex_string = format!("{flow_value:x}");
-                    let flow_string_handle = string_table.index_for_string(&hex_string);
-                    self.marker_field_flow_values.push(flow_string_handle);
-                }
-            }
-        }
+
+        let MarkerTable {
+            marker_field_string_values,
+            marker_field_number_values,
+            marker_field_flow_values,
+            ..
+        } = self;
+
+        marker.push_field_values(&mut MarkerTableFieldValueConsumer {
+            marker_field_string_values,
+            marker_field_number_values,
+            marker_field_flow_values,
+            string_table,
+        });
 
         MarkerHandle(self.marker_categories.len() - 1)
     }
@@ -121,6 +116,30 @@ impl MarkerTable {
             string_table,
             schemas,
         }
+    }
+}
+
+struct MarkerTableFieldValueConsumer<'a> {
+    marker_field_string_values: &'a mut Vec<StringHandle>,
+    marker_field_number_values: &'a mut Vec<f64>,
+    marker_field_flow_values: &'a mut Vec<StringHandle>,
+    string_table: &'a mut ProfileStringTable,
+}
+
+impl<'a> MarkerFieldValueConsumer for MarkerTableFieldValueConsumer<'a> {
+    fn consume_string_field(&mut self, string_handle: StringHandle) {
+        self.marker_field_string_values.push(string_handle);
+    }
+
+    fn consume_number_field(&mut self, number: f64) {
+        self.marker_field_number_values.push(number);
+    }
+
+    fn consume_flow_field(&mut self, flow: u64) {
+        // Convert flow ID to hex string and store as StringHandle
+        let hex_string = format!("{flow:x}");
+        let flow_string_handle = self.string_table.index_for_string(&hex_string);
+        self.marker_field_flow_values.push(flow_string_handle);
     }
 }
 
@@ -215,23 +234,23 @@ impl Serialize for SerializableMarkerDataElement<'_> {
             map.serialize_entry("cause", &SerializableMarkerCause(*stack_index))?;
         }
         for field in schema.fields() {
-            match field.format.kind() {
-                MarkerFieldFormatKind::String => {
+            match &field.format {
+                RuntimeSchemaMarkerFieldFormat::String(format) => {
                     let value;
                     (value, string_fields) = string_fields.split_first().unwrap();
-                    if field.format == MarkerFieldFormat::String {
+                    if *format == MarkerStringFieldFormat::String {
                         map.serialize_entry(&field.key, value)?;
                     } else {
                         let str_val = string_table.get_string(*value);
                         map.serialize_entry(&field.key, str_val)?;
                     }
                 }
-                MarkerFieldFormatKind::Number => {
+                RuntimeSchemaMarkerFieldFormat::Number(_) => {
                     let value;
                     (value, number_fields) = number_fields.split_first().unwrap();
                     map.serialize_entry(&field.key, value)?;
                 }
-                MarkerFieldFormatKind::Flow => {
+                RuntimeSchemaMarkerFieldFormat::Flow(_) => {
                     let value;
                     (value, flow_fields) = flow_fields.split_first().unwrap();
                     map.serialize_entry(&field.key, value)?;
