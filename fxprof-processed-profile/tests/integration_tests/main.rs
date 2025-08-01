@@ -4,9 +4,10 @@ use std::time::Duration;
 use assert_json_diff::assert_json_eq;
 use debugid::DebugId;
 use fxprof_processed_profile::{
-    Category, CategoryColor, CpuDelta, FrameAddress, FrameFlags, GraphColor, LibraryInfo,
-    MarkerFieldFormat, MarkerGraphType, MarkerLocations, MarkerTiming, Profile, ReferenceTimestamp,
-    SamplingInterval, StaticSchemaMarker, StaticSchemaMarkerField, StaticSchemaMarkerGraph,
+    Category, CategoryColor, CpuDelta, FlowId, FrameAddress, FrameFlags, GraphColor, LibraryInfo,
+    MarkerFlowFieldFormat, MarkerGraphType, MarkerLocations, MarkerNumberFieldFormat,
+    MarkerStringFieldFormat, MarkerTiming, Profile, ReferenceTimestamp, SamplingInterval,
+    StaticSchema, StaticSchemaMarker, StaticSchemaMarkerField, StaticSchemaMarkerGraph,
     StringHandle, Symbol, SymbolTable, Timestamp, WeightType,
 };
 use serde_json::json;
@@ -21,29 +22,23 @@ pub struct TextMarker {
 }
 
 impl StaticSchemaMarker for TextMarker {
+    type FieldsType = StringHandle;
+
     const UNIQUE_MARKER_TYPE_NAME: &'static str = "Text";
     const CHART_LABEL: Option<&'static str> = Some("{marker.data.name}");
     const TABLE_LABEL: Option<&'static str> = Some("{marker.name} - {marker.data.name}");
-    const FIELDS: &'static [StaticSchemaMarkerField] = &[StaticSchemaMarkerField {
+    const FIELDS: StaticSchema<Self::FieldsType> = StaticSchema(StaticSchemaMarkerField {
         key: "name",
         label: "Details",
-        format: MarkerFieldFormat::String,
-    }];
+        format: MarkerStringFieldFormat::String,
+    });
 
     fn name(&self, _profile: &mut Profile) -> StringHandle {
         self.name
     }
 
-    fn string_field_value(&self, _field_index: u32) -> StringHandle {
+    fn field_values(&self) -> StringHandle {
         self.text
-    }
-
-    fn number_field_value(&self, _field_index: u32) -> f64 {
-        unreachable!()
-    }
-
-    fn flow_field_value(&self, _field_index: u32) -> u64 {
-        unreachable!()
     }
 }
 
@@ -56,31 +51,33 @@ fn profile_without_js() {
         latency: Duration,
     }
     impl StaticSchemaMarker for CustomMarker {
+        type FieldsType = (StringHandle, f64, StringHandle, f64);
+
         const UNIQUE_MARKER_TYPE_NAME: &'static str = "custom";
         const TOOLTIP_LABEL: Option<&'static str> = Some("Custom tooltip label");
 
-        const FIELDS: &'static [StaticSchemaMarkerField] = &[
+        const FIELDS: StaticSchema<Self::FieldsType> = StaticSchema((
             StaticSchemaMarkerField {
                 key: "eventName",
                 label: "Event name",
-                format: MarkerFieldFormat::String,
+                format: MarkerStringFieldFormat::String,
             },
             StaticSchemaMarkerField {
                 key: "allocationSize",
                 label: "Allocation size",
-                format: MarkerFieldFormat::Bytes,
+                format: MarkerNumberFieldFormat::Bytes,
             },
             StaticSchemaMarkerField {
                 key: "url",
                 label: "URL",
-                format: MarkerFieldFormat::Url,
+                format: MarkerStringFieldFormat::Url,
             },
             StaticSchemaMarkerField {
                 key: "latency",
                 label: "Latency",
-                format: MarkerFieldFormat::Duration,
+                format: MarkerNumberFieldFormat::Duration,
             },
-        ];
+        ));
 
         const DESCRIPTION: Option<&'static str> =
             Some("This is a test marker with a custom schema.");
@@ -95,24 +92,13 @@ fn profile_without_js() {
             profile.handle_for_string("CustomName")
         }
 
-        fn string_field_value(&self, field_index: u32) -> StringHandle {
-            match field_index {
-                0 => self.event_name,
-                2 => self.url,
-                _ => unreachable!(),
-            }
-        }
-
-        fn number_field_value(&self, field_index: u32) -> f64 {
-            match field_index {
-                1 => self.allocation_size.into(),
-                3 => self.latency.as_secs_f64() * 1000.0,
-                _ => unreachable!(),
-            }
-        }
-
-        fn flow_field_value(&self, _field_index: u32) -> u64 {
-            unreachable!()
+        fn field_values(&self) -> (StringHandle, f64, StringHandle, f64) {
+            (
+                self.event_name,
+                self.allocation_size.into(),
+                self.url,
+                self.latency.as_secs_f64() * 1000.0,
+            )
         }
     }
 
@@ -1543,6 +1529,7 @@ fn test_flow_marker_fields() {
     }
 
     impl StaticSchemaMarker for FlowMarker {
+        type FieldsType = (FlowId, FlowId);
         const UNIQUE_MARKER_TYPE_NAME: &'static str = "FlowTest";
         const LOCATIONS: MarkerLocations =
             MarkerLocations::MARKER_CHART.union(MarkerLocations::MARKER_TABLE);
@@ -1550,37 +1537,25 @@ fn test_flow_marker_fields() {
         const TABLE_LABEL: Option<&'static str> =
             Some("{marker.name} - flow:{marker.data.flowId} term:{marker.data.termFlowId}");
 
-        const FIELDS: &'static [StaticSchemaMarkerField] = &[
+        const FIELDS: StaticSchema<Self::FieldsType> = StaticSchema((
             StaticSchemaMarkerField {
                 key: "flowId",
                 label: "Flow ID",
-                format: MarkerFieldFormat::Flow,
+                format: MarkerFlowFieldFormat::Flow,
             },
             StaticSchemaMarkerField {
                 key: "termFlowId",
                 label: "Terminating Flow ID",
-                format: MarkerFieldFormat::TerminatingFlow,
+                format: MarkerFlowFieldFormat::TerminatingFlow,
             },
-        ];
+        ));
 
         fn name(&self, _profile: &mut Profile) -> StringHandle {
             self.name
         }
 
-        fn string_field_value(&self, _field_index: u32) -> StringHandle {
-            unreachable!()
-        }
-
-        fn number_field_value(&self, _field_index: u32) -> f64 {
-            unreachable!()
-        }
-
-        fn flow_field_value(&self, field_index: u32) -> u64 {
-            match field_index {
-                0 => self.flow_id,
-                1 => self.terminating_flow_id,
-                _ => unreachable!(),
-            }
+        fn field_values(&self) -> Self::FieldsType {
+            (FlowId(self.flow_id), FlowId(self.terminating_flow_id))
         }
     }
 

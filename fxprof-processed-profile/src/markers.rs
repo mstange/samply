@@ -65,46 +65,17 @@ pub trait Marker {
     /// used as `{marker.name}` in the various `label` template strings in the schema.
     fn name(&self, profile: &mut Profile) -> StringHandle;
 
-    /// Called for any fields defined in the schema whose [`format`](RuntimeSchemaMarkerField::format) is
-    /// of [kind](MarkerFieldFormat::kind) [`MarkerFieldFormatKind::String`].
-    ///
-    /// `field_index` is an index into the schema's [`fields`](RuntimeSchemaMarkerSchema::fields).
-    ///
-    /// You can panic for any unexpected field indexes, for example
-    /// using `unreachable!()`. You can even panic unconditionally if this
-    /// marker type doesn't have any string fields.
-    ///
-    /// If you do see unexpected calls to this method, make sure you're not registering
-    /// multiple different schemas with the same [`RuntimeSchemaMarkerSchema::type_name`].
-    fn string_field_value(&self, field_index: u32) -> StringHandle;
+    fn push_field_values(&self, consumer: &mut impl MarkerFieldValueConsumer);
+}
 
-    /// Called for any fields defined in the schema whose [`format`](RuntimeSchemaMarkerField::format) is
-    /// of [kind](MarkerFieldFormat::kind) [`MarkerFieldFormatKind::Number`].
-    ///
-    /// `field_index` is an index into the schema's [`fields`](RuntimeSchemaMarkerSchema::fields).
-    ///
-    /// You can panic for any unexpected field indexes, for example
-    /// using `unreachable!()`. You can even panic unconditionally if this
-    /// marker type doesn't have any number fields.
-    ///
-    /// If you do see unexpected calls to this method, make sure you're not registering
-    /// multiple different schemas with the same [`RuntimeSchemaMarkerSchema::type_name`].
-    fn number_field_value(&self, field_index: u32) -> f64;
+pub trait MarkerFieldsTrait {
+    type Schema;
 
-    /// Called for any fields defined in the schema whose [`format`](RuntimeSchemaMarkerField::format) is
-    /// of [kind](MarkerFieldFormat::kind) [`MarkerFieldFormatKind::Flow`].
-    ///
-    /// `field_index` is an index into the schema's [`fields`](RuntimeSchemaMarkerSchema::fields).
-    ///
-    /// Flow identifiers are u64 values that are unique across processes.
-    ///
-    /// You can panic for any unexpected field indexes, for example
-    /// using `unreachable!()`. You can even panic unconditionally if this
-    /// marker type doesn't have any flow fields.
-    ///
-    /// If you do see unexpected calls to this method, make sure you're not registering
-    /// multiple different schemas with the same [`RuntimeSchemaMarkerSchema::type_name`].
-    fn flow_field_value(&self, field_index: u32) -> u64;
+    const FIELD_KIND_COUNTS: MarkerFieldKindCounts;
+
+    fn push_field_values(self, consumer: &mut impl MarkerFieldValueConsumer);
+
+    fn to_runtime_field_schema(schema: &Self::Schema) -> Vec<RuntimeSchemaMarkerField>;
 }
 
 /// The trait for markers whose schema is known at compile time. Any type which implements
@@ -117,8 +88,8 @@ pub trait Marker {
 ///
 /// ```
 /// use fxprof_processed_profile::{
-///     Profile, Marker, MarkerLocations, MarkerFieldFormat, StaticSchemaMarkerField,
-///     StaticSchemaMarker, Category, CategoryColor, StringHandle,
+///     Profile, Marker, MarkerLocations, MarkerStringFieldFormat, StaticSchema,
+///     StaticSchemaMarkerField, StaticSchemaMarker, Category, CategoryColor, StringHandle,
 /// };
 ///
 /// /// An example marker type with a name and some text content.
@@ -129,6 +100,8 @@ pub trait Marker {
 /// }
 ///
 /// impl StaticSchemaMarker for TextMarker {
+///     type FieldsType = StringHandle;
+///
 ///     const UNIQUE_MARKER_TYPE_NAME: &'static str = "Text";
 ///
 ///     const CATEGORY: Category<'static> = Category("Navigation", CategoryColor::Green);
@@ -137,26 +110,18 @@ pub trait Marker {
 ///     const CHART_LABEL: Option<&'static str> = Some("{marker.data.text}");
 ///     const TABLE_LABEL: Option<&'static str> = Some("{marker.name} - {marker.data.text}");
 ///
-///     const FIELDS: &'static [StaticSchemaMarkerField] = &[StaticSchemaMarkerField {
+///     const FIELDS: StaticSchema<Self::FieldsType> = StaticSchema(StaticSchemaMarkerField {
 ///         key: "text",
 ///         label: "Contents",
-///         format: MarkerFieldFormat::String,
-///     }];
+///         format: MarkerStringFieldFormat::String,
+///     });
 ///
 ///     fn name(&self, _profile: &mut Profile) -> StringHandle {
 ///         self.name
 ///     }
 ///
-///     fn string_field_value(&self, _field_index: u32) -> StringHandle {
+///     fn field_values(&self) -> StringHandle {
 ///         self.text
-///     }
-///
-///     fn number_field_value(&self, _field_index: u32) -> f64 {
-///         unreachable!()
-///     }
-///
-///     fn flow_field_value(&self, _field_index: u32) -> u64 {
-///         unreachable!()
 ///     }
 /// }
 /// ```
@@ -196,9 +161,11 @@ pub trait StaticSchemaMarker {
     /// Defaults to `{marker.name}` if set to `None`.
     const TABLE_LABEL: Option<&'static str> = None;
 
+    type FieldsType: MarkerFieldsTrait;
+
     /// The marker fields. The values are supplied by each marker, in the marker's
     /// implementations of the `string_field_value` and `number_field_value` trait methods.
-    const FIELDS: &'static [StaticSchemaMarkerField];
+    const FIELDS: StaticSchema<Self::FieldsType>;
 
     /// Any graph lines / segments created from markers of this type.
     ///
@@ -218,46 +185,8 @@ pub trait StaticSchemaMarker {
     /// used as `{marker.name}` in the various `label` template strings in the schema.
     fn name(&self, profile: &mut Profile) -> StringHandle;
 
-    /// Called for any fields defined in the schema whose [`format`](RuntimeSchemaMarkerField::format) is
-    /// of [kind](MarkerFieldFormat::kind) [`MarkerFieldFormatKind::String`].
-    ///
-    /// `field_index` is an index into the schema's [`fields`](RuntimeSchemaMarkerSchema::fields).
-    ///
-    /// You can panic for any unexpected field indexes, for example
-    /// using `unreachable!()`. You can even panic unconditionally if this
-    /// marker type doesn't have any string fields.
-    ///
-    /// If you do see unexpected calls to this method, make sure you're not registering
-    /// multiple different schemas with the same [`RuntimeSchemaMarkerSchema::type_name`].
-    fn string_field_value(&self, field_index: u32) -> StringHandle;
-
-    /// Called for any fields defined in the schema whose [`format`](RuntimeSchemaMarkerField::format) is
-    /// of [kind](MarkerFieldFormat::kind) [`MarkerFieldFormatKind::Number`].
-    ///
-    /// `field_index` is an index into the schema's [`fields`](RuntimeSchemaMarkerSchema::fields).
-    ///
-    /// You can panic for any unexpected field indexes, for example
-    /// using `unreachable!()`. You can even panic unconditionally if this
-    /// marker type doesn't have any number fields.
-    ///
-    /// If you do see unexpected calls to this method, make sure you're not registering
-    /// multiple different schemas with the same [`RuntimeSchemaMarkerSchema::type_name`].
-    fn number_field_value(&self, field_index: u32) -> f64;
-
-    /// Called for any fields defined in the schema whose [`format`](RuntimeSchemaMarkerField::format) is
-    /// of [kind](MarkerFieldFormat::kind) [`MarkerFieldFormatKind::Flow`].
-    ///
-    /// `field_index` is an index into the schema's [`fields`](RuntimeSchemaMarkerSchema::fields).
-    ///
-    /// Flow identifiers are u64 values that are unique across processes.
-    ///
-    /// You can panic for any unexpected field indexes, for example
-    /// using `unreachable!()`. You can even panic unconditionally if this
-    /// marker type doesn't have any flow fields.
-    ///
-    /// If you do see unexpected calls to this method, make sure you're not registering
-    /// multiple different schemas with the same [`RuntimeSchemaMarkerSchema::type_name`].
-    fn flow_field_value(&self, field_index: u32) -> u64;
+    /// Returns the values for the fields of this marker.
+    fn field_values(&self) -> Self::FieldsType;
 }
 
 impl<T: StaticSchemaMarker> Marker for T {
@@ -269,16 +198,11 @@ impl<T: StaticSchemaMarker> Marker for T {
         <T as StaticSchemaMarker>::name(self, profile)
     }
 
-    fn string_field_value(&self, field_index: u32) -> StringHandle {
-        <T as StaticSchemaMarker>::string_field_value(self, field_index)
-    }
-
-    fn number_field_value(&self, field_index: u32) -> f64 {
-        <T as StaticSchemaMarker>::number_field_value(self, field_index)
-    }
-
-    fn flow_field_value(&self, field_index: u32) -> u64 {
-        <T as StaticSchemaMarker>::flow_field_value(self, field_index)
+    fn push_field_values(&self, consumer: &mut impl MarkerFieldValueConsumer) {
+        <<T as StaticSchemaMarker>::FieldsType as MarkerFieldsTrait>::push_field_values(
+            self.field_values(),
+            consumer,
+        );
     }
 }
 
@@ -290,7 +214,8 @@ impl<T: StaticSchemaMarker> Marker for T {
 ///
 /// ```
 /// use fxprof_processed_profile::{
-///     Profile, Marker, MarkerLocations, MarkerFieldFormat, RuntimeSchemaMarkerSchema, RuntimeSchemaMarkerField,
+///     Profile, Marker, MarkerLocations, MarkerStringFieldFormat, MarkerNumberFieldFormat,
+///     RuntimeSchemaMarkerSchema, RuntimeSchemaMarkerField,
 ///     CategoryHandle, StringHandle, Category, CategoryColor,
 /// };
 ///
@@ -307,22 +232,22 @@ impl<T: StaticSchemaMarker> Marker for T {
 ///         RuntimeSchemaMarkerField {
 ///             key: "eventName".into(),
 ///             label: "Event name".into(),
-///             format: MarkerFieldFormat::String,
+///             format: MarkerStringFieldFormat::String.into(),
 ///         },
 ///         RuntimeSchemaMarkerField {
 ///             key: "allocationSize".into(),
 ///             label: "Allocation size".into(),
-///             format: MarkerFieldFormat::Bytes,
+///             format: MarkerNumberFieldFormat::Bytes.into(),
 ///         },
 ///         RuntimeSchemaMarkerField {
 ///             key: "url".into(),
 ///             label: "URL".into(),
-///             format: MarkerFieldFormat::Url,
+///             format: MarkerStringFieldFormat::Url.into(),
 ///         },
 ///         RuntimeSchemaMarkerField {
 ///             key: "latency".into(),
 ///             label: "Latency".into(),
-///             format: MarkerFieldFormat::Duration,
+///             format: MarkerNumberFieldFormat::Duration.into(),
 ///         },
 ///     ],
 ///     description: Some("This is a test marker with a custom schema.".into()),
@@ -406,6 +331,220 @@ bitflags! {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum MarkerFieldKind {
+    String,
+    Number,
+    Flow,
+}
+
+#[derive(Default, Debug, Clone)]
+pub struct MarkerFieldKindCounts {
+    pub string_field_count: usize,
+    pub number_field_count: usize,
+    pub flow_field_count: usize,
+}
+
+impl MarkerFieldKindCounts {
+    pub const fn new() -> Self {
+        Self {
+            string_field_count: 0,
+            number_field_count: 0,
+            flow_field_count: 0,
+        }
+    }
+
+    pub const fn add(&mut self, kind: MarkerFieldKind) {
+        match kind {
+            MarkerFieldKind::String => self.string_field_count += 1,
+            MarkerFieldKind::Number => self.number_field_count += 1,
+            MarkerFieldKind::Flow => self.flow_field_count += 1,
+        }
+    }
+
+    pub const fn from_kind(kind: MarkerFieldKind) -> Self {
+        let mut counts = Self::new();
+        counts.add(kind);
+        counts
+    }
+
+    pub const fn from_kinds(kinds: &[MarkerFieldKind]) -> Self {
+        let mut counts = Self::new();
+        let mut i = 0;
+        let len = kinds.len();
+        while i < len {
+            counts.add(kinds[i]);
+            i += 1;
+        }
+        counts
+    }
+}
+
+pub trait MarkerFieldValueType {
+    type FormatEnum: Clone + core::fmt::Debug + Into<RuntimeSchemaMarkerFieldFormat>;
+    const KIND: MarkerFieldKind;
+    fn push_field_value(self, consumer: &mut impl MarkerFieldValueConsumer);
+}
+
+impl MarkerFieldValueType for StringHandle {
+    type FormatEnum = MarkerStringFieldFormat;
+    const KIND: MarkerFieldKind = MarkerFieldKind::String;
+    fn push_field_value(self, consumer: &mut impl MarkerFieldValueConsumer) {
+        consumer.consume_string_field(self);
+    }
+}
+
+impl MarkerFieldValueType for f64 {
+    type FormatEnum = MarkerNumberFieldFormat;
+    const KIND: MarkerFieldKind = MarkerFieldKind::Number;
+    fn push_field_value(self, consumer: &mut impl MarkerFieldValueConsumer) {
+        consumer.consume_number_field(self);
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct FlowId(pub u64);
+
+impl MarkerFieldValueType for FlowId {
+    type FormatEnum = MarkerFlowFieldFormat;
+    const KIND: MarkerFieldKind = MarkerFieldKind::Flow;
+    fn push_field_value(self, consumer: &mut impl MarkerFieldValueConsumer) {
+        consumer.consume_flow_field(self.0);
+    }
+}
+
+impl MarkerFieldsTrait for () {
+    type Schema = ();
+
+    const FIELD_KIND_COUNTS: MarkerFieldKindCounts = MarkerFieldKindCounts::new();
+
+    fn push_field_values(self, _consumer: &mut impl MarkerFieldValueConsumer) {
+        // No fields to push
+    }
+
+    fn to_runtime_field_schema(_schema: &Self::Schema) -> Vec<RuntimeSchemaMarkerField> {
+        vec![]
+    }
+}
+
+impl<T: MarkerFieldValueType> MarkerFieldsTrait for T {
+    type Schema = StaticSchemaMarkerField<T>;
+
+    const FIELD_KIND_COUNTS: MarkerFieldKindCounts = MarkerFieldKindCounts::from_kind(Self::KIND);
+
+    fn push_field_values(self, consumer: &mut impl MarkerFieldValueConsumer) {
+        Self::push_field_value(self, consumer);
+    }
+
+    fn to_runtime_field_schema(schema: &Self::Schema) -> Vec<RuntimeSchemaMarkerField> {
+        vec![RuntimeSchemaMarkerField::from(schema)]
+    }
+}
+
+impl<T0> MarkerFieldsTrait for (T0,)
+where
+    T0: MarkerFieldValueType,
+{
+    type Schema = (StaticSchemaMarkerField<T0>,);
+
+    const FIELD_KIND_COUNTS: MarkerFieldKindCounts = MarkerFieldKindCounts::from_kinds(&[T0::KIND]);
+
+    fn push_field_values(self, consumer: &mut impl MarkerFieldValueConsumer) {
+        T0::push_field_value(self.0, consumer);
+    }
+
+    fn to_runtime_field_schema(schema: &Self::Schema) -> Vec<RuntimeSchemaMarkerField> {
+        vec![RuntimeSchemaMarkerField::from(&schema.0)]
+    }
+}
+
+impl<T0, T1> MarkerFieldsTrait for (T0, T1)
+where
+    T0: MarkerFieldValueType,
+    T1: MarkerFieldValueType,
+{
+    type Schema = (StaticSchemaMarkerField<T0>, StaticSchemaMarkerField<T1>);
+
+    const FIELD_KIND_COUNTS: MarkerFieldKindCounts =
+        MarkerFieldKindCounts::from_kinds(&[T0::KIND, T1::KIND]);
+
+    fn push_field_values(self, consumer: &mut impl MarkerFieldValueConsumer) {
+        T0::push_field_value(self.0, consumer);
+        T1::push_field_value(self.1, consumer);
+    }
+
+    fn to_runtime_field_schema(schema: &Self::Schema) -> Vec<RuntimeSchemaMarkerField> {
+        vec![
+            RuntimeSchemaMarkerField::from(&schema.0),
+            RuntimeSchemaMarkerField::from(&schema.1),
+        ]
+    }
+}
+
+impl<T0, T1, T2> MarkerFieldsTrait for (T0, T1, T2)
+where
+    T0: MarkerFieldValueType,
+    T1: MarkerFieldValueType,
+    T2: MarkerFieldValueType,
+{
+    type Schema = (
+        StaticSchemaMarkerField<T0>,
+        StaticSchemaMarkerField<T1>,
+        StaticSchemaMarkerField<T2>,
+    );
+
+    const FIELD_KIND_COUNTS: MarkerFieldKindCounts =
+        MarkerFieldKindCounts::from_kinds(&[T0::KIND, T1::KIND, T2::KIND]);
+
+    fn push_field_values(self, consumer: &mut impl MarkerFieldValueConsumer) {
+        T0::push_field_value(self.0, consumer);
+        T1::push_field_value(self.1, consumer);
+        T2::push_field_value(self.2, consumer);
+    }
+
+    fn to_runtime_field_schema(schema: &Self::Schema) -> Vec<RuntimeSchemaMarkerField> {
+        vec![
+            RuntimeSchemaMarkerField::from(&schema.0),
+            RuntimeSchemaMarkerField::from(&schema.1),
+            RuntimeSchemaMarkerField::from(&schema.2),
+        ]
+    }
+}
+
+impl<T0, T1, T2, T3> MarkerFieldsTrait for (T0, T1, T2, T3)
+where
+    T0: MarkerFieldValueType,
+    T1: MarkerFieldValueType,
+    T2: MarkerFieldValueType,
+    T3: MarkerFieldValueType,
+{
+    type Schema = (
+        StaticSchemaMarkerField<T0>,
+        StaticSchemaMarkerField<T1>,
+        StaticSchemaMarkerField<T2>,
+        StaticSchemaMarkerField<T3>,
+    );
+
+    const FIELD_KIND_COUNTS: MarkerFieldKindCounts =
+        MarkerFieldKindCounts::from_kinds(&[T0::KIND, T1::KIND, T2::KIND, T3::KIND]);
+
+    fn push_field_values(self, consumer: &mut impl MarkerFieldValueConsumer) {
+        T0::push_field_value(self.0, consumer);
+        T1::push_field_value(self.1, consumer);
+        T2::push_field_value(self.2, consumer);
+        T3::push_field_value(self.3, consumer);
+    }
+
+    fn to_runtime_field_schema(schema: &Self::Schema) -> Vec<RuntimeSchemaMarkerField> {
+        vec![
+            RuntimeSchemaMarkerField::from(&schema.0),
+            RuntimeSchemaMarkerField::from(&schema.1),
+            RuntimeSchemaMarkerField::from(&schema.2),
+            RuntimeSchemaMarkerField::from(&schema.3),
+        ]
+    }
+}
+
 /// The field definition of a marker field, used in [`StaticSchemaMarker::FIELDS`].
 ///
 /// For each marker which uses this schema, the value for this field is supplied by the
@@ -415,7 +554,7 @@ bitflags! {
 ///
 /// Used with static marker schemas. Use [`RuntimeSchemaMarkerField`]
 /// when using [`RuntimeSchemaMarkerSchema`].
-pub struct StaticSchemaMarkerField {
+pub struct StaticSchemaMarkerField<T: MarkerFieldValueType> {
     /// The field key. Must not be `type` or `cause`.
     pub key: &'static str,
 
@@ -423,8 +562,20 @@ pub struct StaticSchemaMarkerField {
     pub label: &'static str,
 
     /// The format of this field.
-    pub format: MarkerFieldFormat,
+    pub format: <T as MarkerFieldValueType>::FormatEnum,
 }
+
+impl<T: MarkerFieldValueType> StaticSchemaMarkerField<T> {
+    pub const fn new(
+        format: <T as MarkerFieldValueType>::FormatEnum,
+        key: &'static str,
+        label: &'static str,
+    ) -> Self {
+        Self { key, label, format }
+    }
+}
+
+pub struct StaticSchema<FieldsType: MarkerFieldsTrait>(pub FieldsType::Schema);
 
 /// The field definition of a marker field, used in [`RuntimeSchemaMarkerSchema::fields`].
 ///
@@ -444,15 +595,15 @@ pub struct RuntimeSchemaMarkerField {
     pub label: String,
 
     /// The format of this field.
-    pub format: MarkerFieldFormat,
+    pub format: RuntimeSchemaMarkerFieldFormat,
 }
 
-impl From<&StaticSchemaMarkerField> for RuntimeSchemaMarkerField {
-    fn from(schema: &StaticSchemaMarkerField) -> Self {
+impl<T: MarkerFieldValueType> From<&StaticSchemaMarkerField<T>> for RuntimeSchemaMarkerField {
+    fn from(schema: &StaticSchemaMarkerField<T>) -> Self {
         Self {
             key: schema.key.into(),
             label: schema.label.into(),
-            format: schema.format.clone(),
+            format: schema.format.clone().into(),
         }
     }
 }
@@ -460,7 +611,7 @@ impl From<&StaticSchemaMarkerField> for RuntimeSchemaMarkerField {
 /// The field format of a marker field.
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
-pub enum MarkerFieldFormat {
+pub enum MarkerStringFieldFormat {
     // ----------------------------------------------------
     // String types.
     /// A URL, supports PII sanitization
@@ -481,7 +632,11 @@ pub enum MarkerFieldFormat {
     /// other types of PII here as well.
     #[serde(rename = "unique-string")]
     String,
+}
 
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum MarkerNumberFieldFormat {
     // ----------------------------------------------------
     // Numeric types
     /// For time data that represents a duration of time.
@@ -536,7 +691,11 @@ pub enum MarkerFieldFormat {
     ///
     /// "Label: 52.23, 0.0054, 123,456.78"
     Decimal,
+}
 
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum MarkerFlowFieldFormat {
     /// A flow is a u64 identifier that's unique across processes. All of
     /// the markers with same flow id before a terminating flow id will be
     /// considered part of the same "flow" and linked together.
@@ -550,36 +709,57 @@ pub enum MarkerFieldFormat {
     TerminatingFlow,
 }
 
-/// The kind of a marker field. Every marker field is either a string, a number, or a flow.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum MarkerFieldFormatKind {
-    String,
-    Number,
-    Flow,
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RuntimeSchemaMarkerFieldFormat {
+    String(MarkerStringFieldFormat),
+    Number(MarkerNumberFieldFormat),
+    Flow(MarkerFlowFieldFormat),
 }
 
-impl MarkerFieldFormat {
-    /// Whether this field is a number field, a string field, or a flow field.
-    ///
-    /// This determines whether we call `number_field_value`, `string_field_value`,
-    /// or `flow_field_value` to get the field values.
-    pub fn kind(&self) -> MarkerFieldFormatKind {
+impl RuntimeSchemaMarkerFieldFormat {
+    pub fn kind(&self) -> MarkerFieldKind {
         match self {
-            Self::Url | Self::FilePath | Self::SanitizedString | Self::String => {
-                MarkerFieldFormatKind::String
-            }
-            Self::Duration
-            | Self::Time
-            | Self::Seconds
-            | Self::Milliseconds
-            | Self::Microseconds
-            | Self::Nanoseconds
-            | Self::Bytes
-            | Self::Percentage
-            | Self::Integer
-            | Self::Decimal => MarkerFieldFormatKind::Number,
-            Self::Flow | Self::TerminatingFlow => MarkerFieldFormatKind::Flow,
+            RuntimeSchemaMarkerFieldFormat::String(_) => MarkerFieldKind::String,
+            RuntimeSchemaMarkerFieldFormat::Number(_) => MarkerFieldKind::Number,
+            RuntimeSchemaMarkerFieldFormat::Flow(_) => MarkerFieldKind::Flow,
         }
+    }
+}
+
+impl Serialize for RuntimeSchemaMarkerFieldFormat {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        match self {
+            RuntimeSchemaMarkerFieldFormat::String(marker_string_field_format) => {
+                marker_string_field_format.serialize(serializer)
+            }
+            RuntimeSchemaMarkerFieldFormat::Number(marker_number_field_format) => {
+                marker_number_field_format.serialize(serializer)
+            }
+            RuntimeSchemaMarkerFieldFormat::Flow(marker_flow_field_format) => {
+                marker_flow_field_format.serialize(serializer)
+            }
+        }
+    }
+}
+
+impl From<MarkerStringFieldFormat> for RuntimeSchemaMarkerFieldFormat {
+    fn from(format: MarkerStringFieldFormat) -> Self {
+        Self::String(format)
+    }
+}
+
+impl From<MarkerNumberFieldFormat> for RuntimeSchemaMarkerFieldFormat {
+    fn from(format: MarkerNumberFieldFormat) -> Self {
+        Self::Number(format)
+    }
+}
+
+impl From<MarkerFlowFieldFormat> for RuntimeSchemaMarkerFieldFormat {
+    fn from(format: MarkerFlowFieldFormat) -> Self {
+        Self::Flow(format)
     }
 }
 
@@ -676,9 +856,7 @@ pub struct InternalMarkerSchema {
     /// Any graph tracks created from markers of this type
     graphs: Vec<RuntimeSchemaMarkerGraph>,
 
-    string_field_count: usize,
-    number_field_count: usize,
-    flow_field_count: usize,
+    field_kind_counts: MarkerFieldKindCounts,
 
     description: Option<String>,
 }
@@ -689,23 +867,18 @@ impl From<RuntimeSchemaMarkerSchema> for InternalMarkerSchema {
     }
 }
 
+pub trait MarkerFieldValueConsumer {
+    fn consume_string_field(&mut self, string_handle: StringHandle);
+    fn consume_number_field(&mut self, number: f64);
+    fn consume_flow_field(&mut self, flow: u64);
+}
+
 impl InternalMarkerSchema {
     pub fn from_runtime_schema(schema: RuntimeSchemaMarkerSchema) -> Self {
-        let string_field_count = schema
-            .fields
-            .iter()
-            .filter(|f| f.format.kind() == MarkerFieldFormatKind::String)
-            .count();
-        let number_field_count = schema
-            .fields
-            .iter()
-            .filter(|f| f.format.kind() == MarkerFieldFormatKind::Number)
-            .count();
-        let flow_field_count = schema
-            .fields
-            .iter()
-            .filter(|f| f.format.kind() == MarkerFieldFormatKind::Flow)
-            .count();
+        let mut field_kind_counts = MarkerFieldKindCounts::new();
+        for field in &schema.fields {
+            field_kind_counts.add(field.format.kind());
+        }
         Self {
             type_name: schema.type_name,
             category: schema.category,
@@ -715,26 +888,12 @@ impl InternalMarkerSchema {
             table_label: schema.table_label,
             fields: schema.fields,
             graphs: schema.graphs,
-            string_field_count,
-            number_field_count,
-            flow_field_count,
+            field_kind_counts,
             description: schema.description,
         }
     }
 
     pub fn from_static_schema<T: StaticSchemaMarker>(profile: &mut Profile) -> Self {
-        let string_field_count = T::FIELDS
-            .iter()
-            .filter(|f| f.format.kind() == MarkerFieldFormatKind::String)
-            .count();
-        let number_field_count = T::FIELDS
-            .iter()
-            .filter(|f| f.format.kind() == MarkerFieldFormatKind::Number)
-            .count();
-        let flow_field_count = T::FIELDS
-            .iter()
-            .filter(|f| f.format.kind() == MarkerFieldFormatKind::Flow)
-            .count();
         Self {
             type_name: T::UNIQUE_MARKER_TYPE_NAME.into(),
             category: profile.handle_for_category(T::CATEGORY),
@@ -742,10 +901,8 @@ impl InternalMarkerSchema {
             chart_label: T::CHART_LABEL.map(Into::into),
             tooltip_label: T::TOOLTIP_LABEL.map(Into::into),
             table_label: T::TABLE_LABEL.map(Into::into),
-            fields: T::FIELDS.iter().map(Into::into).collect(),
-            string_field_count,
-            number_field_count,
-            flow_field_count,
+            fields: <T::FieldsType as MarkerFieldsTrait>::to_runtime_field_schema(&T::FIELDS.0),
+            field_kind_counts: T::FieldsType::FIELD_KIND_COUNTS,
             description: T::DESCRIPTION.map(Into::into),
             graphs: T::GRAPHS.iter().map(Into::into).collect(),
         }
@@ -761,13 +918,13 @@ impl InternalMarkerSchema {
         &self.fields
     }
     pub fn string_field_count(&self) -> usize {
-        self.string_field_count
+        self.field_kind_counts.string_field_count
     }
     pub fn number_field_count(&self) -> usize {
-        self.number_field_count
+        self.field_kind_counts.number_field_count
     }
     pub fn flow_field_count(&self) -> usize {
-        self.flow_field_count
+        self.field_kind_counts.flow_field_count
     }
     fn serialize_self<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
