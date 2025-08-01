@@ -5,9 +5,9 @@ use assert_json_diff::assert_json_eq;
 use debugid::DebugId;
 use fxprof_processed_profile::{
     Category, CategoryColor, CpuDelta, FrameAddress, FrameFlags, GraphColor, LibraryInfo,
-    MarkerFieldFlags, MarkerFieldFormat, MarkerGraphType, MarkerLocations, MarkerTiming, Profile,
-    ReferenceTimestamp, SamplingInterval, StaticSchemaMarker, StaticSchemaMarkerField,
-    StaticSchemaMarkerGraph, StringHandle, Symbol, SymbolTable, Timestamp, WeightType,
+    MarkerFieldFormat, MarkerGraphType, MarkerLocations, MarkerTiming, Profile, ReferenceTimestamp,
+    SamplingInterval, StaticSchemaMarker, StaticSchemaMarkerField, StaticSchemaMarkerGraph,
+    StringHandle, Symbol, SymbolTable, Timestamp, WeightType,
 };
 use serde_json::json;
 
@@ -28,7 +28,6 @@ impl StaticSchemaMarker for TextMarker {
         key: "name",
         label: "Details",
         format: MarkerFieldFormat::String,
-        flags: MarkerFieldFlags::SEARCHABLE,
     }];
 
     fn name(&self, _profile: &mut Profile) -> StringHandle {
@@ -65,25 +64,21 @@ fn profile_without_js() {
                 key: "eventName",
                 label: "Event name",
                 format: MarkerFieldFormat::String,
-                flags: MarkerFieldFlags::SEARCHABLE,
             },
             StaticSchemaMarkerField {
                 key: "allocationSize",
                 label: "Allocation size",
                 format: MarkerFieldFormat::Bytes,
-                flags: MarkerFieldFlags::SEARCHABLE,
             },
             StaticSchemaMarkerField {
                 key: "url",
                 label: "URL",
                 format: MarkerFieldFormat::Url,
-                flags: MarkerFieldFlags::SEARCHABLE,
             },
             StaticSchemaMarkerField {
                 key: "latency",
                 label: "Latency",
                 format: MarkerFieldFormat::Duration,
-                flags: MarkerFieldFlags::SEARCHABLE,
             },
         ];
 
@@ -374,7 +369,7 @@ fn profile_without_js() {
                 "name": []
               },
               "interval": 1.0,
-              "preprocessedProfileVersion": 56,
+              "preprocessedProfileVersion": 57,
               "processType": 0,
               "product": "test",
               "oscpu": "macOS 14.4",
@@ -402,8 +397,7 @@ fn profile_without_js() {
                     {
                       "key": "name",
                       "label": "Details",
-                      "format": "unique-string",
-                      "searchable": true
+                      "format": "unique-string"
                     }
                   ]
                 },
@@ -419,26 +413,22 @@ fn profile_without_js() {
                     {
                       "key": "eventName",
                       "label": "Event name",
-                      "format": "unique-string",
-                      "searchable": true
+                      "format": "unique-string"
                     },
                     {
                       "key": "allocationSize",
                       "label": "Allocation size",
-                      "format": "bytes",
-                      "searchable": true
+                      "format": "bytes"
                     },
                     {
                       "key": "url",
                       "label": "URL",
-                      "format": "url",
-                      "searchable": true
+                      "format": "url"
                     },
                     {
                       "key": "latency",
                       "label": "Latency",
-                      "format": "duration",
-                      "searchable": true
+                      "format": "duration"
                     }
                   ],
                   "graphs": [
@@ -1056,7 +1046,7 @@ fn profile_with_js() {
                 "name": []
               },
               "interval": 1.0,
-              "preprocessedProfileVersion": 56,
+              "preprocessedProfileVersion": 57,
               "processType": 0,
               "product": "test with js",
               "sampleUnits": {
@@ -1313,7 +1303,7 @@ fn profile_counters_with_sorted_processes() {
               "initialSelectedThreads": [0],
               "initialVisibleThreads": [0],
               "interval": 1.0,
-              "preprocessedProfileVersion": 56,
+              "preprocessedProfileVersion": 57,
               "processType": 0,
               "product": "test",
               "sampleUnits": {
@@ -1565,13 +1555,11 @@ fn test_flow_marker_fields() {
                 key: "flowId",
                 label: "Flow ID",
                 format: MarkerFieldFormat::Flow,
-                flags: MarkerFieldFlags::SEARCHABLE,
             },
             StaticSchemaMarkerField {
                 key: "termFlowId",
                 label: "Terminating Flow ID",
                 format: MarkerFieldFormat::TerminatingFlow,
-                flags: MarkerFieldFlags::SEARCHABLE,
             },
         ];
 
@@ -1647,7 +1635,7 @@ fn test_flow_marker_fields() {
                 "name": []
               },
               "interval": 1.0,
-              "preprocessedProfileVersion": 56,
+              "preprocessedProfileVersion": 57,
               "processType": 0,
               "product": "test",
               "sampleUnits": {
@@ -1674,14 +1662,12 @@ fn test_flow_marker_fields() {
                     {
                       "key": "flowId",
                       "label": "Flow ID",
-                      "format": "flow-id",
-                      "searchable": true
+                      "format": "flow-id"
                     },
                     {
                       "key": "termFlowId",
                       "label": "Terminating Flow ID",
-                      "format": "terminating-flow-id",
-                      "searchable": true
+                      "format": "terminating-flow-id"
                     }
                   ]
                 }

@@ -1043,7 +1043,7 @@ impl Profile {
     ///
     /// ```
     /// use fxprof_processed_profile::{
-    ///     Profile, Category, CategoryColor, Marker, MarkerFieldFlags, MarkerFieldFormat, MarkerTiming,
+    ///     Profile, Category, CategoryColor, Marker, MarkerFieldFormat, MarkerTiming,
     ///     StaticSchemaMarker, StaticSchemaMarkerField, StringHandle, ThreadHandle, Timestamp,
     /// };
     ///
@@ -1074,7 +1074,6 @@ impl Profile {
     ///         key: "text",
     ///         label: "Contents",
     ///         format: MarkerFieldFormat::String,
-    ///         flags: MarkerFieldFlags::SEARCHABLE,
     ///     }];
     ///
     ///     fn name(&self, _profile: &mut Profile) -> StringHandle {
@@ -1474,7 +1473,7 @@ impl Serialize for SerializableProfileMeta<'_> {
             }),
         )?;
         map.serialize_entry("interval", &(self.0.interval.as_secs_f64() * 1000.0))?;
-        map.serialize_entry("preprocessedProfileVersion", &56)?;
+        map.serialize_entry("preprocessedProfileVersion", &57)?;
         map.serialize_entry("processType", &0)?;
         map.serialize_entry("product", &self.0.product)?;
         if let Some(os_name) = &self.0.os_name {

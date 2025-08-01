@@ -5,9 +5,9 @@ use std::time::Duration;
 use debugid::DebugId;
 use fxprof_processed_profile::{
     Category, CategoryColor, CategoryHandle, CounterHandle, CpuDelta, FrameFlags, LibraryHandle,
-    LibraryInfo, Marker, MarkerFieldFlags, MarkerFieldFormat, MarkerHandle, MarkerLocations,
-    MarkerTiming, ProcessHandle, Profile, SamplingInterval, StaticSchemaMarker,
-    StaticSchemaMarkerField, StringHandle, ThreadHandle, Timestamp,
+    LibraryInfo, Marker, MarkerFieldFormat, MarkerHandle, MarkerLocations, MarkerTiming,
+    ProcessHandle, Profile, SamplingInterval, StaticSchemaMarker, StaticSchemaMarkerField,
+    StringHandle, ThreadHandle, Timestamp,
 };
 use shlex::Shlex;
 use wholesym::PeCodeId;
@@ -2210,7 +2210,6 @@ impl StaticSchemaMarker for FreeformMarker {
         key: "values",
         label: "Values",
         format: MarkerFieldFormat::String,
-        flags: MarkerFieldFlags::SEARCHABLE,
     }];
 
     fn name(&self, _profile: &mut Profile) -> StringHandle {
