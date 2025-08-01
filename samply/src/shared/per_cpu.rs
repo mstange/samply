@@ -1,7 +1,6 @@
 use fxprof_processed_profile::{
-    CategoryHandle, FrameFlags, FrameHandle, MarkerFieldFlags, MarkerFieldFormat, MarkerTiming,
-    ProcessHandle, Profile, StaticSchemaMarker, StaticSchemaMarkerField, StringHandle,
-    ThreadHandle, Timestamp,
+    CategoryHandle, FrameFlags, FrameHandle, MarkerFieldFormat, MarkerTiming, ProcessHandle,
+    Profile, StaticSchemaMarker, StaticSchemaMarkerField, StringHandle, ThreadHandle, Timestamp,
 };
 
 use crate::shared::context_switch::ThreadContextSwitchData;
@@ -164,7 +163,6 @@ impl StaticSchemaMarker for ThreadNameMarkerForCpuTrack {
         key: "thread",
         label: "Thread",
         format: MarkerFieldFormat::String,
-        flags: MarkerFieldFlags::SEARCHABLE,
     }];
 
     fn name(&self, _profile: &mut Profile) -> StringHandle {
@@ -204,13 +202,11 @@ impl StaticSchemaMarker for OnCpuMarkerForThreadTrack {
             key: "cpu",
             label: "CPU",
             format: MarkerFieldFormat::String,
-            flags: MarkerFieldFlags::SEARCHABLE,
         },
         StaticSchemaMarkerField {
             key: "outwhy",
             label: "Switch-out reason",
             format: MarkerFieldFormat::String,
-            flags: MarkerFieldFlags::SEARCHABLE,
         },
     ];
 

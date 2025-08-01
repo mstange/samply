@@ -117,7 +117,7 @@ pub trait Marker {
 ///
 /// ```
 /// use fxprof_processed_profile::{
-///     Profile, Marker, MarkerLocations, MarkerFieldFlags, MarkerFieldFormat, StaticSchemaMarkerField,
+///     Profile, Marker, MarkerLocations, MarkerFieldFormat, StaticSchemaMarkerField,
 ///     StaticSchemaMarker, Category, CategoryColor, StringHandle,
 /// };
 ///
@@ -141,7 +141,6 @@ pub trait Marker {
 ///         key: "text",
 ///         label: "Contents",
 ///         format: MarkerFieldFormat::String,
-///         flags: MarkerFieldFlags::SEARCHABLE,
 ///     }];
 ///
 ///     fn name(&self, _profile: &mut Profile) -> StringHandle {
@@ -291,7 +290,7 @@ impl<T: StaticSchemaMarker> Marker for T {
 ///
 /// ```
 /// use fxprof_processed_profile::{
-///     Profile, Marker, MarkerLocations, MarkerFieldFlags, MarkerFieldFormat, RuntimeSchemaMarkerSchema, RuntimeSchemaMarkerField,
+///     Profile, Marker, MarkerLocations, MarkerFieldFormat, RuntimeSchemaMarkerSchema, RuntimeSchemaMarkerField,
 ///     CategoryHandle, StringHandle, Category, CategoryColor,
 /// };
 ///
@@ -309,25 +308,21 @@ impl<T: StaticSchemaMarker> Marker for T {
 ///             key: "eventName".into(),
 ///             label: "Event name".into(),
 ///             format: MarkerFieldFormat::String,
-///             flags: MarkerFieldFlags::SEARCHABLE,
 ///         },
 ///         RuntimeSchemaMarkerField {
 ///             key: "allocationSize".into(),
 ///             label: "Allocation size".into(),
 ///             format: MarkerFieldFormat::Bytes,
-///             flags: MarkerFieldFlags::SEARCHABLE,
 ///         },
 ///         RuntimeSchemaMarkerField {
 ///             key: "url".into(),
 ///             label: "URL".into(),
 ///             format: MarkerFieldFormat::Url,
-///             flags: MarkerFieldFlags::SEARCHABLE,
 ///         },
 ///         RuntimeSchemaMarkerField {
 ///             key: "latency".into(),
 ///             label: "Latency".into(),
 ///             format: MarkerFieldFormat::Duration,
-///             flags: MarkerFieldFlags::SEARCHABLE,
 ///         },
 ///     ],
 ///     description: Some("This is a test marker with a custom schema.".into()),
@@ -429,9 +424,6 @@ pub struct StaticSchemaMarkerField {
 
     /// The format of this field.
     pub format: MarkerFieldFormat,
-
-    /// Additional field flags.
-    pub flags: MarkerFieldFlags,
 }
 
 /// The field definition of a marker field, used in [`RuntimeSchemaMarkerSchema::fields`].
@@ -453,9 +445,6 @@ pub struct RuntimeSchemaMarkerField {
 
     /// The format of this field.
     pub format: MarkerFieldFormat,
-
-    /// Whether this field's value should be matched against search terms.
-    pub flags: MarkerFieldFlags,
 }
 
 impl From<&StaticSchemaMarkerField> for RuntimeSchemaMarkerField {
@@ -464,7 +453,6 @@ impl From<&StaticSchemaMarkerField> for RuntimeSchemaMarkerField {
             key: schema.key.into(),
             label: schema.label.into(),
             format: schema.format.clone(),
-            flags: schema.flags,
         }
     }
 }
@@ -592,15 +580,6 @@ impl MarkerFieldFormat {
             | Self::Decimal => MarkerFieldFormatKind::Number,
             Self::Flow | Self::TerminatingFlow => MarkerFieldFormatKind::Flow,
         }
-    }
-}
-
-bitflags! {
-    /// Marker field flags, used in the marker schema.
-    #[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Clone, Copy)]
-    pub struct MarkerFieldFlags: u32 {
-        /// Whether this field's value should be matched against search terms.
-        const SEARCHABLE = 0b00000001;
     }
 }
 
@@ -861,9 +840,6 @@ impl Serialize for SerializableSchemaField<'_> {
             map.serialize_entry("label", &self.0.label)?;
         }
         map.serialize_entry("format", &self.0.format)?;
-        if self.0.flags.contains(MarkerFieldFlags::SEARCHABLE) {
-            map.serialize_entry("searchable", &true)?;
-        }
         map.end()
     }
 }
