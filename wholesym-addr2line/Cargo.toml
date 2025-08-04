@@ -16,6 +16,6 @@ dist = false
 
 [dependencies]
 wholesym = { version = "0.8.1", path = "../wholesym" }
-tokio = { version = "1.38", features = ["rt", "rt-multi-thread", "macros"] }
+tokio = { version = "1.47", features = ["rt", "rt-multi-thread", "macros"] }
 clap = "4"
 
