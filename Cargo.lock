@@ -1522,9 +1522,9 @@ dependencies = [
 
 [[package]]
 name = "object"
-version = "0.37.1"
+version = "0.37.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "03fd943161069e1768b4b3d050890ba48730e590f57e56d4aa04e7e090e61b4a"
+checksum = "b3e3d0a7419f081f4a808147e845310313a39f322d7ae1f996b7f001d6cbed04"
 dependencies = [
  "crc32fast",
  "flate2",
@@ -2211,7 +2211,7 @@ dependencies = [
  "num-derive",
  "num-traits",
  "num_cpus",
- "object 0.37.1",
+ "object 0.37.2",
  "opener",
  "os-release",
  "parking_lot",
@@ -2295,7 +2295,7 @@ dependencies = [
  "memmap2",
  "msvc-demangler",
  "nom",
- "object 0.37.1",
+ "object 0.37.2",
  "pdb-addr2line",
  "rangemap",
  "rustc-demangle",
