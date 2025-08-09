@@ -1,6 +1,6 @@
 use fxprof_processed_profile::{
-    Category, CategoryColor, MarkerStringFieldFormat, Profile, StaticSchema, StaticSchemaMarker,
-    StaticSchemaMarkerField, StringHandle,
+    Category, CategoryColor, Profile, StaticSchema, StaticSchemaMarker, StaticSchemaMarkerField,
+    StringHandle,
 };
 
 #[derive(Debug, Clone)]
@@ -19,11 +19,8 @@ impl StaticSchemaMarker for JitFunctionAddMarker {
     const TOOLTIP_LABEL: Option<&'static str> = Some("{marker.data.n}");
     const TABLE_LABEL: Option<&'static str> = Some("{marker.data.n}");
 
-    const FIELDS: StaticSchema<Self::FieldsType> = StaticSchema(StaticSchemaMarkerField::new(
-        "n",
-        "Function",
-        MarkerStringFieldFormat::String,
-    ));
+    const FIELDS: StaticSchema<Self::FieldsType> =
+        StaticSchema(StaticSchemaMarkerField::string("n", "Function"));
 
     fn name(&self, profile: &mut Profile) -> StringHandle {
         profile.handle_for_string("JitFunctionAdd")

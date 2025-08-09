@@ -110,10 +110,9 @@ pub trait MarkerFieldsTrait {
 ///     const CHART_LABEL: Option<&'static str> = Some("{marker.data.text}");
 ///     const TABLE_LABEL: Option<&'static str> = Some("{marker.name} - {marker.data.text}");
 ///
-///     const FIELDS: StaticSchema<Self::FieldsType> = StaticSchema(StaticSchemaMarkerField::new(
+///     const FIELDS: StaticSchema<Self::FieldsType> = StaticSchema(StaticSchemaMarkerField::string(
 ///         "text",
 ///         "Contents",
-///         MarkerStringFieldFormat::String,
 ///     ));
 ///
 ///     fn name(&self, _profile: &mut Profile) -> StringHandle {
@@ -572,6 +571,70 @@ impl<T: MarkerFieldValueType> StaticSchemaMarkerField<T> {
         format: <T as MarkerFieldValueType>::FormatEnum,
     ) -> Self {
         Self { key, label, format }
+    }
+}
+
+/// Convenience constructors for string fields.
+impl StaticSchemaMarkerField<StringHandle> {
+    /// Creates a string field with the default string format.
+    pub const fn string(key: &'static str, label: &'static str) -> Self {
+        Self::new(key, label, MarkerStringFieldFormat::String)
+    }
+
+    /// Creates a URL field that will be rendered as a clickable link.
+    pub const fn url(key: &'static str, label: &'static str) -> Self {
+        Self::new(key, label, MarkerStringFieldFormat::Url)
+    }
+
+    /// Creates a file path field.
+    pub const fn file_path(key: &'static str, label: &'static str) -> Self {
+        Self::new(key, label, MarkerStringFieldFormat::FilePath)
+    }
+
+    /// Creates a sanitized string field (supports PII sanitization).
+    pub const fn sanitized_string(key: &'static str, label: &'static str) -> Self {
+        Self::new(key, label, MarkerStringFieldFormat::SanitizedString)
+    }
+}
+
+/// Convenience constructors for number fields.
+impl StaticSchemaMarkerField<f64> {
+    /// Creates a field for byte values with appropriate formatting.
+    pub const fn bytes(key: &'static str, label: &'static str) -> Self {
+        Self::new(key, label, MarkerNumberFieldFormat::Bytes)
+    }
+
+    /// Creates a field for duration values with appropriate formatting.
+    pub const fn duration(key: &'static str, label: &'static str) -> Self {
+        Self::new(key, label, MarkerNumberFieldFormat::Duration)
+    }
+
+    /// Creates a field for integer values.
+    pub const fn integer(key: &'static str, label: &'static str) -> Self {
+        Self::new(key, label, MarkerNumberFieldFormat::Integer)
+    }
+
+    /// Creates a field for decimal values.
+    pub const fn decimal(key: &'static str, label: &'static str) -> Self {
+        Self::new(key, label, MarkerNumberFieldFormat::Decimal)
+    }
+
+    /// Creates a field for percentage values (0.0-1.0 displayed as 0%-100%).
+    pub const fn percentage(key: &'static str, label: &'static str) -> Self {
+        Self::new(key, label, MarkerNumberFieldFormat::Percentage)
+    }
+}
+
+/// Convenience constructors for flow fields.
+impl StaticSchemaMarkerField<FlowId> {
+    /// Creates a flow field for flow connections.
+    pub const fn flow(key: &'static str, label: &'static str) -> Self {
+        Self::new(key, label, MarkerFlowFieldFormat::Flow)
+    }
+
+    /// Creates a terminating flow field for ending flow connections.
+    pub const fn terminating_flow(key: &'static str, label: &'static str) -> Self {
+        Self::new(key, label, MarkerFlowFieldFormat::TerminatingFlow)
     }
 }
 

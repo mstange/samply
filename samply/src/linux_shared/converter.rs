@@ -8,9 +8,9 @@ use debugid::DebugId;
 use framehop::{ExplicitModuleSectionInfo, FrameAddress, Module, Unwinder};
 use fxprof_processed_profile::{
     Category, CategoryColor, CategoryHandle, CpuDelta, FrameFlags, LibraryHandle, LibraryInfo,
-    MarkerStringFieldFormat, MarkerTiming, PlatformSpecificReferenceTimestamp, Profile,
-    ReferenceTimestamp, SamplingInterval, StaticSchema, StaticSchemaMarker,
-    StaticSchemaMarkerField, StringHandle, SubcategoryHandle, SymbolTable, ThreadHandle,
+    MarkerTiming, PlatformSpecificReferenceTimestamp, Profile, ReferenceTimestamp,
+    SamplingInterval, StaticSchema, StaticSchemaMarker, StaticSchemaMarkerField, StringHandle,
+    SubcategoryHandle, SymbolTable, ThreadHandle,
 };
 use linux_perf_data::linux_perf_event_reader::TaskWasPreempted;
 use linux_perf_data::simpleperf_dso_type::{DSO_DEX_FILE, DSO_KERNEL, DSO_KERNEL_MODULE};
@@ -1968,11 +1968,8 @@ impl StaticSchemaMarker for MmapMarker {
 
     const UNIQUE_MARKER_TYPE_NAME: &'static str = "mmap";
 
-    const FIELDS: StaticSchema<Self::FieldsType> = StaticSchema(StaticSchemaMarkerField::new(
-        "name",
-        "Details",
-        MarkerStringFieldFormat::String,
-    ));
+    const FIELDS: StaticSchema<Self::FieldsType> =
+        StaticSchema(StaticSchemaMarkerField::string("name", "Details"));
 
     fn name(&self, profile: &mut Profile) -> StringHandle {
         profile.handle_for_string("mmap")
