@@ -1,7 +1,6 @@
 use fxprof_processed_profile::{
-    CategoryHandle, FrameFlags, FrameHandle, MarkerTiming, ProcessHandle,
-    Profile, StaticSchema, StaticSchemaMarker, StaticSchemaMarkerField, StringHandle, ThreadHandle,
-    Timestamp,
+    CategoryHandle, FrameFlags, FrameHandle, Marker, MarkerField, MarkerTiming, ProcessHandle,
+    Profile, Schema, StringHandle, ThreadHandle, Timestamp,
 };
 
 use crate::shared::context_switch::ThreadContextSwitchData;
@@ -154,7 +153,7 @@ impl Cpus {
 #[derive(Debug, Clone)]
 pub struct ThreadNameMarkerForCpuTrack(pub StringHandle, pub StringHandle);
 
-impl StaticSchemaMarker for ThreadNameMarkerForCpuTrack {
+impl Marker for ThreadNameMarkerForCpuTrack {
     type FieldsType = StringHandle;
 
     const UNIQUE_MARKER_TYPE_NAME: &'static str = "ContextSwitch";
@@ -163,10 +162,7 @@ impl StaticSchemaMarker for ThreadNameMarkerForCpuTrack {
     const TOOLTIP_LABEL: Option<&'static str> = Some("{marker.data.thread}");
     const TABLE_LABEL: Option<&'static str> = Some("{marker.name} - {marker.data.thread}");
 
-    const FIELDS: StaticSchema<Self::FieldsType> = StaticSchema(StaticSchemaMarkerField::string(
-        "thread",
-        "Thread",
-    ));
+    const FIELDS: Schema<Self::FieldsType> = Schema(MarkerField::string("thread", "Thread"));
 
     fn name(&self, _profile: &mut Profile) -> StringHandle {
         self.0
@@ -184,7 +180,7 @@ pub struct OnCpuMarkerForThreadTrack {
     switch_out_reason: StringHandle,
 }
 
-impl StaticSchemaMarker for OnCpuMarkerForThreadTrack {
+impl Marker for OnCpuMarkerForThreadTrack {
     type FieldsType = (StringHandle, StringHandle);
 
     const UNIQUE_MARKER_TYPE_NAME: &'static str = "OnCpu";
@@ -194,9 +190,9 @@ impl StaticSchemaMarker for OnCpuMarkerForThreadTrack {
     const TABLE_LABEL: Option<&'static str> =
         Some("{marker.name} - {marker.data.cpu}, switch-out reason: {marker.data.outwhy}");
 
-    const FIELDS: StaticSchema<Self::FieldsType> = StaticSchema((
-        StaticSchemaMarkerField::string("cpu", "CPU"),
-        StaticSchemaMarkerField::string("outwhy", "Switch-out reason"),
+    const FIELDS: Schema<Self::FieldsType> = Schema((
+        MarkerField::string("cpu", "CPU"),
+        MarkerField::string("outwhy", "Switch-out reason"),
     ));
 
     fn name(&self, profile: &mut Profile) -> StringHandle {
