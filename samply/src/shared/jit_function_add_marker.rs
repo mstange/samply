@@ -19,11 +19,11 @@ impl StaticSchemaMarker for JitFunctionAddMarker {
     const TOOLTIP_LABEL: Option<&'static str> = Some("{marker.data.n}");
     const TABLE_LABEL: Option<&'static str> = Some("{marker.data.n}");
 
-    const FIELDS: StaticSchema<Self::FieldsType> = StaticSchema(StaticSchemaMarkerField {
-        key: "n",
-        label: "Function",
-        format: MarkerStringFieldFormat::String,
-    });
+    const FIELDS: StaticSchema<Self::FieldsType> = StaticSchema(StaticSchemaMarkerField::new(
+        "n",
+        "Function",
+        MarkerStringFieldFormat::String,
+    ));
 
     fn name(&self, profile: &mut Profile) -> StringHandle {
         profile.handle_for_string("JitFunctionAdd")

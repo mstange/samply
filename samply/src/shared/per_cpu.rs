@@ -163,11 +163,11 @@ impl StaticSchemaMarker for ThreadNameMarkerForCpuTrack {
     const TOOLTIP_LABEL: Option<&'static str> = Some("{marker.data.thread}");
     const TABLE_LABEL: Option<&'static str> = Some("{marker.name} - {marker.data.thread}");
 
-    const FIELDS: StaticSchema<Self::FieldsType> = StaticSchema(StaticSchemaMarkerField {
-        key: "thread",
-        label: "Thread",
-        format: MarkerStringFieldFormat::String,
-    });
+    const FIELDS: StaticSchema<Self::FieldsType> = StaticSchema(StaticSchemaMarkerField::new(
+        "thread",
+        "Thread",
+        MarkerStringFieldFormat::String,
+    ));
 
     fn name(&self, _profile: &mut Profile) -> StringHandle {
         self.0
@@ -196,16 +196,12 @@ impl StaticSchemaMarker for OnCpuMarkerForThreadTrack {
         Some("{marker.name} - {marker.data.cpu}, switch-out reason: {marker.data.outwhy}");
 
     const FIELDS: StaticSchema<Self::FieldsType> = StaticSchema((
-        StaticSchemaMarkerField {
-            key: "cpu",
-            label: "CPU",
-            format: MarkerStringFieldFormat::String,
-        },
-        StaticSchemaMarkerField {
-            key: "outwhy",
-            label: "Switch-out reason",
-            format: MarkerStringFieldFormat::String,
-        },
+        StaticSchemaMarkerField::new("cpu", "CPU", MarkerStringFieldFormat::String),
+        StaticSchemaMarkerField::new(
+            "outwhy",
+            "Switch-out reason",
+            MarkerStringFieldFormat::String,
+        ),
     ));
 
     fn name(&self, profile: &mut Profile) -> StringHandle {

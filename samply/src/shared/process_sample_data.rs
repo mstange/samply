@@ -158,16 +158,8 @@ impl StaticSchemaMarker for RssStatMarker {
         Some("Emitted when the kmem:rss_stat tracepoint is hit.");
 
     const FIELDS: StaticSchema<Self::FieldsType> = StaticSchema((
-        StaticSchemaMarkerField {
-            key: "totalBytes",
-            label: "Total bytes",
-            format: MarkerNumberFieldFormat::Bytes,
-        },
-        StaticSchemaMarkerField {
-            key: "deltaBytes",
-            label: "Delta",
-            format: MarkerNumberFieldFormat::Bytes,
-        },
+        StaticSchemaMarkerField::new("totalBytes", "Total bytes", MarkerNumberFieldFormat::Bytes),
+        StaticSchemaMarkerField::new("deltaBytes", "Delta", MarkerNumberFieldFormat::Bytes),
     ));
 
     fn name(&self, _profile: &mut Profile) -> StringHandle {
@@ -214,11 +206,11 @@ impl StaticSchemaMarker for UserTimingMarker {
     const TOOLTIP_LABEL: Option<&'static str> = Some("{marker.data.name}");
     const TABLE_LABEL: Option<&'static str> = Some("{marker.data.name}");
 
-    const FIELDS: StaticSchema<Self::FieldsType> = StaticSchema(StaticSchemaMarkerField {
-        key: "name",
-        label: "Name",
-        format: MarkerStringFieldFormat::String,
-    });
+    const FIELDS: StaticSchema<Self::FieldsType> = StaticSchema(StaticSchemaMarkerField::new(
+        "name",
+        "Name",
+        MarkerStringFieldFormat::String,
+    ));
 
     fn name(&self, profile: &mut Profile) -> StringHandle {
         profile.handle_for_string("UserTiming")
@@ -261,11 +253,11 @@ impl StaticSchemaMarker for SchedSwitchMarkerOnThreadTrack {
     const DESCRIPTION: Option<&'static str> =
         Some("Emitted just before a running thread gets moved off-cpu.");
 
-    const FIELDS: StaticSchema<Self::FieldsType> = StaticSchema(StaticSchemaMarkerField {
-        key: "cpu",
-        label: "cpu",
-        format: MarkerNumberFieldFormat::Integer,
-    });
+    const FIELDS: StaticSchema<Self::FieldsType> = StaticSchema(StaticSchemaMarkerField::new(
+        "cpu",
+        "cpu",
+        MarkerNumberFieldFormat::Integer,
+    ));
 
     fn name(&self, profile: &mut Profile) -> StringHandle {
         profile.handle_for_string("sched_switch")
@@ -291,11 +283,11 @@ impl StaticSchemaMarker for SimpleMarker {
     const TOOLTIP_LABEL: Option<&'static str> = Some("{marker.data.name}");
     const TABLE_LABEL: Option<&'static str> = Some("{marker.data.name}");
 
-    const FIELDS: StaticSchema<Self::FieldsType> = StaticSchema(StaticSchemaMarkerField {
-        key: "name",
-        label: "Name",
-        format: MarkerStringFieldFormat::String,
-    });
+    const FIELDS: StaticSchema<Self::FieldsType> = StaticSchema(StaticSchemaMarkerField::new(
+        "name",
+        "Name",
+        MarkerStringFieldFormat::String,
+    ));
 
     fn name(&self, profile: &mut Profile) -> StringHandle {
         profile.handle_for_string("SimpleMarker")
