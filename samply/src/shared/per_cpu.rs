@@ -1,5 +1,5 @@
 use fxprof_processed_profile::{
-    CategoryHandle, FrameFlags, FrameHandle, MarkerStringFieldFormat, MarkerTiming, ProcessHandle,
+    CategoryHandle, FrameFlags, FrameHandle, MarkerTiming, ProcessHandle,
     Profile, StaticSchema, StaticSchemaMarker, StaticSchemaMarkerField, StringHandle, ThreadHandle,
     Timestamp,
 };
@@ -163,10 +163,9 @@ impl StaticSchemaMarker for ThreadNameMarkerForCpuTrack {
     const TOOLTIP_LABEL: Option<&'static str> = Some("{marker.data.thread}");
     const TABLE_LABEL: Option<&'static str> = Some("{marker.name} - {marker.data.thread}");
 
-    const FIELDS: StaticSchema<Self::FieldsType> = StaticSchema(StaticSchemaMarkerField::new(
+    const FIELDS: StaticSchema<Self::FieldsType> = StaticSchema(StaticSchemaMarkerField::string(
         "thread",
         "Thread",
-        MarkerStringFieldFormat::String,
     ));
 
     fn name(&self, _profile: &mut Profile) -> StringHandle {
@@ -196,12 +195,8 @@ impl StaticSchemaMarker for OnCpuMarkerForThreadTrack {
         Some("{marker.name} - {marker.data.cpu}, switch-out reason: {marker.data.outwhy}");
 
     const FIELDS: StaticSchema<Self::FieldsType> = StaticSchema((
-        StaticSchemaMarkerField::new("cpu", "CPU", MarkerStringFieldFormat::String),
-        StaticSchemaMarkerField::new(
-            "outwhy",
-            "Switch-out reason",
-            MarkerStringFieldFormat::String,
-        ),
+        StaticSchemaMarkerField::string("cpu", "CPU"),
+        StaticSchemaMarkerField::string("outwhy", "Switch-out reason"),
     ));
 
     fn name(&self, profile: &mut Profile) -> StringHandle {

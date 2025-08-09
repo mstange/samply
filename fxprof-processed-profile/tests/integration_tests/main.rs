@@ -4,9 +4,7 @@ use std::time::Duration;
 use assert_json_diff::assert_json_eq;
 use debugid::DebugId;
 use fxprof_processed_profile::{
-    Category, CategoryColor, CpuDelta, FlowId, FrameAddress, FrameFlags, GraphColor, LibraryInfo,
-    MarkerFlowFieldFormat, MarkerGraphType, MarkerLocations, MarkerNumberFieldFormat,
-    MarkerStringFieldFormat, MarkerTiming, Profile, ReferenceTimestamp, SamplingInterval,
+    Category, CategoryColor, CpuDelta, FlowId, FrameAddress, FrameFlags, GraphColor, LibraryInfo, MarkerGraphType, MarkerLocations, MarkerTiming, Profile, ReferenceTimestamp, SamplingInterval,
     StaticSchema, StaticSchemaMarker, StaticSchemaMarkerField, StaticSchemaMarkerGraph,
     StringHandle, Symbol, SymbolTable, Timestamp, WeightType,
 };
@@ -27,10 +25,9 @@ impl StaticSchemaMarker for TextMarker {
     const UNIQUE_MARKER_TYPE_NAME: &'static str = "Text";
     const CHART_LABEL: Option<&'static str> = Some("{marker.data.name}");
     const TABLE_LABEL: Option<&'static str> = Some("{marker.name} - {marker.data.name}");
-    const FIELDS: StaticSchema<Self::FieldsType> = StaticSchema(StaticSchemaMarkerField::new(
+    const FIELDS: StaticSchema<Self::FieldsType> = StaticSchema(StaticSchemaMarkerField::string(
         "name",
         "Details",
-        MarkerStringFieldFormat::String,
     ));
 
     fn name(&self, _profile: &mut Profile) -> StringHandle {
@@ -57,18 +54,10 @@ fn profile_without_js() {
         const TOOLTIP_LABEL: Option<&'static str> = Some("Custom tooltip label");
 
         const FIELDS: StaticSchema<Self::FieldsType> = StaticSchema((
-            StaticSchemaMarkerField::new(
-                "eventName",
-                "Event name",
-                MarkerStringFieldFormat::String,
-            ),
-            StaticSchemaMarkerField::new(
-                "allocationSize",
-                "Allocation size",
-                MarkerNumberFieldFormat::Bytes,
-            ),
-            StaticSchemaMarkerField::new("url", "URL", MarkerStringFieldFormat::Url),
-            StaticSchemaMarkerField::new("latency", "Latency", MarkerNumberFieldFormat::Duration),
+            StaticSchemaMarkerField::string("eventName", "Event name"),
+            StaticSchemaMarkerField::bytes("allocationSize", "Allocation size"),
+            StaticSchemaMarkerField::url("url", "URL"),
+            StaticSchemaMarkerField::duration("latency", "Latency"),
         ));
 
         const DESCRIPTION: Option<&'static str> =
@@ -1530,12 +1519,8 @@ fn test_flow_marker_fields() {
             Some("{marker.name} - flow:{marker.data.flowId} term:{marker.data.termFlowId}");
 
         const FIELDS: StaticSchema<Self::FieldsType> = StaticSchema((
-            StaticSchemaMarkerField::new("flowId", "Flow ID", MarkerFlowFieldFormat::Flow),
-            StaticSchemaMarkerField::new(
-                "termFlowId",
-                "Terminating Flow ID",
-                MarkerFlowFieldFormat::TerminatingFlow,
-            ),
+            StaticSchemaMarkerField::flow("flowId", "Flow ID"),
+            StaticSchemaMarkerField::terminating_flow("termFlowId", "Terminating Flow ID"),
         ));
 
         fn name(&self, _profile: &mut Profile) -> StringHandle {

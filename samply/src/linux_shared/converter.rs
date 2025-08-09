@@ -7,8 +7,7 @@ use byteorder::LittleEndian;
 use debugid::DebugId;
 use framehop::{ExplicitModuleSectionInfo, FrameAddress, Module, Unwinder};
 use fxprof_processed_profile::{
-    Category, CategoryColor, CategoryHandle, CpuDelta, FrameFlags, LibraryHandle, LibraryInfo,
-    MarkerStringFieldFormat, MarkerTiming, PlatformSpecificReferenceTimestamp, Profile,
+    Category, CategoryColor, CategoryHandle, CpuDelta, FrameFlags, LibraryHandle, LibraryInfo, MarkerTiming, PlatformSpecificReferenceTimestamp, Profile,
     ReferenceTimestamp, SamplingInterval, StaticSchema, StaticSchemaMarker,
     StaticSchemaMarkerField, StringHandle, SubcategoryHandle, SymbolTable, ThreadHandle,
 };
@@ -1968,10 +1967,9 @@ impl StaticSchemaMarker for MmapMarker {
 
     const UNIQUE_MARKER_TYPE_NAME: &'static str = "mmap";
 
-    const FIELDS: StaticSchema<Self::FieldsType> = StaticSchema(StaticSchemaMarkerField::new(
+    const FIELDS: StaticSchema<Self::FieldsType> = StaticSchema(StaticSchemaMarkerField::string(
         "name",
         "Details",
-        MarkerStringFieldFormat::String,
     ));
 
     fn name(&self, profile: &mut Profile) -> StringHandle {
