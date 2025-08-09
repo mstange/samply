@@ -81,11 +81,11 @@ pub use global_lib_table::LibraryHandle;
 pub use lib_mappings::LibMappings;
 pub use library_info::{LibraryInfo, Symbol, SymbolTable};
 pub use markers::{
-    FlowId, GraphColor, Marker, MarkerFlowFieldFormat, MarkerGraphType, MarkerHandle,
+    DynamicSchemaMarker, DynamicSchemaMarkerField, DynamicSchemaMarkerFieldFormat,
+    DynamicSchemaMarkerGraph, DynamicSchemaMarkerSchema, FlowId, GraphColor, Marker, MarkerField,
+    MarkerFieldKind, MarkerFlowFieldFormat, MarkerGraph, MarkerGraphType, MarkerHandle,
     MarkerLocations, MarkerNumberFieldFormat, MarkerStringFieldFormat, MarkerTiming,
-    MarkerTypeHandle, RuntimeSchemaMarkerField, RuntimeSchemaMarkerFieldFormat,
-    RuntimeSchemaMarkerGraph, RuntimeSchemaMarkerSchema, StaticSchema, StaticSchemaMarker,
-    StaticSchemaMarkerField, StaticSchemaMarkerGraph,
+    MarkerTypeHandle, Schema,
 };
 pub use native_symbols::NativeSymbolHandle;
 pub use process::ThreadHandle;

@@ -16,7 +16,7 @@ use crate::sample_table::{NativeAllocationsTable, SampleTable, WeightType};
 use crate::stack_table::StackTable;
 use crate::string_table::{ProfileStringTable, StringHandle};
 use crate::symbolication::{apply_symbol_information, StringTableAdapter};
-use crate::{Marker, MarkerHandle, MarkerTiming, MarkerTypeHandle, Symbol, Timestamp};
+use crate::{DynamicSchemaMarker, MarkerHandle, MarkerTiming, MarkerTypeHandle, Symbol, Timestamp};
 
 /// A process. Can be created with [`Profile::add_process`](crate::Profile::add_process).
 #[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash)]
@@ -163,7 +163,7 @@ impl Thread {
     }
 
     #[allow(clippy::too_many_arguments)]
-    pub fn add_marker<T: Marker>(
+    pub fn add_marker<T: DynamicSchemaMarker>(
         &mut self,
         string_table: &mut ProfileStringTable,
         name_string_index: StringHandle,

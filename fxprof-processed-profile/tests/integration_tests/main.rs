@@ -5,9 +5,9 @@ use assert_json_diff::assert_json_eq;
 use debugid::DebugId;
 use fxprof_processed_profile::{
     Category, CategoryColor, CpuDelta, FlowId, FrameAddress, FrameFlags, GraphColor, LibraryInfo,
-    MarkerGraphType, MarkerLocations, MarkerTiming, Profile, ReferenceTimestamp, SamplingInterval,
-    StaticSchema, StaticSchemaMarker, StaticSchemaMarkerField, StaticSchemaMarkerGraph,
-    StringHandle, Symbol, SymbolTable, Timestamp, WeightType,
+    Marker, MarkerField, MarkerGraph, MarkerGraphType, MarkerLocations, MarkerTiming, Profile,
+    ReferenceTimestamp, SamplingInterval, Schema, StringHandle, Symbol, SymbolTable, Timestamp,
+    WeightType,
 };
 use serde_json::json;
 
@@ -20,14 +20,13 @@ pub struct TextMarker {
     pub text: StringHandle,
 }
 
-impl StaticSchemaMarker for TextMarker {
+impl Marker for TextMarker {
     type FieldsType = StringHandle;
 
     const UNIQUE_MARKER_TYPE_NAME: &'static str = "Text";
     const CHART_LABEL: Option<&'static str> = Some("{marker.data.name}");
     const TABLE_LABEL: Option<&'static str> = Some("{marker.name} - {marker.data.name}");
-    const FIELDS: StaticSchema<Self::FieldsType> =
-        StaticSchema(StaticSchemaMarkerField::string("name", "Details"));
+    const FIELDS: Schema<Self::FieldsType> = Schema(MarkerField::string("name", "Details"));
 
     fn name(&self, _profile: &mut Profile) -> StringHandle {
         self.name
@@ -46,23 +45,23 @@ fn profile_without_js() {
         url: StringHandle,
         latency: Duration,
     }
-    impl StaticSchemaMarker for CustomMarker {
+    impl Marker for CustomMarker {
         type FieldsType = (StringHandle, f64, StringHandle, f64);
 
         const UNIQUE_MARKER_TYPE_NAME: &'static str = "custom";
         const TOOLTIP_LABEL: Option<&'static str> = Some("Custom tooltip label");
 
-        const FIELDS: StaticSchema<Self::FieldsType> = StaticSchema((
-            StaticSchemaMarkerField::string("eventName", "Event name"),
-            StaticSchemaMarkerField::bytes("allocationSize", "Allocation size"),
-            StaticSchemaMarkerField::url("url", "URL"),
-            StaticSchemaMarkerField::duration("latency", "Latency"),
+        const FIELDS: Schema<Self::FieldsType> = Schema((
+            MarkerField::string("eventName", "Event name"),
+            MarkerField::bytes("allocationSize", "Allocation size"),
+            MarkerField::url("url", "URL"),
+            MarkerField::duration("latency", "Latency"),
         ));
 
         const DESCRIPTION: Option<&'static str> =
             Some("This is a test marker with a custom schema.");
 
-        const GRAPHS: &'static [StaticSchemaMarkerGraph] = &[StaticSchemaMarkerGraph {
+        const GRAPHS: &'static [MarkerGraph] = &[MarkerGraph {
             key: "latency",
             graph_type: MarkerGraphType::Line,
             color: Some(GraphColor::Green),
@@ -1508,7 +1507,7 @@ fn test_flow_marker_fields() {
         pub terminating_flow_id: u64,
     }
 
-    impl StaticSchemaMarker for FlowMarker {
+    impl Marker for FlowMarker {
         type FieldsType = (FlowId, FlowId);
         const UNIQUE_MARKER_TYPE_NAME: &'static str = "FlowTest";
         const LOCATIONS: MarkerLocations =
@@ -1517,9 +1516,9 @@ fn test_flow_marker_fields() {
         const TABLE_LABEL: Option<&'static str> =
             Some("{marker.name} - flow:{marker.data.flowId} term:{marker.data.termFlowId}");
 
-        const FIELDS: StaticSchema<Self::FieldsType> = StaticSchema((
-            StaticSchemaMarkerField::flow("flowId", "Flow ID"),
-            StaticSchemaMarkerField::terminating_flow("termFlowId", "Terminating Flow ID"),
+        const FIELDS: Schema<Self::FieldsType> = Schema((
+            MarkerField::flow("flowId", "Flow ID"),
+            MarkerField::terminating_flow("termFlowId", "Terminating Flow ID"),
         ));
 
         fn name(&self, _profile: &mut Profile) -> StringHandle {

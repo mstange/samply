@@ -22,8 +22,8 @@ use crate::global_lib_table::{GlobalLibIndex, GlobalLibTable, LibraryHandle};
 use crate::lib_mappings::LibMappings;
 use crate::library_info::{LibraryInfo, SymbolTable};
 use crate::markers::{
-    GraphColor, InternalMarkerSchema, Marker, MarkerHandle, MarkerTiming, MarkerTypeHandle,
-    RuntimeSchemaMarkerSchema, StaticSchemaMarker,
+    DynamicSchemaMarker, DynamicSchemaMarkerSchema, GraphColor, InternalMarkerSchema, Marker,
+    MarkerHandle, MarkerTiming, MarkerTypeHandle,
 };
 use crate::native_symbols::NativeSymbolHandle;
 use crate::process::{Process, ThreadHandle};
@@ -1002,26 +1002,26 @@ impl Profile {
         );
     }
 
-    /// Registers a marker type for a [`RuntimeSchemaMarkerSchema`]. You only need to call this for
+    /// Registers a marker type for a [`DynamicSchemaMarkerSchema`]. You only need to call this for
     /// marker types whose schema is dynamically created at runtime.
     ///
     /// After you register the marker type, you'll save its [`MarkerTypeHandle`] somewhere, and then
     /// store it in every marker you create of this type. The marker then needs to return the
-    /// handle from its implementation of [`Marker::marker_type`].
+    /// handle from its implementation of [`DynamicSchemaMarker::marker_type`].
     ///
     /// For marker types whose schema is known at compile time, you'll want to implement
-    /// [`StaticSchemaMarker`] instead, and you don't need to call this method.
-    pub fn register_marker_type(&mut self, schema: RuntimeSchemaMarkerSchema) -> MarkerTypeHandle {
+    /// [`Marker`] instead, and you don't need to call this method.
+    pub fn register_marker_type(&mut self, schema: DynamicSchemaMarkerSchema) -> MarkerTypeHandle {
         let handle = MarkerTypeHandle(self.marker_schemas.len());
         self.marker_schemas.push(schema.into());
         handle
     }
 
-    /// Returns the marker type handle for a type that implements [`StaticSchemaMarker`].
+    /// Returns the marker type handle for a type that implements [`Marker`].
     ///
     /// You usually don't need to call this, ever. It is called by the blanket impl
-    /// of [`Marker::marker_type`] for all types which implement [`StaticSchemaMarker`].
-    pub fn static_schema_marker_type<T: StaticSchemaMarker>(&mut self) -> MarkerTypeHandle {
+    /// of [`DynamicSchemaMarker::marker_type`] for all types which implement [`Marker`].
+    pub fn static_schema_marker_type<T: Marker>(&mut self) -> MarkerTypeHandle {
         if let Some(handle) = self
             .static_schema_marker_types
             .get(T::UNIQUE_MARKER_TYPE_NAME)
@@ -1044,7 +1044,7 @@ impl Profile {
     /// ```
     /// use fxprof_processed_profile::{
     ///     Profile, Category, CategoryColor, Marker, MarkerStringFieldFormat, MarkerTiming,
-    ///     StaticSchema, StaticSchemaMarker, StaticSchemaMarkerField, StringHandle,
+    ///     Schema, Marker, MarkerField, StringHandle,
     ///     ThreadHandle, Timestamp,
     /// };
     ///
@@ -1065,7 +1065,7 @@ impl Profile {
     ///   pub text: StringHandle,
     /// }
     ///
-    /// impl StaticSchemaMarker for TextMarker {
+    /// impl Marker for TextMarker {
     ///     type FieldsType = StringHandle;
     ///
     ///     const UNIQUE_MARKER_TYPE_NAME: &'static str = "Text";
@@ -1073,7 +1073,7 @@ impl Profile {
     ///     const CHART_LABEL: Option<&'static str> = Some("{marker.data.text}");
     ///     const TABLE_LABEL: Option<&'static str> = Some("{marker.name} - {marker.data.text}");
     ///
-    ///     const FIELDS: StaticSchema<Self::FieldsType> = StaticSchema(StaticSchemaMarkerField::string(
+    ///     const FIELDS: Schema<Self::FieldsType> = Schema(MarkerField::string(
     ///         "text",
     ///         "Contents",
     ///     ));
@@ -1087,7 +1087,7 @@ impl Profile {
     ///     }
     /// }
     /// ```
-    pub fn add_marker<T: Marker>(
+    pub fn add_marker<T: DynamicSchemaMarker>(
         &mut self,
         thread: ThreadHandle,
         timing: MarkerTiming,

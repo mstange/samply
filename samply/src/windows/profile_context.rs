@@ -5,9 +5,8 @@ use std::time::Duration;
 use debugid::DebugId;
 use fxprof_processed_profile::{
     Category, CategoryColor, CategoryHandle, CounterHandle, CpuDelta, FrameFlags, LibraryHandle,
-    LibraryInfo, Marker, MarkerFieldFormat, MarkerHandle, MarkerLocations, MarkerTiming,
-    ProcessHandle, Profile, SamplingInterval, StaticSchemaMarker, StaticSchemaMarkerField,
-    StringHandle, ThreadHandle, Timestamp,
+    LibraryInfo, Marker, Marker, MarkerField, MarkerFieldFormat, MarkerHandle, MarkerLocations,
+    MarkerTiming, ProcessHandle, Profile, SamplingInterval, StringHandle, ThreadHandle, Timestamp,
 };
 use shlex::Shlex;
 use wholesym::PeCodeId;
@@ -1541,14 +1540,14 @@ impl ProfileContext {
         #[derive(Debug, Clone)]
         pub struct VSyncMarker;
 
-        impl StaticSchemaMarker for VSyncMarker {
+        impl Marker for VSyncMarker {
             const UNIQUE_MARKER_TYPE_NAME: &'static str = "Vsync";
 
             const LOCATIONS: MarkerLocations = MarkerLocations::MARKER_CHART
                 .union(MarkerLocations::MARKER_TABLE)
                 .union(MarkerLocations::TIMELINE_OVERVIEW);
 
-            const FIELDS: &'static [StaticSchemaMarkerField] = &[];
+            const FIELDS: &'static [MarkerField] = &[];
 
             fn name(&self, profile: &mut Profile) -> StringHandle {
                 profile.handle_for_string("Vsync")
@@ -2198,14 +2197,14 @@ pub fn make_thread_label(
 #[derive(Debug, Clone)]
 pub struct FreeformMarker(StringHandle, StringHandle);
 
-impl StaticSchemaMarker for FreeformMarker {
+impl Marker for FreeformMarker {
     const UNIQUE_MARKER_TYPE_NAME: &'static str = "FreeformMarker";
 
     const CHART_LABEL: Option<&'static str> = Some("{marker.data.values}");
     const TOOLTIP_LABEL: Option<&'static str> = Some("{marker.name} - {marker.data.values}");
     const TABLE_LABEL: Option<&'static str> = Some("{marker.name} - {marker.data.values}");
 
-    const FIELDS: &'static [StaticSchemaMarkerField] = &[StaticSchemaMarkerField {
+    const FIELDS: &'static [MarkerField] = &[MarkerField {
         key: "values",
         label: "Values",
         format: MarkerFieldFormat::String,

@@ -4,8 +4,8 @@ use crate::markers::{InternalMarkerSchema, MarkerFieldValueConsumer};
 use crate::serialization_helpers::SerializableOptionalTimestampColumn;
 use crate::string_table::{ProfileStringTable, StringHandle};
 use crate::{
-    CategoryHandle, Marker, MarkerHandle, MarkerStringFieldFormat, MarkerTiming, MarkerTypeHandle,
-    RuntimeSchemaMarkerFieldFormat, Timestamp,
+    CategoryHandle, DynamicSchemaMarker, DynamicSchemaMarkerFieldFormat, MarkerHandle,
+    MarkerStringFieldFormat, MarkerTiming, MarkerTypeHandle, Timestamp,
 };
 
 #[derive(Debug, Clone, Default)]
@@ -53,7 +53,7 @@ impl MarkerTable {
     }
 
     #[allow(clippy::too_many_arguments)]
-    pub fn add_marker<T: Marker>(
+    pub fn add_marker<T: DynamicSchemaMarker>(
         &mut self,
         string_table: &mut ProfileStringTable,
         name_string_index: StringHandle,
@@ -235,7 +235,7 @@ impl Serialize for SerializableMarkerDataElement<'_> {
         }
         for field in schema.fields() {
             match &field.format {
-                RuntimeSchemaMarkerFieldFormat::String(format) => {
+                DynamicSchemaMarkerFieldFormat::String(format) => {
                     let value;
                     (value, string_fields) = string_fields.split_first().unwrap();
                     if *format == MarkerStringFieldFormat::String {
@@ -245,12 +245,12 @@ impl Serialize for SerializableMarkerDataElement<'_> {
                         map.serialize_entry(&field.key, str_val)?;
                     }
                 }
-                RuntimeSchemaMarkerFieldFormat::Number(_) => {
+                DynamicSchemaMarkerFieldFormat::Number(_) => {
                     let value;
                     (value, number_fields) = number_fields.split_first().unwrap();
                     map.serialize_entry(&field.key, value)?;
                 }
-                RuntimeSchemaMarkerFieldFormat::Flow(_) => {
+                DynamicSchemaMarkerFieldFormat::Flow(_) => {
                     let value;
                     (value, flow_fields) = flow_fields.split_first().unwrap();
                     map.serialize_entry(&field.key, value)?;

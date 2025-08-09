@@ -43,23 +43,23 @@ pub enum MarkerTiming {
     IntervalEnd(Timestamp),
 }
 
-/// The marker trait. You'll likely want to implement [`StaticSchemaMarker`] instead.
+/// The trait for markers with a dynamic schema. You'll likely want to implement [`Marker`] instead.
 ///
 /// Markers have a type, a name, a category, and an arbitrary number of fields.
-/// The fields of a marker type are defined by the marker type's schema, see [`RuntimeSchemaMarkerSchema`].
+/// The fields of a marker type are defined by the marker type's schema, see [`DynamicSchemaMarkerSchema`].
 /// The timestamps are not part of the marker; they are supplied separately to
 /// [`Profile::add_marker`] when a marker is added to the profile.
 ///
 /// You can implement this trait manually if the schema of your marker type is only
 /// known at runtime. If the schema is known at compile time, you'll want to implement
-/// [`StaticSchemaMarker`] instead - there is a blanket impl which implements [`Marker`]
-/// for any type that implements [`StaticSchemaMarker`].
-pub trait Marker {
-    /// The [`MarkerTypeHandle`] of this marker type. Created with [`Profile::register_marker_type`] or
-    /// with [`Profile::static_schema_marker_type`].
+/// [`Marker`] instead - there is a blanket impl which implements [`DynamicSchemaMarker`]
+/// for any type that implements [`Marker`].
+pub trait DynamicSchemaMarker {
+    /// The [`MarkerTypeHandle`] of this marker type. Implementations will usually call
+    /// [`Profile::register_marker_type`] or [`Profile::static_schema_marker_type`].
     fn marker_type(&self, profile: &mut Profile) -> MarkerTypeHandle;
 
-    /// The name of this marker, as an interned string handle.
+    /// The "name" of this marker, as an interned string handle.
     ///
     /// The name is shown as the row label in the marker chart. It can also be
     /// used as `{marker.name}` in the various `label` template strings in the schema.
@@ -75,21 +75,21 @@ pub trait MarkerFieldsTrait {
 
     fn push_field_values(self, consumer: &mut impl MarkerFieldValueConsumer);
 
-    fn to_runtime_field_schema(schema: &Self::Schema) -> Vec<RuntimeSchemaMarkerField>;
+    fn to_runtime_field_schema(schema: &Self::Schema) -> Vec<DynamicSchemaMarkerField>;
 }
 
 /// The trait for markers whose schema is known at compile time. Any type which implements
-/// [`StaticSchemaMarker`] automatically implements the [`Marker`] trait via a blanket impl.
+/// [`Marker`] automatically implements the [`Marker`] trait via a blanket impl.
 ///
 /// Markers have a type, a name, and an arbitrary number of fields.
-/// The fields of a marker type are defined by the marker type's schema, see [`RuntimeSchemaMarkerSchema`].
+/// The fields of a marker type are defined by the marker type's schema, see [`DynamicSchemaMarkerSchema`].
 /// The timestamps are not part of the marker; they are supplied separately to
 /// [`Profile::add_marker`] when a marker is added to the profile.
 ///
 /// ```
 /// use fxprof_processed_profile::{
-///     Profile, Marker, MarkerLocations, MarkerStringFieldFormat, StaticSchema,
-///     StaticSchemaMarkerField, StaticSchemaMarker, Category, CategoryColor, StringHandle,
+///     Profile, Marker, MarkerLocations, MarkerStringFieldFormat, Schema,
+///     MarkerField, Marker, Category, CategoryColor, StringHandle,
 /// };
 ///
 /// /// An example marker type with a name and some text content.
@@ -99,7 +99,7 @@ pub trait MarkerFieldsTrait {
 ///   pub text: StringHandle,
 /// }
 ///
-/// impl StaticSchemaMarker for TextMarker {
+/// impl Marker for TextMarker {
 ///     type FieldsType = StringHandle;
 ///
 ///     const UNIQUE_MARKER_TYPE_NAME: &'static str = "Text";
@@ -110,7 +110,7 @@ pub trait MarkerFieldsTrait {
 ///     const CHART_LABEL: Option<&'static str> = Some("{marker.data.text}");
 ///     const TABLE_LABEL: Option<&'static str> = Some("{marker.name} - {marker.data.text}");
 ///
-///     const FIELDS: StaticSchema<Self::FieldsType> = StaticSchema(StaticSchemaMarkerField::string(
+///     const FIELDS: Schema<Self::FieldsType> = Schema(MarkerField::string(
 ///         "text",
 ///         "Contents",
 ///     ));
@@ -124,9 +124,9 @@ pub trait MarkerFieldsTrait {
 ///     }
 /// }
 /// ```
-pub trait StaticSchemaMarker {
+pub trait Marker {
     /// A unique string name for this marker type. Has to match the
-    /// [`RuntimeSchemaMarkerSchema::type_name`] of this type's schema.
+    /// [`DynamicSchemaMarkerSchema::type_name`] of this type's schema.
     const UNIQUE_MARKER_TYPE_NAME: &'static str;
 
     /// The category of this marker. The marker chart groups marker rows by category.
@@ -164,7 +164,7 @@ pub trait StaticSchemaMarker {
 
     /// The marker fields. The values are supplied by each marker, in the marker's
     /// implementations of the `string_field_value` and `number_field_value` trait methods.
-    const FIELDS: StaticSchema<Self::FieldsType>;
+    const FIELDS: Schema<Self::FieldsType>;
 
     /// Any graph lines / segments created from markers of this type.
     ///
@@ -176,7 +176,7 @@ pub trait StaticSchemaMarker {
     /// chart segments which are all drawn inside the same track, stacked on top of
     /// each other, in the order that they're listed here, with the first entry
     /// becoming the bottom-most graph within the track.
-    const GRAPHS: &'static [StaticSchemaMarkerGraph] = &[];
+    const GRAPHS: &'static [MarkerGraph] = &[];
 
     /// The name of this marker, as an interned string handle.
     ///
@@ -188,17 +188,17 @@ pub trait StaticSchemaMarker {
     fn field_values(&self) -> Self::FieldsType;
 }
 
-impl<T: StaticSchemaMarker> Marker for T {
+impl<T: Marker> DynamicSchemaMarker for T {
     fn marker_type(&self, profile: &mut Profile) -> MarkerTypeHandle {
         profile.static_schema_marker_type::<Self>()
     }
 
     fn name(&self, profile: &mut Profile) -> StringHandle {
-        <T as StaticSchemaMarker>::name(self, profile)
+        <T as Marker>::name(self, profile)
     }
 
     fn push_field_values(&self, consumer: &mut impl MarkerFieldValueConsumer) {
-        <<T as StaticSchemaMarker>::FieldsType as MarkerFieldsTrait>::push_field_values(
+        <<T as Marker>::FieldsType as MarkerFieldsTrait>::push_field_values(
             self.field_values(),
             consumer,
         );
@@ -207,20 +207,20 @@ impl<T: StaticSchemaMarker> Marker for T {
 
 /// Describes a marker type, including the names and types of the marker's fields.
 /// You only need this if you don't know the schema until runtime. Otherwise, use
-/// [`StaticSchemaMarker`] instead.
+/// [`Marker`] instead.
 ///
 /// Example:
 ///
 /// ```
 /// use fxprof_processed_profile::{
 ///     Profile, Marker, MarkerLocations, MarkerStringFieldFormat, MarkerNumberFieldFormat,
-///     RuntimeSchemaMarkerSchema, RuntimeSchemaMarkerField,
+///     DynamicSchemaMarkerSchema, DynamicSchemaMarkerField,
 ///     CategoryHandle, StringHandle, Category, CategoryColor,
 /// };
 ///
 /// # fn fun() {
 /// # let mut profile = Profile::new("My app", std::time::SystemTime::now().into(), fxprof_processed_profile::SamplingInterval::from_millis(1));
-/// let schema = RuntimeSchemaMarkerSchema {
+/// let schema = DynamicSchemaMarkerSchema {
 ///     type_name: "custom".into(),
 ///     category: profile.handle_for_category(Category("Custom", CategoryColor::Purple)),
 ///     locations: MarkerLocations::MARKER_CHART | MarkerLocations::MARKER_TABLE,
@@ -228,22 +228,22 @@ impl<T: StaticSchemaMarker> Marker for T {
 ///     tooltip_label: Some("Custom {marker.name} marker".into()),
 ///     table_label: Some("{marker.name} - {marker.data.eventName} with allocation size {marker.data.allocationSize} (latency: {marker.data.latency})".into()),
 ///     fields: vec![
-///         RuntimeSchemaMarkerField {
+///         DynamicSchemaMarkerField {
 ///             key: "eventName".into(),
 ///             label: "Event name".into(),
 ///             format: MarkerStringFieldFormat::String.into(),
 ///         },
-///         RuntimeSchemaMarkerField {
+///         DynamicSchemaMarkerField {
 ///             key: "allocationSize".into(),
 ///             label: "Allocation size".into(),
 ///             format: MarkerNumberFieldFormat::Bytes.into(),
 ///         },
-///         RuntimeSchemaMarkerField {
+///         DynamicSchemaMarkerField {
 ///             key: "url".into(),
 ///             label: "URL".into(),
 ///             format: MarkerStringFieldFormat::Url.into(),
 ///         },
-///         RuntimeSchemaMarkerField {
+///         DynamicSchemaMarkerField {
 ///             key: "latency".into(),
 ///             label: "Latency".into(),
 ///             format: MarkerNumberFieldFormat::Duration.into(),
@@ -255,7 +255,7 @@ impl<T: StaticSchemaMarker> Marker for T {
 /// # }
 /// ```
 #[derive(Debug, Clone)]
-pub struct RuntimeSchemaMarkerSchema {
+pub struct DynamicSchemaMarkerSchema {
     /// The unique name of this marker type. There must not be any other schema
     /// with the same name.
     pub type_name: String,
@@ -292,7 +292,7 @@ pub struct RuntimeSchemaMarkerSchema {
 
     /// The marker fields. The values are supplied by each marker, in the marker's
     /// implementations of the `string_field_value` and `number_field_value` trait methods.
-    pub fields: Vec<RuntimeSchemaMarkerField>,
+    pub fields: Vec<DynamicSchemaMarkerField>,
 
     /// Any graph lines / segments created from markers of this type.
     ///
@@ -304,7 +304,7 @@ pub struct RuntimeSchemaMarkerSchema {
     /// chart segments which are all drawn inside the same track, stacked on top of
     /// each other, in the order that they're listed here, with the first entry
     /// becoming the bottom-most graph within the track.
-    pub graphs: Vec<RuntimeSchemaMarkerGraph>,
+    pub graphs: Vec<DynamicSchemaMarkerGraph>,
 }
 
 bitflags! {
@@ -380,7 +380,7 @@ impl MarkerFieldKindCounts {
 }
 
 pub trait MarkerFieldValueType {
-    type FormatEnum: Clone + core::fmt::Debug + Into<RuntimeSchemaMarkerFieldFormat>;
+    type FormatEnum: Clone + core::fmt::Debug + Into<DynamicSchemaMarkerFieldFormat>;
     const KIND: MarkerFieldKind;
     fn push_field_value(self, consumer: &mut impl MarkerFieldValueConsumer);
 }
@@ -421,13 +421,13 @@ impl MarkerFieldsTrait for () {
         // No fields to push
     }
 
-    fn to_runtime_field_schema(_schema: &Self::Schema) -> Vec<RuntimeSchemaMarkerField> {
+    fn to_runtime_field_schema(_schema: &Self::Schema) -> Vec<DynamicSchemaMarkerField> {
         vec![]
     }
 }
 
 impl<T: MarkerFieldValueType> MarkerFieldsTrait for T {
-    type Schema = StaticSchemaMarkerField<T>;
+    type Schema = MarkerField<T>;
 
     const FIELD_KIND_COUNTS: MarkerFieldKindCounts = MarkerFieldKindCounts::from_kind(Self::KIND);
 
@@ -435,8 +435,8 @@ impl<T: MarkerFieldValueType> MarkerFieldsTrait for T {
         Self::push_field_value(self, consumer);
     }
 
-    fn to_runtime_field_schema(schema: &Self::Schema) -> Vec<RuntimeSchemaMarkerField> {
-        vec![RuntimeSchemaMarkerField::from(schema)]
+    fn to_runtime_field_schema(schema: &Self::Schema) -> Vec<DynamicSchemaMarkerField> {
+        vec![DynamicSchemaMarkerField::from(schema)]
     }
 }
 
@@ -449,7 +449,7 @@ macro_rules! impl_marker_fields_for_tuples {
             where
                 $($T: MarkerFieldValueType,)+
             {
-                type Schema = ($(StaticSchemaMarkerField<$T>,)+);
+                type Schema = ($(MarkerField<$T>,)+);
 
                 const FIELD_KIND_COUNTS: MarkerFieldKindCounts =
                     MarkerFieldKindCounts::from_kinds(&[$($T::KIND,)+]);
@@ -462,9 +462,9 @@ macro_rules! impl_marker_fields_for_tuples {
                     )+
                 }
 
-                fn to_runtime_field_schema(schema: &Self::Schema) -> Vec<RuntimeSchemaMarkerField> {
+                fn to_runtime_field_schema(schema: &Self::Schema) -> Vec<DynamicSchemaMarkerField> {
                     let ($($T,)+) = schema;
-                    vec![$(RuntimeSchemaMarkerField::from($T),)+]
+                    vec![$(DynamicSchemaMarkerField::from($T),)+]
                 }
             }
         )+
@@ -491,16 +491,16 @@ impl_marker_fields_for_tuples! {
     (T0, T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13, T14, T15)
 }
 
-/// The field definition of a marker field, used in [`StaticSchemaMarker::FIELDS`].
+/// The field definition of a marker field, used in [`Marker::FIELDS`].
 ///
 /// For each marker which uses this schema, the value for this field is supplied by the
 /// marker's implementation of [`number_field_value`](Marker::number_field_value) /
 /// [`string_field_value`](Marker::string_field_value), depending on this field
 /// format's [kind](MarkerFieldFormat::kind).
 ///
-/// Used with static marker schemas. Use [`RuntimeSchemaMarkerField`]
-/// when using [`RuntimeSchemaMarkerSchema`].
-pub struct StaticSchemaMarkerField<T: MarkerFieldValueType> {
+/// Used with static marker schemas. Use [`DynamicSchemaMarkerField`]
+/// when using [`DynamicSchemaMarkerSchema`].
+pub struct MarkerField<T: MarkerFieldValueType> {
     /// The field key. Must not be `type` or `cause`.
     key: &'static str,
 
@@ -511,7 +511,7 @@ pub struct StaticSchemaMarkerField<T: MarkerFieldValueType> {
     format: <T as MarkerFieldValueType>::FormatEnum,
 }
 
-impl<T: MarkerFieldValueType> StaticSchemaMarkerField<T> {
+impl<T: MarkerFieldValueType> MarkerField<T> {
     pub const fn new(
         key: &'static str,
         label: &'static str,
@@ -522,7 +522,7 @@ impl<T: MarkerFieldValueType> StaticSchemaMarkerField<T> {
 }
 
 /// Convenience constructors for string fields.
-impl StaticSchemaMarkerField<StringHandle> {
+impl MarkerField<StringHandle> {
     /// Creates a string field with the default string format.
     pub const fn string(key: &'static str, label: &'static str) -> Self {
         Self::new(key, label, MarkerStringFieldFormat::String)
@@ -545,7 +545,7 @@ impl StaticSchemaMarkerField<StringHandle> {
 }
 
 /// Convenience constructors for number fields.
-impl StaticSchemaMarkerField<f64> {
+impl MarkerField<f64> {
     /// Creates a field for byte values with appropriate formatting.
     pub const fn bytes(key: &'static str, label: &'static str) -> Self {
         Self::new(key, label, MarkerNumberFieldFormat::Bytes)
@@ -573,7 +573,7 @@ impl StaticSchemaMarkerField<f64> {
 }
 
 /// Convenience constructors for flow fields.
-impl StaticSchemaMarkerField<FlowId> {
+impl MarkerField<FlowId> {
     /// Creates a flow field for flow connections.
     pub const fn flow(key: &'static str, label: &'static str) -> Self {
         Self::new(key, label, MarkerFlowFieldFormat::Flow)
@@ -585,19 +585,19 @@ impl StaticSchemaMarkerField<FlowId> {
     }
 }
 
-pub struct StaticSchema<FieldsType: MarkerFieldsTrait>(pub FieldsType::Schema);
+pub struct Schema<FieldsType: MarkerFieldsTrait>(pub FieldsType::Schema);
 
-/// The field definition of a marker field, used in [`RuntimeSchemaMarkerSchema::fields`].
+/// The field definition of a marker field, used in [`DynamicSchemaMarkerSchema::fields`].
 ///
 /// For each marker which uses this schema, the value for this field is supplied by the
 /// marker's implementation of [`number_field_value`](Marker::number_field_value) /
 /// [`string_field_value`](Marker::string_field_value), depending on this field
 /// format's [kind](MarkerFieldFormat::kind).
 ///
-/// Used with runtime-generated marker schemas. Use [`StaticSchemaMarkerField`]
-/// when using [`StaticSchemaMarker`].
+/// Used with runtime-generated marker schemas. Use [`MarkerField`]
+/// when using [`Marker`].
 #[derive(Debug, Clone)]
-pub struct RuntimeSchemaMarkerField {
+pub struct DynamicSchemaMarkerField {
     /// The field key. Must not be `type` or `cause`.
     pub key: String,
 
@@ -605,11 +605,11 @@ pub struct RuntimeSchemaMarkerField {
     pub label: String,
 
     /// The format of this field.
-    pub format: RuntimeSchemaMarkerFieldFormat,
+    pub format: DynamicSchemaMarkerFieldFormat,
 }
 
-impl<T: MarkerFieldValueType> From<&StaticSchemaMarkerField<T>> for RuntimeSchemaMarkerField {
-    fn from(schema: &StaticSchemaMarkerField<T>) -> Self {
+impl<T: MarkerFieldValueType> From<&MarkerField<T>> for DynamicSchemaMarkerField {
+    fn from(schema: &MarkerField<T>) -> Self {
         Self {
             key: schema.key.into(),
             label: schema.label.into(),
@@ -720,64 +720,64 @@ pub enum MarkerFlowFieldFormat {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum RuntimeSchemaMarkerFieldFormat {
+pub enum DynamicSchemaMarkerFieldFormat {
     String(MarkerStringFieldFormat),
     Number(MarkerNumberFieldFormat),
     Flow(MarkerFlowFieldFormat),
 }
 
-impl RuntimeSchemaMarkerFieldFormat {
+impl DynamicSchemaMarkerFieldFormat {
     pub fn kind(&self) -> MarkerFieldKind {
         match self {
-            RuntimeSchemaMarkerFieldFormat::String(_) => MarkerFieldKind::String,
-            RuntimeSchemaMarkerFieldFormat::Number(_) => MarkerFieldKind::Number,
-            RuntimeSchemaMarkerFieldFormat::Flow(_) => MarkerFieldKind::Flow,
+            DynamicSchemaMarkerFieldFormat::String(_) => MarkerFieldKind::String,
+            DynamicSchemaMarkerFieldFormat::Number(_) => MarkerFieldKind::Number,
+            DynamicSchemaMarkerFieldFormat::Flow(_) => MarkerFieldKind::Flow,
         }
     }
 }
 
-impl Serialize for RuntimeSchemaMarkerFieldFormat {
+impl Serialize for DynamicSchemaMarkerFieldFormat {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
     {
         match self {
-            RuntimeSchemaMarkerFieldFormat::String(marker_string_field_format) => {
+            DynamicSchemaMarkerFieldFormat::String(marker_string_field_format) => {
                 marker_string_field_format.serialize(serializer)
             }
-            RuntimeSchemaMarkerFieldFormat::Number(marker_number_field_format) => {
+            DynamicSchemaMarkerFieldFormat::Number(marker_number_field_format) => {
                 marker_number_field_format.serialize(serializer)
             }
-            RuntimeSchemaMarkerFieldFormat::Flow(marker_flow_field_format) => {
+            DynamicSchemaMarkerFieldFormat::Flow(marker_flow_field_format) => {
                 marker_flow_field_format.serialize(serializer)
             }
         }
     }
 }
 
-impl From<MarkerStringFieldFormat> for RuntimeSchemaMarkerFieldFormat {
+impl From<MarkerStringFieldFormat> for DynamicSchemaMarkerFieldFormat {
     fn from(format: MarkerStringFieldFormat) -> Self {
         Self::String(format)
     }
 }
 
-impl From<MarkerNumberFieldFormat> for RuntimeSchemaMarkerFieldFormat {
+impl From<MarkerNumberFieldFormat> for DynamicSchemaMarkerFieldFormat {
     fn from(format: MarkerNumberFieldFormat) -> Self {
         Self::Number(format)
     }
 }
 
-impl From<MarkerFlowFieldFormat> for RuntimeSchemaMarkerFieldFormat {
+impl From<MarkerFlowFieldFormat> for DynamicSchemaMarkerFieldFormat {
     fn from(format: MarkerFlowFieldFormat) -> Self {
         Self::Flow(format)
     }
 }
 
-/// A graph within a marker graph track, used in [`StaticSchemaMarker::GRAPHS`].
+/// A graph within a marker graph track, used in [`Marker::GRAPHS`].
 ///
-/// Used with static marker schemas. Use [`RuntimeSchemaMarkerGraph`]
-/// when using [`RuntimeSchemaMarkerSchema`].
-pub struct StaticSchemaMarkerGraph {
+/// Used with static marker schemas. Use [`DynamicSchemaMarkerGraph`]
+/// when using [`DynamicSchemaMarkerSchema`].
+pub struct MarkerGraph {
     /// The key of a number field that's declared in the marker schema.
     ///
     /// The values of this field are the values of this graph line /
@@ -789,12 +789,12 @@ pub struct StaticSchemaMarkerGraph {
     pub color: Option<GraphColor>,
 }
 
-/// A graph within a marker graph track, used in [`RuntimeSchemaMarkerSchema::graphs`].
+/// A graph within a marker graph track, used in [`DynamicSchemaMarkerSchema::graphs`].
 ///
-/// Used with runtime-generated marker schemas. Use [`StaticSchemaMarkerGraph`]
-/// when using [`StaticSchemaMarker`].
+/// Used with runtime-generated marker schemas. Use [`MarkerGraph`]
+/// when using [`Marker`].
 #[derive(Clone, Debug, Serialize)]
-pub struct RuntimeSchemaMarkerGraph {
+pub struct DynamicSchemaMarkerGraph {
     /// The key of a number field that's declared in the marker schema.
     ///
     /// The values of this field are the values of this graph line /
@@ -808,8 +808,8 @@ pub struct RuntimeSchemaMarkerGraph {
     pub color: Option<GraphColor>,
 }
 
-impl From<&StaticSchemaMarkerGraph> for RuntimeSchemaMarkerGraph {
-    fn from(schema: &StaticSchemaMarkerGraph) -> Self {
+impl From<&MarkerGraph> for DynamicSchemaMarkerGraph {
+    fn from(schema: &MarkerGraph) -> Self {
         Self {
             key: schema.key.into(),
             graph_type: schema.graph_type,
@@ -861,18 +861,18 @@ pub struct InternalMarkerSchema {
     table_label: Option<String>,
 
     /// The marker fields. These can be specified on each marker.
-    fields: Vec<RuntimeSchemaMarkerField>,
+    fields: Vec<DynamicSchemaMarkerField>,
 
     /// Any graph tracks created from markers of this type
-    graphs: Vec<RuntimeSchemaMarkerGraph>,
+    graphs: Vec<DynamicSchemaMarkerGraph>,
 
     field_kind_counts: MarkerFieldKindCounts,
 
     description: Option<String>,
 }
 
-impl From<RuntimeSchemaMarkerSchema> for InternalMarkerSchema {
-    fn from(schema: RuntimeSchemaMarkerSchema) -> Self {
+impl From<DynamicSchemaMarkerSchema> for InternalMarkerSchema {
+    fn from(schema: DynamicSchemaMarkerSchema) -> Self {
         Self::from_runtime_schema(schema)
     }
 }
@@ -884,7 +884,7 @@ pub trait MarkerFieldValueConsumer {
 }
 
 impl InternalMarkerSchema {
-    pub fn from_runtime_schema(schema: RuntimeSchemaMarkerSchema) -> Self {
+    pub fn from_runtime_schema(schema: DynamicSchemaMarkerSchema) -> Self {
         let mut field_kind_counts = MarkerFieldKindCounts::new();
         for field in &schema.fields {
             field_kind_counts.add(field.format.kind());
@@ -903,7 +903,7 @@ impl InternalMarkerSchema {
         }
     }
 
-    pub fn from_static_schema<T: StaticSchemaMarker>(profile: &mut Profile) -> Self {
+    pub fn from_static_schema<T: Marker>(profile: &mut Profile) -> Self {
         Self {
             type_name: T::UNIQUE_MARKER_TYPE_NAME.into(),
             category: profile.handle_for_category(T::CATEGORY),
@@ -924,7 +924,7 @@ impl InternalMarkerSchema {
     pub fn category(&self) -> CategoryHandle {
         self.category
     }
-    pub fn fields(&self) -> &[RuntimeSchemaMarkerField] {
+    pub fn fields(&self) -> &[DynamicSchemaMarkerField] {
         &self.fields
     }
     pub fn string_field_count(&self) -> usize {
@@ -994,7 +994,7 @@ impl Serialize for SerializableSchemaFields<'_> {
     }
 }
 
-struct SerializableSchemaField<'a>(&'a RuntimeSchemaMarkerField);
+struct SerializableSchemaField<'a>(&'a DynamicSchemaMarkerField);
 
 impl Serialize for SerializableSchemaField<'_> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
