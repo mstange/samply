@@ -110,11 +110,11 @@ pub trait MarkerFieldsTrait {
 ///     const CHART_LABEL: Option<&'static str> = Some("{marker.data.text}");
 ///     const TABLE_LABEL: Option<&'static str> = Some("{marker.name} - {marker.data.text}");
 ///
-///     const FIELDS: StaticSchema<Self::FieldsType> = StaticSchema(StaticSchemaMarkerField {
-///         key: "text",
-///         label: "Contents",
-///         format: MarkerStringFieldFormat::String,
-///     });
+///     const FIELDS: StaticSchema<Self::FieldsType> = StaticSchema(StaticSchemaMarkerField::new(
+///         "text",
+///         "Contents",
+///         MarkerStringFieldFormat::String,
+///     ));
 ///
 ///     fn name(&self, _profile: &mut Profile) -> StringHandle {
 ///         self.name
@@ -556,20 +556,20 @@ where
 /// when using [`RuntimeSchemaMarkerSchema`].
 pub struct StaticSchemaMarkerField<T: MarkerFieldValueType> {
     /// The field key. Must not be `type` or `cause`.
-    pub key: &'static str,
+    key: &'static str,
 
     /// The user-visible label of this field.
-    pub label: &'static str,
+    label: &'static str,
 
     /// The format of this field.
-    pub format: <T as MarkerFieldValueType>::FormatEnum,
+    format: <T as MarkerFieldValueType>::FormatEnum,
 }
 
 impl<T: MarkerFieldValueType> StaticSchemaMarkerField<T> {
     pub const fn new(
-        format: <T as MarkerFieldValueType>::FormatEnum,
         key: &'static str,
         label: &'static str,
+        format: <T as MarkerFieldValueType>::FormatEnum,
     ) -> Self {
         Self { key, label, format }
     }

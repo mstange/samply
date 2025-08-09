@@ -27,11 +27,11 @@ impl StaticSchemaMarker for TextMarker {
     const UNIQUE_MARKER_TYPE_NAME: &'static str = "Text";
     const CHART_LABEL: Option<&'static str> = Some("{marker.data.name}");
     const TABLE_LABEL: Option<&'static str> = Some("{marker.name} - {marker.data.name}");
-    const FIELDS: StaticSchema<Self::FieldsType> = StaticSchema(StaticSchemaMarkerField {
-        key: "name",
-        label: "Details",
-        format: MarkerStringFieldFormat::String,
-    });
+    const FIELDS: StaticSchema<Self::FieldsType> = StaticSchema(StaticSchemaMarkerField::new(
+        "name",
+        "Details",
+        MarkerStringFieldFormat::String,
+    ));
 
     fn name(&self, _profile: &mut Profile) -> StringHandle {
         self.name
@@ -57,26 +57,18 @@ fn profile_without_js() {
         const TOOLTIP_LABEL: Option<&'static str> = Some("Custom tooltip label");
 
         const FIELDS: StaticSchema<Self::FieldsType> = StaticSchema((
-            StaticSchemaMarkerField {
-                key: "eventName",
-                label: "Event name",
-                format: MarkerStringFieldFormat::String,
-            },
-            StaticSchemaMarkerField {
-                key: "allocationSize",
-                label: "Allocation size",
-                format: MarkerNumberFieldFormat::Bytes,
-            },
-            StaticSchemaMarkerField {
-                key: "url",
-                label: "URL",
-                format: MarkerStringFieldFormat::Url,
-            },
-            StaticSchemaMarkerField {
-                key: "latency",
-                label: "Latency",
-                format: MarkerNumberFieldFormat::Duration,
-            },
+            StaticSchemaMarkerField::new(
+                "eventName",
+                "Event name",
+                MarkerStringFieldFormat::String,
+            ),
+            StaticSchemaMarkerField::new(
+                "allocationSize",
+                "Allocation size",
+                MarkerNumberFieldFormat::Bytes,
+            ),
+            StaticSchemaMarkerField::new("url", "URL", MarkerStringFieldFormat::Url),
+            StaticSchemaMarkerField::new("latency", "Latency", MarkerNumberFieldFormat::Duration),
         ));
 
         const DESCRIPTION: Option<&'static str> =
@@ -1538,16 +1530,12 @@ fn test_flow_marker_fields() {
             Some("{marker.name} - flow:{marker.data.flowId} term:{marker.data.termFlowId}");
 
         const FIELDS: StaticSchema<Self::FieldsType> = StaticSchema((
-            StaticSchemaMarkerField {
-                key: "flowId",
-                label: "Flow ID",
-                format: MarkerFlowFieldFormat::Flow,
-            },
-            StaticSchemaMarkerField {
-                key: "termFlowId",
-                label: "Terminating Flow ID",
-                format: MarkerFlowFieldFormat::TerminatingFlow,
-            },
+            StaticSchemaMarkerField::new("flowId", "Flow ID", MarkerFlowFieldFormat::Flow),
+            StaticSchemaMarkerField::new(
+                "termFlowId",
+                "Terminating Flow ID",
+                MarkerFlowFieldFormat::TerminatingFlow,
+            ),
         ));
 
         fn name(&self, _profile: &mut Profile) -> StringHandle {

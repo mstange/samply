@@ -1073,11 +1073,11 @@ impl Profile {
     ///     const CHART_LABEL: Option<&'static str> = Some("{marker.data.text}");
     ///     const TABLE_LABEL: Option<&'static str> = Some("{marker.name} - {marker.data.text}");
     ///
-    ///     const FIELDS: StaticSchema<Self::FieldsType> = StaticSchema(StaticSchemaMarkerField {
-    ///         key: "text",
-    ///         label: "Contents",
-    ///         format: MarkerStringFieldFormat::String,
-    ///     });
+    ///     const FIELDS: StaticSchema<Self::FieldsType> = StaticSchema(StaticSchemaMarkerField::new(
+    ///         "text",
+    ///         "Contents",
+    ///         MarkerStringFieldFormat::String,
+    ///     ));
     ///
     ///     fn name(&self, _profile: &mut Profile) -> StringHandle {
     ///         self.name
