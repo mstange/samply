@@ -1967,11 +1967,11 @@ impl StaticSchemaMarker for MmapMarker {
 
     const UNIQUE_MARKER_TYPE_NAME: &'static str = "mmap";
 
-    const FIELDS: StaticSchema<Self::FieldsType> = StaticSchema(StaticSchemaMarkerField {
-        key: "name",
-        label: "Details",
-        format: MarkerStringFieldFormat::String,
-    });
+    const FIELDS: StaticSchema<Self::FieldsType> = StaticSchema(StaticSchemaMarkerField::new(
+        "name",
+        "Details",
+        MarkerStringFieldFormat::String,
+    ));
 
     fn name(&self, profile: &mut Profile) -> StringHandle {
         profile.handle_for_string("mmap")
