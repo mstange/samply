@@ -211,7 +211,7 @@ impl Display for GcType {
 #[derive(Debug, Clone)]
 pub struct CoreClrGcAllocMarker(StringHandle, f64);
 
-impl StaticSchemaMarker for CoreClrGcAllocMarker {
+impl Marker for CoreClrGcAllocMarker {
     const UNIQUE_MARKER_TYPE_NAME: &'static str = "GC Alloc";
 
     const CATEGORY: Category<'static> = CORE_CLR_GC_CATEGORY;
@@ -227,13 +227,13 @@ impl StaticSchemaMarker for CoreClrGcAllocMarker {
     const TABLE_LABEL: Option<&'static str> =
         Some("GC Alloc: {marker.data.clrtype} ({marker.data.size} bytes)");
 
-    const FIELDS: &'static [StaticSchemaMarkerField] = &[
-        StaticSchemaMarkerField {
+    const FIELDS: &'static [MarkerField] = &[
+        MarkerField {
             key: "clrtype",
             label: "CLR Type",
             format: MarkerFieldFormat::String,
         },
-        StaticSchemaMarkerField {
+        MarkerField {
             key: "size",
             label: "Size",
             format: MarkerFieldFormat::Bytes,
@@ -260,7 +260,7 @@ impl StaticSchemaMarker for CoreClrGcAllocMarker {
 #[derive(Debug, Clone)]
 pub struct CoreClrGcEventMarker(StringHandle, StringHandle);
 
-impl StaticSchemaMarker for CoreClrGcEventMarker {
+impl Marker for CoreClrGcEventMarker {
     const UNIQUE_MARKER_TYPE_NAME: &'static str = "GC Event";
 
     const CATEGORY: Category<'static> = CORE_CLR_GC_CATEGORY;
@@ -274,7 +274,7 @@ impl StaticSchemaMarker for CoreClrGcEventMarker {
     const TOOLTIP_LABEL: Option<&'static str> = Some("{marker.data.event}");
     const TABLE_LABEL: Option<&'static str> = Some("{marker.name} - {marker.data.event}");
 
-    const FIELDS: &'static [StaticSchemaMarkerField] = &[StaticSchemaMarkerField {
+    const FIELDS: &'static [MarkerField] = &[MarkerField {
         key: "event",
         label: "Event",
         format: MarkerFieldFormat::String,
@@ -733,7 +733,7 @@ pub fn handle_coreclr_event(
 #[derive(Debug, Clone)]
 pub struct OtherClrMarker(StringHandle, StringHandle);
 
-impl StaticSchemaMarker for OtherClrMarker {
+impl Marker for OtherClrMarker {
     const UNIQUE_MARKER_TYPE_NAME: &'static str = "OtherClrMarker";
 
     const CATEGORY: Category<'static> = Category("CLR", CategoryColor::Blue);
@@ -743,7 +743,7 @@ impl StaticSchemaMarker for OtherClrMarker {
     const TOOLTIP_LABEL: Option<&'static str> = Some("{marker.data.name}");
     const TABLE_LABEL: Option<&'static str> = Some("{marker.name} - {marker.data.name}");
 
-    const FIELDS: &'static [StaticSchemaMarkerField] = &[StaticSchemaMarkerField {
+    const FIELDS: &'static [MarkerField] = &[MarkerField {
         key: "name",
         label: "Name",
         format: MarkerFieldFormat::String,

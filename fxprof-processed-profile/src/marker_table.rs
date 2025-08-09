@@ -4,8 +4,8 @@ use crate::markers::{InternalMarkerSchema, MarkerFieldValueConsumer};
 use crate::serialization_helpers::SerializableOptionalTimestampColumn;
 use crate::string_table::{ProfileStringTable, StringHandle};
 use crate::{
-    CategoryHandle, Marker, MarkerHandle, MarkerStringFieldFormat, MarkerTiming, MarkerTypeHandle,
-    RuntimeSchemaMarkerFieldFormat, Timestamp,
+    CategoryHandle, MarkerHandle, MarkerStringFieldFormat, MarkerTiming, MarkerTypeHandle,
+    RuntimeMarker, RuntimeSchemaMarkerFieldFormat, Timestamp,
 };
 
 #[derive(Debug, Clone, Default)]
@@ -53,7 +53,7 @@ impl MarkerTable {
     }
 
     #[allow(clippy::too_many_arguments)]
-    pub fn add_marker<T: Marker>(
+    pub fn add_marker<T: RuntimeMarker>(
         &mut self,
         string_table: &mut ProfileStringTable,
         name_string_index: StringHandle,

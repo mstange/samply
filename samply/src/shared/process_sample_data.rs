@@ -1,7 +1,6 @@
 use fxprof_processed_profile::{
-    LibMappings, MarkerTiming, Profile,
-    StaticSchema, StaticSchemaMarker, StaticSchemaMarkerField, StringHandle, SubcategoryHandle,
-    ThreadHandle, Timestamp,
+    LibMappings, Marker, MarkerField, MarkerTiming, Profile, Schema, StringHandle,
+    SubcategoryHandle, ThreadHandle, Timestamp,
 };
 
 use super::lib_mappings::{LibMappingInfo, LibMappingOpQueue, LibMappingsHierarchy};
@@ -144,7 +143,7 @@ impl RssStatMarker {
     }
 }
 
-impl StaticSchemaMarker for RssStatMarker {
+impl Marker for RssStatMarker {
     type FieldsType = (f64, f64);
 
     const UNIQUE_MARKER_TYPE_NAME: &'static str = "RSS Anon";
@@ -157,9 +156,9 @@ impl StaticSchemaMarker for RssStatMarker {
     const DESCRIPTION: Option<&'static str> =
         Some("Emitted when the kmem:rss_stat tracepoint is hit.");
 
-    const FIELDS: StaticSchema<Self::FieldsType> = StaticSchema((
-        StaticSchemaMarkerField::bytes("totalBytes", "Total bytes"),
-        StaticSchemaMarkerField::bytes("deltaBytes", "Delta"),
+    const FIELDS: Schema<Self::FieldsType> = Schema((
+        MarkerField::bytes("totalBytes", "Total bytes"),
+        MarkerField::bytes("deltaBytes", "Delta"),
     ));
 
     fn name(&self, _profile: &mut Profile) -> StringHandle {
@@ -174,7 +173,7 @@ impl StaticSchemaMarker for RssStatMarker {
 #[derive(Debug, Clone)]
 pub struct OtherEventMarker(pub StringHandle);
 
-impl StaticSchemaMarker for OtherEventMarker {
+impl Marker for OtherEventMarker {
     type FieldsType = ();
 
     const UNIQUE_MARKER_TYPE_NAME: &'static str = "Other event";
@@ -182,7 +181,7 @@ impl StaticSchemaMarker for OtherEventMarker {
     const DESCRIPTION: Option<&'static str> =
         Some("Emitted for any records in a perf.data file which don't map to a known event.");
 
-    const FIELDS: StaticSchema<Self::FieldsType> = StaticSchema(());
+    const FIELDS: Schema<Self::FieldsType> = Schema(());
 
     fn name(&self, _profile: &mut Profile) -> StringHandle {
         self.0
@@ -195,7 +194,7 @@ impl StaticSchemaMarker for OtherEventMarker {
 #[allow(dead_code)]
 pub struct UserTimingMarker(pub StringHandle);
 
-impl StaticSchemaMarker for UserTimingMarker {
+impl Marker for UserTimingMarker {
     type FieldsType = StringHandle;
 
     const UNIQUE_MARKER_TYPE_NAME: &'static str = "UserTiming";
@@ -207,10 +206,7 @@ impl StaticSchemaMarker for UserTimingMarker {
     const TOOLTIP_LABEL: Option<&'static str> = Some("{marker.data.name}");
     const TABLE_LABEL: Option<&'static str> = Some("{marker.data.name}");
 
-    const FIELDS: StaticSchema<Self::FieldsType> = StaticSchema(StaticSchemaMarkerField::string(
-        "name",
-        "Name",
-    ));
+    const FIELDS: Schema<Self::FieldsType> = Schema(MarkerField::string("name", "Name"));
 
     fn name(&self, profile: &mut Profile) -> StringHandle {
         profile.handle_for_string("UserTiming")
@@ -223,7 +219,7 @@ impl StaticSchemaMarker for UserTimingMarker {
 
 pub struct SchedSwitchMarkerOnCpuTrack;
 
-impl StaticSchemaMarker for SchedSwitchMarkerOnCpuTrack {
+impl Marker for SchedSwitchMarkerOnCpuTrack {
     type FieldsType = ();
 
     const UNIQUE_MARKER_TYPE_NAME: &'static str = "sched_switch";
@@ -231,7 +227,7 @@ impl StaticSchemaMarker for SchedSwitchMarkerOnCpuTrack {
     const DESCRIPTION: Option<&'static str> =
         Some("Emitted just before a running thread gets moved off-cpu.");
 
-    const FIELDS: StaticSchema<Self::FieldsType> = StaticSchema(());
+    const FIELDS: Schema<Self::FieldsType> = Schema(());
 
     fn name(&self, profile: &mut Profile) -> StringHandle {
         profile.handle_for_string("sched_switch")
@@ -245,7 +241,7 @@ pub struct SchedSwitchMarkerOnThreadTrack {
     pub cpu: u32,
 }
 
-impl StaticSchemaMarker for SchedSwitchMarkerOnThreadTrack {
+impl Marker for SchedSwitchMarkerOnThreadTrack {
     type FieldsType = f64;
 
     const UNIQUE_MARKER_TYPE_NAME: &'static str = "sched_switch";
@@ -253,10 +249,7 @@ impl StaticSchemaMarker for SchedSwitchMarkerOnThreadTrack {
     const DESCRIPTION: Option<&'static str> =
         Some("Emitted just before a running thread gets moved off-cpu.");
 
-    const FIELDS: StaticSchema<Self::FieldsType> = StaticSchema(StaticSchemaMarkerField::integer(
-        "cpu",
-        "cpu",
-    ));
+    const FIELDS: Schema<Self::FieldsType> = Schema(MarkerField::integer("cpu", "cpu"));
 
     fn name(&self, profile: &mut Profile) -> StringHandle {
         profile.handle_for_string("sched_switch")
@@ -270,7 +263,7 @@ impl StaticSchemaMarker for SchedSwitchMarkerOnThreadTrack {
 #[derive(Debug, Clone)]
 pub struct SimpleMarker(pub StringHandle);
 
-impl StaticSchemaMarker for SimpleMarker {
+impl Marker for SimpleMarker {
     type FieldsType = StringHandle;
 
     const UNIQUE_MARKER_TYPE_NAME: &'static str = "SimpleMarker";
@@ -282,10 +275,7 @@ impl StaticSchemaMarker for SimpleMarker {
     const TOOLTIP_LABEL: Option<&'static str> = Some("{marker.data.name}");
     const TABLE_LABEL: Option<&'static str> = Some("{marker.data.name}");
 
-    const FIELDS: StaticSchema<Self::FieldsType> = StaticSchema(StaticSchemaMarkerField::string(
-        "name",
-        "Name",
-    ));
+    const FIELDS: Schema<Self::FieldsType> = Schema(MarkerField::string("name", "Name"));
 
     fn name(&self, profile: &mut Profile) -> StringHandle {
         profile.handle_for_string("SimpleMarker")
