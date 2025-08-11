@@ -440,104 +440,55 @@ impl<T: MarkerFieldValueType> MarkerFieldsTrait for T {
     }
 }
 
-impl<T0> MarkerFieldsTrait for (T0,)
-where
-    T0: MarkerFieldValueType,
-{
-    type Schema = (MarkerField<T0>,);
+// Macro to generate MarkerFieldsTrait implementations for tuples
+macro_rules! impl_marker_fields_for_tuples {
+    ($(($($T:ident),+)),+) => {
+        $(
+            #[allow(non_snake_case)]
+            impl<$($T),+> MarkerFieldsTrait for ($($T,)+)
+            where
+                $($T: MarkerFieldValueType,)+
+            {
+                type Schema = ($(MarkerField<$T>,)+);
 
-    const FIELD_KIND_COUNTS: MarkerFieldKindCounts = MarkerFieldKindCounts::from_kinds(&[T0::KIND]);
+                const FIELD_KIND_COUNTS: MarkerFieldKindCounts =
+                    MarkerFieldKindCounts::from_kinds(&[$($T::KIND,)+]);
 
-    fn push_field_values(self, consumer: &mut impl MarkerFieldValueConsumer) {
-        T0::push_field_value(self.0, consumer);
-    }
+                #[allow(non_snake_case)]
+                fn push_field_values(self, consumer: &mut impl MarkerFieldValueConsumer) {
+                    let ($($T,)+) = self;
+                    $(
+                        $T::push_field_value($T, consumer);
+                    )+
+                }
 
-    fn to_runtime_field_schema(schema: &Self::Schema) -> Vec<RuntimeSchemaMarkerField> {
-        vec![RuntimeSchemaMarkerField::from(&schema.0)]
-    }
+                fn to_runtime_field_schema(schema: &Self::Schema) -> Vec<RuntimeSchemaMarkerField> {
+                    let ($($T,)+) = schema;
+                    vec![$(RuntimeSchemaMarkerField::from($T),)+]
+                }
+            }
+        )+
+    };
 }
 
-impl<T0, T1> MarkerFieldsTrait for (T0, T1)
-where
-    T0: MarkerFieldValueType,
-    T1: MarkerFieldValueType,
-{
-    type Schema = (MarkerField<T0>, MarkerField<T1>);
-
-    const FIELD_KIND_COUNTS: MarkerFieldKindCounts =
-        MarkerFieldKindCounts::from_kinds(&[T0::KIND, T1::KIND]);
-
-    fn push_field_values(self, consumer: &mut impl MarkerFieldValueConsumer) {
-        T0::push_field_value(self.0, consumer);
-        T1::push_field_value(self.1, consumer);
-    }
-
-    fn to_runtime_field_schema(schema: &Self::Schema) -> Vec<RuntimeSchemaMarkerField> {
-        vec![
-            RuntimeSchemaMarkerField::from(&schema.0),
-            RuntimeSchemaMarkerField::from(&schema.1),
-        ]
-    }
-}
-
-impl<T0, T1, T2> MarkerFieldsTrait for (T0, T1, T2)
-where
-    T0: MarkerFieldValueType,
-    T1: MarkerFieldValueType,
-    T2: MarkerFieldValueType,
-{
-    type Schema = (MarkerField<T0>, MarkerField<T1>, MarkerField<T2>);
-
-    const FIELD_KIND_COUNTS: MarkerFieldKindCounts =
-        MarkerFieldKindCounts::from_kinds(&[T0::KIND, T1::KIND, T2::KIND]);
-
-    fn push_field_values(self, consumer: &mut impl MarkerFieldValueConsumer) {
-        T0::push_field_value(self.0, consumer);
-        T1::push_field_value(self.1, consumer);
-        T2::push_field_value(self.2, consumer);
-    }
-
-    fn to_runtime_field_schema(schema: &Self::Schema) -> Vec<RuntimeSchemaMarkerField> {
-        vec![
-            RuntimeSchemaMarkerField::from(&schema.0),
-            RuntimeSchemaMarkerField::from(&schema.1),
-            RuntimeSchemaMarkerField::from(&schema.2),
-        ]
-    }
-}
-
-impl<T0, T1, T2, T3> MarkerFieldsTrait for (T0, T1, T2, T3)
-where
-    T0: MarkerFieldValueType,
-    T1: MarkerFieldValueType,
-    T2: MarkerFieldValueType,
-    T3: MarkerFieldValueType,
-{
-    type Schema = (
-        MarkerField<T0>,
-        MarkerField<T1>,
-        MarkerField<T2>,
-        MarkerField<T3>,
-    );
-
-    const FIELD_KIND_COUNTS: MarkerFieldKindCounts =
-        MarkerFieldKindCounts::from_kinds(&[T0::KIND, T1::KIND, T2::KIND, T3::KIND]);
-
-    fn push_field_values(self, consumer: &mut impl MarkerFieldValueConsumer) {
-        T0::push_field_value(self.0, consumer);
-        T1::push_field_value(self.1, consumer);
-        T2::push_field_value(self.2, consumer);
-        T3::push_field_value(self.3, consumer);
-    }
-
-    fn to_runtime_field_schema(schema: &Self::Schema) -> Vec<RuntimeSchemaMarkerField> {
-        vec![
-            RuntimeSchemaMarkerField::from(&schema.0),
-            RuntimeSchemaMarkerField::from(&schema.1),
-            RuntimeSchemaMarkerField::from(&schema.2),
-            RuntimeSchemaMarkerField::from(&schema.3),
-        ]
-    }
+// Generate implementations for tuples up to length 16
+impl_marker_fields_for_tuples! {
+    (T0),
+    (T0, T1),
+    (T0, T1, T2),
+    (T0, T1, T2, T3),
+    (T0, T1, T2, T3, T4),
+    (T0, T1, T2, T3, T4, T5),
+    (T0, T1, T2, T3, T4, T5, T6),
+    (T0, T1, T2, T3, T4, T5, T6, T7),
+    (T0, T1, T2, T3, T4, T5, T6, T7, T8),
+    (T0, T1, T2, T3, T4, T5, T6, T7, T8, T9),
+    (T0, T1, T2, T3, T4, T5, T6, T7, T8, T9, T10),
+    (T0, T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11),
+    (T0, T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12),
+    (T0, T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13),
+    (T0, T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13, T14),
+    (T0, T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13, T14, T15)
 }
 
 /// The field definition of a marker field, used in [`Marker::FIELDS`].
@@ -1107,3 +1058,70 @@ pub mod graph {}
 /// This module contains the core schema types and traits that power the marker
 /// schema system, including both static and runtime schemas.
 pub mod schema {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_tuple_marker_fields_up_to_16() {
+        // Test that MarkerFieldsTrait is implemented for tuples up to length 16
+
+        // Test a 1-tuple
+        let _: <(StringHandle,) as MarkerFieldsTrait>::Schema;
+
+        // Test a 2-tuple
+        let _: <(StringHandle, f64) as MarkerFieldsTrait>::Schema;
+
+        // Test a 16-tuple (largest supported)
+        type SixteenTuple = (
+            StringHandle,
+            f64,
+            StringHandle,
+            f64,
+            StringHandle,
+            f64,
+            StringHandle,
+            f64,
+            StringHandle,
+            f64,
+            StringHandle,
+            f64,
+            StringHandle,
+            f64,
+            StringHandle,
+            f64,
+        );
+        let _: <SixteenTuple as MarkerFieldsTrait>::Schema;
+
+        // Verify field counts work correctly for different tuple sizes
+        assert_eq!(
+            <(StringHandle,) as MarkerFieldsTrait>::FIELD_KIND_COUNTS.string_field_count,
+            1
+        );
+        assert_eq!(
+            <(StringHandle,) as MarkerFieldsTrait>::FIELD_KIND_COUNTS.number_field_count,
+            0
+        );
+
+        assert_eq!(
+            <(StringHandle, f64) as MarkerFieldsTrait>::FIELD_KIND_COUNTS.string_field_count,
+            1
+        );
+        assert_eq!(
+            <(StringHandle, f64) as MarkerFieldsTrait>::FIELD_KIND_COUNTS.number_field_count,
+            1
+        );
+
+        assert_eq!(
+            <(StringHandle, f64, StringHandle, f64) as MarkerFieldsTrait>::FIELD_KIND_COUNTS
+                .string_field_count,
+            2
+        );
+        assert_eq!(
+            <(StringHandle, f64, StringHandle, f64) as MarkerFieldsTrait>::FIELD_KIND_COUNTS
+                .number_field_count,
+            2
+        );
+    }
+}
