@@ -17,6 +17,8 @@ framehop = "0.14"
 # linux-perf-data = { path = "../../linux-perf-data" }
 linux-perf-data = "0.11"
 
+samply-in-process = { path = "../samply-in-process" }
+
 tokio = { version = "1.39", features = ["rt", "rt-multi-thread", "macros"] }
 tokio-util = "0.7.11"
 hyper = { version = "1", features = ["full"] }

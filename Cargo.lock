@@ -660,6 +660,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "framehop-in-process"
+version = "0.1.0"
+dependencies = [
+ "framehop",
+ "object 0.36.7",
+]
+
+[[package]]
 name = "fs4"
 version = "0.13.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2222,6 +2230,7 @@ dependencies = [
  "rangemap",
  "runas",
  "rustc-hash",
+ "samply-in-process",
  "samply-quota-manager",
  "serde",
  "serde_derive",
@@ -2256,6 +2265,50 @@ dependencies = [
  "yaxpeax-arch",
  "yaxpeax-arm",
  "yaxpeax-x86",
+]
+
+[[package]]
+name = "samply-in-process"
+version = "0.13.1"
+dependencies = [
+ "byteorder",
+ "cfg-if",
+ "crossbeam-channel",
+ "ctrlc",
+ "debugid",
+ "env_logger",
+ "flate2",
+ "framehop",
+ "framehop-in-process",
+ "fs4",
+ "fxprof-processed-profile",
+ "humantime",
+ "indexmap",
+ "lazy_static",
+ "libc",
+ "linux-perf-data",
+ "log",
+ "mach2",
+ "memchr",
+ "memmap2",
+ "mio",
+ "nix-base32",
+ "object 0.37.1",
+ "opener",
+ "percent-encoding",
+ "platform-dirs",
+ "plist",
+ "rand",
+ "rustc-hash",
+ "serde",
+ "serde_derive",
+ "serde_json",
+ "shlex",
+ "sysctl",
+ "tempfile",
+ "thiserror 2.0.12",
+ "uuid",
+ "wholesym",
 ]
 
 [[package]]

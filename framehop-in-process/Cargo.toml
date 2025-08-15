@@ -1,0 +1,16 @@
+[package]
+name = "framehop-in-process"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+
+[dependencies.framehop]
+version = "0.14"
+default-features = false
+features = ["std", "macho"]
+
+[dependencies.object]
+default-features = false
+features = ["std", "read_core", "macho", "unaligned"]
+version = "0.36"

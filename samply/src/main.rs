@@ -23,6 +23,7 @@ use std::io::BufReader;
 use std::path::Path;
 use std::str::FromStr;
 use std::sync::Arc;
+use std::time::Duration;
 
 use debugid::DebugId;
 use fxprof_processed_profile::Profile;
@@ -122,6 +123,8 @@ fn do_import_action(import_args: cli::ImportArgs) {
     target_os = "windows"
 ))]
 fn do_record_action(record_args: cli::RecordArgs) {
+    let p = samply_in_process::start_profiling(Duration::from_secs_f64(1.0 / 1000.0));
+
     let recording_props = record_args.recording_props();
     let recording_mode = record_args.recording_mode();
     let profile_creation_props = record_args.profile_creation_props();
@@ -159,6 +162,8 @@ fn do_record_action(record_args: cli::RecordArgs) {
             record_args.symbol_props(),
         );
     }
+
+    samply_in_process::stop_profiling_and_save(p, Path::new("/Users/mstange/Desktop/inprocessprofile.json.gz"));
 
     std::process::exit(exit_status.code().unwrap_or(0));
 }

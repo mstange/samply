@@ -7,6 +7,7 @@ members = [
     "samply-api",
     "samply-quota-manager",
     "samply-symbols",
+    "samply-in-process",
     "samply",
     "wholesym",
     "wholesym-addr2line",
