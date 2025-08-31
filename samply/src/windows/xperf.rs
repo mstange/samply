@@ -143,9 +143,8 @@ impl Xperf {
 
         eprintln!("xperf session running...");
 
-        if user_etl_file.is_some() {
-            self.state =
-                XperfState::RecordingKernelAndUserToFile(kernel_etl_file, user_etl_file.unwrap());
+        if let Some(user_etl) = user_etl_file {
+            self.state = XperfState::RecordingKernelAndUserToFile(kernel_etl_file, user_etl);
         } else {
             self.state = XperfState::RecordingKernelToFile(kernel_etl_file);
         }

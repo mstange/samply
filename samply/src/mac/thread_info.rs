@@ -56,21 +56,6 @@ pub struct thread_extended_info {
     pub pth_name: [::std::os::raw::c_char; 64usize],
 }
 pub type thread_extended_info_data_t = thread_extended_info;
-#[repr(C)]
-#[derive(Debug, Default)]
-pub struct io_stat_entry {
-    pub count: u64,
-    pub size: u64,
-}
-#[repr(C)]
-#[derive(Debug, Default)]
-pub struct io_stat_info {
-    pub disk_reads: io_stat_entry,
-    pub io_priority: [io_stat_entry; 4usize],
-    pub paging: io_stat_entry,
-    pub metadata: io_stat_entry,
-    pub total_io: io_stat_entry,
-}
 
 pub const THREAD_BASIC_INFO_COUNT: mach_msg_type_number_t =
     (size_of::<thread_basic_info_data_t>() / size_of::<natural_t>()) as _;
