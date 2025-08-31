@@ -219,6 +219,7 @@ impl StaticSchemaMarker for OtherEventMarker {
 }
 
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct UserTimingMarker(pub StringHandle);
 
 impl StaticSchemaMarker for UserTimingMarker {

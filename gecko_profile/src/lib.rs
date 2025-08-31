@@ -110,7 +110,7 @@ impl ProfileBuilder {
         marker_schemas
     }
 
-    pub fn to_serializable(&self) -> SerializableProfile {
+    pub fn to_serializable(&self) -> SerializableProfile<'_> {
         SerializableProfile(self)
     }
 }

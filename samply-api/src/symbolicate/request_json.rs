@@ -8,7 +8,7 @@ pub enum Request {
 }
 
 impl Request {
-    pub fn jobs(&self) -> JobIterator {
+    pub fn jobs(&self) -> JobIterator<'_> {
         match self {
             Request::WithJobsList { jobs } => JobIterator::WithJobsList(jobs.iter()),
             Request::JustOneJob(job) => JobIterator::JustOneJob(std::iter::once(job)),

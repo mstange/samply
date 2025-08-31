@@ -113,7 +113,7 @@ impl<T: FileContents + 'static> PeSymbolMapDataAndObject<T> {
 }
 
 impl<T: FileContents + 'static> ObjectSymbolMapOuter<T> for PeSymbolMapDataAndObject<T> {
-    fn make_symbol_map_inner(&self) -> Result<ObjectSymbolMapInnerWrapper<T>, Error> {
+    fn make_symbol_map_inner(&self) -> Result<ObjectSymbolMapInnerWrapper<'_, T>, Error> {
         let PeObject {
             file_data,
             object,
@@ -205,7 +205,7 @@ trait PdbAddr2lineContextTrait {
     fn find_frames(
         &self,
         probe: u32,
-    ) -> Result<Option<pdb_addr2line::FunctionFrames>, pdb_addr2line::Error>;
+    ) -> Result<Option<pdb_addr2line::FunctionFrames<'_>>, pdb_addr2line::Error>;
     fn function_count(&self) -> usize;
     fn functions(&self) -> Box<dyn Iterator<Item = pdb_addr2line::Function> + '_>;
 }
@@ -214,7 +214,7 @@ impl PdbAddr2lineContextTrait for pdb_addr2line::Context<'_, '_> {
     fn find_frames(
         &self,
         probe: u32,
-    ) -> Result<Option<pdb_addr2line::FunctionFrames>, pdb_addr2line::Error> {
+    ) -> Result<Option<pdb_addr2line::FunctionFrames<'_>>, pdb_addr2line::Error> {
         self.find_frames(probe)
     }
 
