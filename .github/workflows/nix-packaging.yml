@@ -13,7 +13,7 @@ jobs:
     runs-on: ubuntu-22.04
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: cachix/install-nix-action@v31
         with:
           nix_path: nixpkgs=channel:nixos-23.11

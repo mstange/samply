@@ -492,7 +492,7 @@ impl<T: FileContents> MachOFatArchiveMemberData<T> {
         }
     }
 
-    pub fn data(&self) -> RangeReadRef<&'_ FileContentsWrapper<T>> {
+    pub fn data(&self) -> RangeReadRef<'_, &'_ FileContentsWrapper<T>> {
         let file_contents_ref = &self.file_data;
         file_contents_ref.range(self.start_offset, self.range_size)
     }
@@ -629,7 +629,7 @@ impl<'data, R: ReadRef<'data>> MachOData<'data, R> {
 
     fn load_command_iter<M: MachHeader>(
         &self,
-    ) -> object::read::Result<(M::Endian, LoadCommandIterator<M::Endian>)> {
+    ) -> object::read::Result<(M::Endian, LoadCommandIterator<'_, M::Endian>)> {
         let header = M::parse(self.data, self.header_offset)?;
         let endian = header.endian()?;
         let load_commands = header.load_commands(endian, self.data, self.header_offset)?;
