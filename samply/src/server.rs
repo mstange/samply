@@ -67,7 +67,11 @@ pub async fn start_server(
 
     let token = generate_token();
     let path_prefix = format!("/{token}");
-    let server_origin = format!("http://{addr}");
+    let env_server_override = std::env::var("SERVER_URL").ok();
+    let server_origin = match &env_server_override {
+        Some(s) => s.trim_end_matches('/').to_string(),
+        None => format!("http://{addr}"),
+    };
     let symbol_server_url = format!("{server_origin}{path_prefix}");
     let mut template_values: HashMap<&'static str, String> = HashMap::new();
     template_values.insert("SERVER_URL", server_origin.clone());
