@@ -9,7 +9,7 @@ license = "MIT OR Apache-2.0"
 # This crate is not part of the samply workspace.
 
 [lib]
-crate_type = ["cdylib"]
+crate-type = ["cdylib"]
 
 [profile.dev]
 panic = "abort"

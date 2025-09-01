@@ -441,18 +441,6 @@ impl OsIpcChannel {
     }
 }
 
-#[derive(PartialEq, Eq, Debug)]
-pub struct OsOpaqueIpcChannel {
-    port: mach_port_t,
-}
-
-impl Drop for OsOpaqueIpcChannel {
-    fn drop(&mut self) {
-        // Make sure we don't leak!
-        debug_assert!(self.port == MACH_PORT_NULL);
-    }
-}
-
 unsafe fn setup_receive_buffer(buffer: &mut [u8], port_name: mach_port_t) {
     let message = &buffer[0] as *const u8 as *mut mach_msg_header_t;
     (*message).msgh_local_port = port_name;
