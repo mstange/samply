@@ -509,6 +509,9 @@ where
     // profile, GZ decompression and breakpad index building + file writing happen on
     // different threads, and the download is 2x faster.
     let consumer_task = move || {
+        // One more buffer, why not.
+        consumer.blocking_send_surprise_buffer(vec![0u8; CHUNK_SIZE]);
+
         if !consumer.swap_blocking() {
             return Ok::<O, DownloadError>(chunk_consumer.finish()); // No data to consume
         }

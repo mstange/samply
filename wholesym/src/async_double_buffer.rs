@@ -56,6 +56,13 @@ impl<T> BufferSide<T> {
             None => false,
         }
     }
+
+    pub fn blocking_send_surprise_buffer(&mut self, buffer: T) -> bool
+    where
+        T: Send,
+    {
+        self.swap_sender.blocking_send(buffer).is_ok()
+    }
 }
 
 impl<T> Deref for BufferSide<T> {
@@ -73,9 +80,10 @@ impl<T> DerefMut for BufferSide<T> {
 }
 
 /// Create a double buffer from two buffer instances
+#[allow(unused)]
 pub fn double_buffer<T>(buffer_a: T, buffer_b: T) -> (BufferSide<T>, BufferSide<T>) {
-    let (sender_a, receiver_b) = mpsc::channel(1);
-    let (sender_b, receiver_a) = mpsc::channel(1);
+    let (sender_a, receiver_b) = mpsc::channel(2);
+    let (sender_b, receiver_a) = mpsc::channel(2);
 
     let side_a = BufferSide {
         current_buffer: Some(buffer_a),
