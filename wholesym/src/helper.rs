@@ -384,7 +384,7 @@ impl Helper {
                     .downloader
                     .initiate_download(&url, Some(self.observer.clone()))
                     .await?;
-                let bytes = download.download_to_memory(None).await?;
+                let bytes = download.download_to_memory().await?;
                 return Ok(WholesymFileContents::Bytes(bytes.into()));
             }
             WholesymFileLocation::SymsrvFile(filename, hash) => {
