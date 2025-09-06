@@ -293,11 +293,11 @@ impl PendingDownload {
     pub async fn download_to_file(
         self,
         dest_path: &Path,
-        mut chunk_consumer: Option<&mut (dyn FnMut(&[u8]) + Send)>,
+        chunk_consumer: Option<&mut (dyn FnMut(&[u8]) + Send)>,
     ) -> Result<FileDownloadOutcome, DownloadError> {
         let PendingDownload {
             reporter,
-            mut stream,
+            stream,
             observer,
             ts_after_status,
         } = self;
@@ -322,31 +322,7 @@ impl PendingDownload {
         > = create_file_cleanly(
             dest_path,
             |dest_file: std::fs::File| async move {
-                let mut dest_file = tokio::fs::File::from_std(dest_file);
-                let mut buf = vec![0u8; 2 * 1024 * 1024 /* 2 MiB */];
-                let mut uncompressed_size_in_bytes = 0;
-                loop {
-                    let count = stream
-                        .read(&mut buf)
-                        .await
-                        .map_err(DownloadError::StreamRead)?;
-                    if count == 0 {
-                        break;
-                    }
-                    uncompressed_size_in_bytes += count as u64;
-                    dest_file
-                        .write_all(&buf[..count])
-                        .await
-                        .map_err(DownloadError::DiskWrite)?;
-                    if let Some(chunk_consumer) = &mut chunk_consumer {
-                        chunk_consumer(&buf[..count]);
-                    }
-                }
-                dest_file.flush().await.map_err(DownloadError::DiskWrite)?;
-                Ok((
-                    FileDownloadOutcome::DidCreateNewFile,
-                    uncompressed_size_in_bytes,
-                ))
+                consume_stream_and_write_to_file(stream, chunk_consumer, dest_file).await
             },
             || async {
                 let size = std::fs::metadata(dest_path)
@@ -450,4 +426,37 @@ impl PendingDownload {
 
         Ok(bytes)
     }
+}
+
+#[allow(clippy::type_complexity)]
+async fn consume_stream_and_write_to_file(
+    mut stream: Pin<Box<dyn AsyncRead + Send + Sync>>,
+    mut chunk_consumer: Option<&mut (dyn FnMut(&[u8]) + Send)>,
+    dest_file: std::fs::File,
+) -> Result<(FileDownloadOutcome, u64), DownloadError> {
+    let mut dest_file = tokio::fs::File::from_std(dest_file);
+    let mut buf = vec![0u8; 2 * 1024 * 1024 /* 2 MiB */];
+    let mut uncompressed_size_in_bytes = 0;
+    loop {
+        let count = stream
+            .read(&mut buf)
+            .await
+            .map_err(DownloadError::StreamRead)?;
+        if count == 0 {
+            break;
+        }
+        uncompressed_size_in_bytes += count as u64;
+        dest_file
+            .write_all(&buf[..count])
+            .await
+            .map_err(DownloadError::DiskWrite)?;
+        if let Some(chunk_consumer) = &mut chunk_consumer {
+            chunk_consumer(&buf[..count]);
+        }
+    }
+    dest_file.flush().await.map_err(DownloadError::DiskWrite)?;
+    Ok((
+        FileDownloadOutcome::DidCreateNewFile,
+        uncompressed_size_in_bytes,
+    ))
 }
