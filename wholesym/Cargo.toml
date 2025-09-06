@@ -35,7 +35,7 @@ reqwest = { version = "0.12", default-features = false, features = [
 ] }
 bytes = "1.10"
 memmap2 = "0.9.4"
-tokio = { version = "1.38", features = ["fs"] }
+tokio = { version = "1.38", features = ["fs", "macros"] }
 futures-util = "0.3.30"
 fs4 = "0.13"
 thiserror = "2"
@@ -62,4 +62,4 @@ features = ["zlib-rs"]
 
 [dev-dependencies]
 futures = "0.3.5"
-tokio = { version = "1.38", features = ["macros"] } # Feature "macros" for #[tokio::test]
+tokio = { version = "1.38", features = ["macros", "rt", "rt-multi-thread"] } # Features for #[tokio::test]
