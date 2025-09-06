@@ -507,6 +507,9 @@ where
     // which is a gzip-compressed file that uncompresses to 922MB. In the profile above, this
     // work is fully CPU bound and basically bottlenecked by the GZ decompression.
     let consumer_task = move || {
+        // One more buffer, why not.
+        consumer.blocking_send_surprise_buffer(vec![0u8; CHUNK_SIZE]);
+
         if !consumer.swap_blocking() {
             return Ok::<O, DownloadError>(chunk_consumer.finish()); // No data to consume
         }
