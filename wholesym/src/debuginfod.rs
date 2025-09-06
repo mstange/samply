@@ -163,7 +163,7 @@ impl ManualDebuginfodDownloader {
             .initiate_download(&url, self.observer.clone())
             .await
             .ok()?;
-        download.download_to_file(&dest_path, None).await.ok()?;
+        download.download_to_file(&dest_path).await.ok()?;
 
         Some(dest_path)
     }

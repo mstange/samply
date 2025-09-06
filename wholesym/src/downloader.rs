@@ -161,6 +161,20 @@ impl Drop for DownloadStatusReporter {
     }
 }
 
+pub trait ChunkConsumer {
+    type Output;
+    fn consume_chunk(&mut self, chunk_data: &[u8]);
+    fn finish(self) -> Self::Output;
+}
+
+struct NoopChunkConsumer;
+
+impl ChunkConsumer for NoopChunkConsumer {
+    type Output = ();
+    fn consume_chunk(&mut self, _chunk_data: &[u8]) {}
+    fn finish(self) -> Self::Output {}
+}
+
 pub struct Downloader {
     reqwest_client: Result<reqwest::Client, reqwest::Error>,
 }
@@ -283,18 +297,29 @@ pub struct PendingDownload {
     ts_after_status: Instant,
 }
 
-pub enum FileDownloadOutcome {
-    DidCreateNewFile,
+pub enum FileDownloadOutcome<T> {
+    DidCreateNewFile(T),
     FoundExistingFile,
 }
 
 impl PendingDownload {
-    #[allow(clippy::type_complexity)]
     pub async fn download_to_file(
         self,
         dest_path: &Path,
-        chunk_consumer: Option<&mut (dyn FnMut(&[u8]) + Send)>,
-    ) -> Result<FileDownloadOutcome, DownloadError> {
+    ) -> Result<FileDownloadOutcome<()>, DownloadError> {
+        self.download_to_file_with_chunk_consumer(dest_path, NoopChunkConsumer)
+            .await
+    }
+
+    pub async fn download_to_file_with_chunk_consumer<C, O>(
+        self,
+        dest_path: &Path,
+        chunk_consumer: C,
+    ) -> Result<FileDownloadOutcome<O>, DownloadError>
+    where
+        C: ChunkConsumer<Output = O> + Send + 'static,
+        O: Send + 'static,
+    {
         let PendingDownload {
             reporter,
             stream,
@@ -317,7 +342,7 @@ impl PendingDownload {
         }
 
         let download_result: Result<
-            (FileDownloadOutcome, u64),
+            (FileDownloadOutcome<C::Output>, u64),
             CleanFileCreationError<DownloadError>,
         > = create_file_cleanly(
             dest_path,
@@ -371,10 +396,7 @@ impl PendingDownload {
 
     #[allow(clippy::type_complexity)]
     #[allow(dead_code)]
-    pub async fn download_to_memory(
-        self,
-        mut chunk_consumer: Option<&mut (dyn FnMut(&[u8]) + Send)>,
-    ) -> Result<Vec<u8>, DownloadError> {
+    pub async fn download_to_memory(self) -> Result<Vec<u8>, DownloadError> {
         let PendingDownload {
             reporter,
             mut stream,
@@ -399,9 +421,6 @@ impl PendingDownload {
                 }
                 uncompressed_size_in_bytes += count as u64;
                 bytes_ref.extend_from_slice(&buf[..count]);
-                if let Some(chunk_consumer) = &mut chunk_consumer {
-                    chunk_consumer(&buf[..count]);
-                }
             }
             Ok(uncompressed_size_in_bytes)
         }
@@ -428,12 +447,15 @@ impl PendingDownload {
     }
 }
 
-#[allow(clippy::type_complexity)]
-async fn consume_stream_and_write_to_file(
+async fn consume_stream_and_write_to_file<C, O>(
     mut stream: Pin<Box<dyn AsyncRead + Send + Sync>>,
-    mut chunk_consumer: Option<&mut (dyn FnMut(&[u8]) + Send)>,
+    mut chunk_consumer: C,
     dest_file: std::fs::File,
-) -> Result<(FileDownloadOutcome, u64), DownloadError> {
+) -> Result<(FileDownloadOutcome<O>, u64), DownloadError>
+where
+    C: ChunkConsumer<Output = O> + Send + 'static,
+    O: Send + 'static,
+{
     let mut dest_file = tokio::fs::File::from_std(dest_file);
     let mut buf = vec![0u8; 2 * 1024 * 1024 /* 2 MiB */];
     let mut uncompressed_size_in_bytes = 0;
@@ -446,17 +468,18 @@ async fn consume_stream_and_write_to_file(
             break;
         }
         uncompressed_size_in_bytes += count as u64;
+        chunk_consumer.consume_chunk(&buf[..count]);
         dest_file
             .write_all(&buf[..count])
             .await
             .map_err(DownloadError::DiskWrite)?;
-        if let Some(chunk_consumer) = &mut chunk_consumer {
-            chunk_consumer(&buf[..count]);
-        }
     }
+
+    let chunk_consumer_output = chunk_consumer.finish();
     dest_file.flush().await.map_err(DownloadError::DiskWrite)?;
+
     Ok((
-        FileDownloadOutcome::DidCreateNewFile,
+        FileDownloadOutcome::DidCreateNewFile(chunk_consumer_output),
         uncompressed_size_in_bytes,
     ))
 }
