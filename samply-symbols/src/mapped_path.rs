@@ -1,3 +1,59 @@
+use std::borrow::Cow;
+
+use nom::branch::alt;
+use nom::bytes::complete::{tag, take_till1, take_until1, take_while1};
+use nom::character::complete::one_of;
+use nom::error::ErrorKind;
+use nom::sequence::{delimited, preceded, terminated, tuple};
+use nom::Err;
+
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+pub enum UnparsedMappedPath {
+    Url(String),
+    BreakpadSpecialPath(String),
+    RawPath(String),
+}
+
+impl UnparsedMappedPath {
+    pub fn from_special_path_str(breakpad_special_path: &str) -> Self {
+        Self::BreakpadSpecialPath(breakpad_special_path.to_owned())
+    }
+    pub fn from_url(url: &str) -> Self {
+        Self::Url(url.to_owned())
+    }
+    pub fn from_raw_path(raw_path: &str) -> Self {
+        Self::RawPath(raw_path.to_owned())
+    }
+    pub fn parse(&self) -> Option<MappedPath> {
+        match self {
+            UnparsedMappedPath::Url(url) => MappedPath::from_url(url),
+            UnparsedMappedPath::BreakpadSpecialPath(bsp) => MappedPath::from_special_path_str(bsp),
+            UnparsedMappedPath::RawPath(raw) => MappedPath::from_raw_path(raw),
+        }
+    }
+    pub fn display_path(&self) -> Option<Cow<'_, str>> {
+        if let Some(mp) = self.parse() {
+            let display_path = mp.display_path().into_owned();
+            Some(display_path.into())
+        } else {
+            None
+        }
+    }
+    pub fn special_path_str(&self) -> Option<Cow<'_, str>> {
+        let mp = match self {
+            UnparsedMappedPath::Url(url) => MappedPath::from_url(url),
+            UnparsedMappedPath::BreakpadSpecialPath(bsp) => return Some(bsp.into()),
+            UnparsedMappedPath::RawPath(raw) => MappedPath::from_raw_path(raw),
+        };
+        if let Some(mp) = mp {
+            let display_path = mp.to_special_path_str();
+            Some(display_path.into())
+        } else {
+            None
+        }
+    }
+}
+
 /// A special source file path for source files which are hosted online.
 ///
 /// About "special path" strings: Special paths strings are a string serialization
@@ -63,6 +119,10 @@ impl MappedPath {
         parse_url(url)
     }
 
+    pub fn from_raw_path(raw_path: &str) -> Option<Self> {
+        parse_raw_path(raw_path)
+    }
+
     /// Serialize this mapped path to a string, using the "special path" syntax.
     pub fn to_special_path_str(&self) -> String {
         match self {
@@ -83,17 +143,17 @@ impl MappedPath {
     }
 
     /// Create a short, display-friendly form of this path.
-    pub fn display_path(&self) -> String {
+    pub fn display_path(&self) -> Cow<'_, str> {
         match self {
-            MappedPath::Git { path, .. } => path.clone(),
-            MappedPath::Hg { path, .. } => path.clone(),
-            MappedPath::S3 { path, .. } => path.clone(),
+            MappedPath::Git { path, .. } => path.into(),
+            MappedPath::Hg { path, .. } => path.into(),
+            MappedPath::S3 { path, .. } => path.into(),
             MappedPath::Cargo {
                 crate_name,
                 version,
                 path,
                 ..
-            } => format!("{crate_name}-{version}/{path}"),
+            } => format!("{crate_name}-{version}/{path}").into(),
         }
     }
 }
@@ -202,10 +262,91 @@ fn parse_url(input: &str) -> Option<MappedPath> {
             digest,
             path,
         }
+    } else if let Some(mapped_path) = parse_gitiles_url(input) {
+        mapped_path
     } else {
         return None;
     };
     Some(mapped_path)
+}
+
+fn parse_raw_path(raw_path: &str) -> Option<MappedPath> {
+    if let Ok(p) = map_rustc_path(raw_path) {
+        return Some(p);
+    }
+    if let Ok(p) = map_cargo_dep_path(raw_path) {
+        return Some(p);
+    }
+    None
+}
+
+fn map_rustc_path(input: &str) -> Result<MappedPath, nom::Err<nom::error::Error<&str>>> {
+    // /rustc/c79419af0721c614d050f09b95f076da09d37b0d/library/std/src/rt.rs
+    // /rustc/e1884a8e3c3e813aada8254edfa120e85bf5ffca\/library\std\src\rt.rs
+    // /rustc/a178d0322ce20e33eac124758e837cbd80a6f633\library\std\src\rt.rs
+    let (input, rev) = delimited(
+        tag("/rustc/"),
+        take_till1(|c| c == '/' || c == '\\'),
+        take_while1(|c| c == '/' || c == '\\'),
+    )(input)?;
+    let path = input.replace('\\', "/");
+    Ok(MappedPath::Git {
+        repo: "github.com/rust-lang/rust".into(),
+        path,
+        rev: rev.to_owned(),
+    })
+}
+
+fn map_cargo_dep_path(input: &str) -> Result<MappedPath, nom::Err<nom::error::Error<&str>>> {
+    // /Users/mstange/.cargo/registry/src/github.com-1ecc6299db9ec823/nom-7.1.3/src/bytes/complete.rs
+    let (input, (registry, crate_name_and_version)) = preceded(
+        tuple((
+            alt((take_until1("/.cargo"), take_until1("\\.cargo"))),
+            delimited(one_of("/\\"), tag(".cargo"), one_of("/\\")),
+            terminated(tag("registry"), one_of("/\\")),
+            terminated(tag("src"), one_of("/\\")),
+        )),
+        tuple((
+            terminated(take_till1(|c| c == '/' || c == '\\'), one_of("/\\")),
+            terminated(take_till1(|c| c == '/' || c == '\\'), one_of("/\\")),
+        )),
+    )(input)?;
+    let (crate_name, version) = match crate_name_and_version.rfind('-') {
+        Some(pos) => (
+            &crate_name_and_version[..pos],
+            &crate_name_and_version[(pos + 1)..],
+        ),
+        None => {
+            return Err(Err::Error(nom::error::Error::new(
+                crate_name_and_version,
+                ErrorKind::Digit,
+            )))
+        }
+    };
+    let path = input.replace('\\', "/");
+    Ok(MappedPath::Cargo {
+        registry: registry.to_owned(),
+        crate_name: crate_name.to_owned(),
+        version: version.to_owned(),
+        path,
+    })
+}
+
+fn parse_gitiles_url(input: &str) -> Option<MappedPath> {
+    // https://pdfium.googlesource.com/pdfium.git/+/dab1161c861cc239e48a17e1a5d729aa12785a53/core/fdrm/fx_crypt.cpp?format=TEXT
+    // -> "git:pdfium.googlesource.com/pdfium:core/fdrm/fx_crypt.cpp:dab1161c861cc239e48a17e1a5d729aa12785a53"
+    // https://chromium.googlesource.com/chromium/src.git/+/c15858db55ed54c230743eaa9678117f21d5517e/third_party/blink/renderer/core/svg/svg_point.cc?format=TEXT
+    // -> "git:chromium.googlesource.com/chromium/src:third_party/blink/renderer/core/svg/svg_point.cc:c15858db55ed54c230743eaa9678117f21d5517e"
+    let input = input
+        .strip_prefix("https://")?
+        .strip_suffix("?format=TEXT")?;
+    let (repo, input) = input.split_once(".git/+/")?;
+    let (rev, path) = input.split_once('/')?;
+    Some(MappedPath::Git {
+        repo: repo.to_owned(),
+        path: path.to_owned(),
+        rev: rev.to_owned(),
+    })
 }
 
 #[cfg(test)]
@@ -370,6 +511,81 @@ mod test {
         test_roundtrip("cargo:github.com-1ecc6299db9ec823:tokio-1.6.1:src/runtime/task/mod.rs");
         test_roundtrip(
             "cargo:github.com-1ecc6299db9ec823:fxprof-processed-profile-0.3.0:src/lib.rs",
+        );
+    }
+
+    #[test]
+    fn test_map_rustc_path() {
+        assert_eq!(
+            map_rustc_path(
+                r#"/rustc/c79419af0721c614d050f09b95f076da09d37b0d/library/std/src/rt.rs"#
+            ),
+            Ok(MappedPath::Git {
+                repo: "github.com/rust-lang/rust".into(),
+                path: "library/std/src/rt.rs".into(),
+                rev: "c79419af0721c614d050f09b95f076da09d37b0d".into()
+            })
+        );
+        assert_eq!(
+            map_rustc_path(
+                r"/rustc/e1884a8e3c3e813aada8254edfa120e85bf5ffca\/library\std\src\rt.rs"
+            ),
+            Ok(MappedPath::Git {
+                repo: "github.com/rust-lang/rust".into(),
+                path: "library/std/src/rt.rs".into(),
+                rev: "e1884a8e3c3e813aada8254edfa120e85bf5ffca".into()
+            })
+        );
+        assert_eq!(
+            map_rustc_path(
+                r"/rustc/a178d0322ce20e33eac124758e837cbd80a6f633\library\std\src\rt.rs"
+            ),
+            Ok(MappedPath::Git {
+                repo: "github.com/rust-lang/rust".into(),
+                path: "library/std/src/rt.rs".into(),
+                rev: "a178d0322ce20e33eac124758e837cbd80a6f633".into()
+            })
+        );
+    }
+
+    #[test]
+    fn test_map_cargo_dep_path() {
+        assert_eq!(
+            map_cargo_dep_path(
+                r#"/Users/mstange/.cargo/registry/src/github.com-1ecc6299db9ec823/nom-7.1.3/src/bytes/complete.rs"#
+            ),
+            Ok(MappedPath::Cargo {
+                registry: "github.com-1ecc6299db9ec823".into(),
+                crate_name: "nom".into(),
+                version: "7.1.3".into(),
+                path: "src/bytes/complete.rs".into(),
+            })
+        );
+    }
+
+    #[test]
+    fn test_parse_gitiles_url() {
+        assert_eq!(
+            parse_gitiles_url("https://pdfium.googlesource.com/pdfium.git/+/dab1161c861cc239e48a17e1a5d729aa12785a53/core/fdrm/fx_crypt.cpp?format=TEXT"),
+            Some(MappedPath::Git{
+                repo: "pdfium.googlesource.com/pdfium".into(),
+                rev: "dab1161c861cc239e48a17e1a5d729aa12785a53".into(),
+                path: "core/fdrm/fx_crypt.cpp".into(),
+            })
+        );
+
+        assert_eq!(
+            parse_gitiles_url("https://chromium.googlesource.com/chromium/src.git/+/c15858db55ed54c230743eaa9678117f21d5517e/third_party/blink/renderer/core/svg/svg_point.cc?format=TEXT"),
+            Some(MappedPath::Git{
+                repo: "chromium.googlesource.com/chromium/src".into(),
+                rev: "c15858db55ed54c230743eaa9678117f21d5517e".into(),
+                path: "third_party/blink/renderer/core/svg/svg_point.cc".into(),
+            })
+        );
+
+        assert_eq!(
+            parse_gitiles_url("https://pdfium.googlesource.com/pdfium.git/+/dab1161c861cc239e48a17e1a5d729aa12785a53/core/fdrm/fx_crypt.cpp?format=TEXTotherstuff"),
+            None
         );
     }
 }

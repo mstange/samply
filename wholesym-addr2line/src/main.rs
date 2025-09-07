@@ -43,9 +43,9 @@ fn print_loc(
     if let Some(file) = file {
         let file = file.display_path();
         let path = if basenames {
-            Path::new(&file).file_name().unwrap().to_string_lossy()
+            Path::new(&*file).file_name().unwrap().to_string_lossy()
         } else {
-            file.into()
+            file
         };
         print!("{path}:");
         if llvm {

@@ -52,7 +52,7 @@ pub fn convert_stack_frame<R: gimli::Reader>(
     };
     let file_path = frame.location.as_ref().and_then(|l| l.file).map(|file| {
         let mapped_path = path_mapper.map_path(file);
-        SourceFilePath::new(file.into(), mapped_path)
+        SourceFilePath::new(file.into(), Some(mapped_path))
     });
 
     FrameDebugInfo {
