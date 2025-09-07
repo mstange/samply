@@ -284,7 +284,7 @@ impl<T: FileContents> JitDumpSymbolMapInner<'_, T> {
             let file_path = String::from_utf8_lossy(&entry.file_path.as_slice()).into_owned();
             let frame = FrameDebugInfo {
                 function: Some(name.clone()),
-                file_path: Some(SourceFilePath::new(file_path, None)),
+                file_path: Some(SourceFilePath::RawPath(file_path)),
                 line_number: Some(entry.line),
             };
             Some(FramesLookupResult::Available(vec![frame]))

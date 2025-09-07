@@ -4,7 +4,6 @@ use samply_symbols::SourceFilePath;
 
 pub fn to_api_file_path(file_path: &SourceFilePath) -> Cow<'_, str> {
     file_path
-        .mapped_path()
-        .and_then(|mp| mp.special_path_str())
+        .special_path_str()
         .unwrap_or_else(|| file_path.raw_path().into())
 }

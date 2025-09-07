@@ -289,7 +289,15 @@ impl SymbolMapTrait for PdbSymbolMapInner<'_> {
             let mut path_mapper = self.path_mapper.lock().unwrap();
             let mut map_path = |path: Cow<str>| {
                 let mapped_path = path_mapper.map_path(&path);
-                SourceFilePath::new(path.into_owned(), Some(mapped_path))
+                match mapped_path {
+                    UnparsedMappedPath::Url(url) => {
+                        SourceFilePath::RawPathAndUrl(path.into_owned(), url)
+                    }
+                    UnparsedMappedPath::BreakpadSpecialPath(_) => unreachable!(
+                        "path_mapper should never UnparsedMappedPath::BreakpadSpecialPath"
+                    ),
+                    UnparsedMappedPath::RawPath(_) => SourceFilePath::RawPath(path.into_owned()),
+                }
             };
             let frames: Vec<_> = function_frames
                 .frames

@@ -181,7 +181,7 @@ impl wholesym::samply_symbols::SymbolMapTrait for PrecogLibrarySymbols {
                                 .map(|frame| wholesym::FrameDebugInfo {
                                     function: self.get_owned_opt_string(frame.function),
                                     file_path: frame.file.map(|file| {
-                                        SourceFilePath::new(self.get_string(file).to_owned(), None)
+                                        SourceFilePath::RawPath(self.get_string(file).to_owned())
                                     }),
                                     line_number: frame.line,
                                 })
