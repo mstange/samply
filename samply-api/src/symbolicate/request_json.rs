@@ -20,7 +20,7 @@ impl Request {
 #[serde(rename_all = "camelCase")]
 pub struct Job {
     pub memory_map: Vec<Lib>,
-    pub stacks: Vec<Stack>,
+    pub stacks: Vec<RequestStack>,
 }
 
 #[derive(Deserialize, Debug, PartialEq, Eq, Hash, Clone)]
@@ -30,10 +30,10 @@ pub struct Lib {
 }
 
 #[derive(Deserialize, Debug)]
-pub struct Stack(pub Vec<StackFrame>);
+pub struct RequestStack(pub Vec<RequestFrame>);
 
 #[derive(Deserialize, Debug)]
-pub struct StackFrame {
+pub struct RequestFrame {
     /// index into memory_map
     pub module_index: u32,
     /// lib-relative memory offset
