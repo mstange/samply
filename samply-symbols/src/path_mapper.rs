@@ -31,6 +31,6 @@ impl<E: ExtraPathMapper> PathMapper<E> {
             }
         }
 
-        UnparsedMappedPath::from_raw_path(raw_path)
+        UnparsedMappedPath::RawPath(raw_path.to_string())
     }
 }

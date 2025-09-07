@@ -452,7 +452,7 @@ impl ExtraPathMapper for SrcSrvPathMapper<'_> {
             .source_and_raw_var_values_for_path(path, "C:\\Dummy")
         {
             Ok(Some((srcsrv::SourceRetrievalMethod::Download { url }, _map))) => {
-                Some(UnparsedMappedPath::from_url(&url))
+                Some(UnparsedMappedPath::Url(url))
             }
             Ok(Some((srcsrv::SourceRetrievalMethod::ExecuteCommand { .. }, map))) => {
                 // We're not going to execute a command here.
@@ -530,7 +530,7 @@ impl<'a> SrcSrvPathMapper<'a> {
         }
 
         let url = map.get("var4")?;
-        Some(UnparsedMappedPath::from_url(url))
+        Some(UnparsedMappedPath::Url(url.clone()))
     }
 }
 
