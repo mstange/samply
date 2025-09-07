@@ -206,9 +206,9 @@ impl<'a, I: FileOrInlineOrigin, T: FileContents> ItemCache<'a, I, T> {
         }
     }
 
-    pub fn get_string(&mut self, index: u32) -> Result<String, Error> {
+    pub fn get_string(&mut self, index: u32) -> Result<&'a str, Error> {
         match self.item_strings.entry(index) {
-            Entry::Occupied(name) => Ok(name.get().to_string()),
+            Entry::Occupied(name) => Ok(name.get()),
             Entry::Vacant(vacant) => {
                 let entry = self
                     .item_map
@@ -226,7 +226,7 @@ impl<'a, I: FileOrInlineOrigin, T: FileContents> ItemCache<'a, I, T> {
                         )
                     })?;
                 let s = I::parse(line)?;
-                Ok(vacant.insert(s).to_string())
+                Ok(vacant.insert(s))
             }
         }
     }
@@ -331,12 +331,13 @@ impl<T: FileContents> SymbolMapTrait for BreakpadSymbolMapInner<'_, T> {
 
                 let mut frames = Vec::new();
                 let mut depth = 0;
-                let mut name = Some(info.name.to_string());
+                let mut name = Some(info.name);
                 while let Some(inlinee) = info.get_inlinee_at_depth(depth, address) {
                     let file = files.get_string(inlinee.call_file).ok();
                     frames.push(FrameDebugInfo {
-                        function: name,
-                        file_path: file.map(SourceFilePath::BreakpadSpecialPathStr),
+                        function: name.map(ToString::to_string),
+                        file_path: file
+                            .map(|f| SourceFilePath::BreakpadSpecialPathStr(f.to_string())),
                         line_number: Some(inlinee.call_line),
                     });
                     let inline_origin = inline_origins.get_string(inlinee.origin_id).ok();
@@ -351,8 +352,8 @@ impl<T: FileContents> SymbolMapTrait for BreakpadSymbolMapInner<'_, T> {
                     (None, None)
                 };
                 frames.push(FrameDebugInfo {
-                    function: name,
-                    file_path: file.map(SourceFilePath::BreakpadSpecialPathStr),
+                    function: name.map(ToString::to_string),
+                    file_path: file.map(|f| SourceFilePath::BreakpadSpecialPathStr(f.to_string())),
                     line_number,
                 });
                 frames.reverse();
