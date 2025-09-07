@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 #[cfg(feature = "partial_read_stats")]
 use std::cell::RefCell;
 use std::fmt::{Debug, Display};
@@ -14,7 +15,7 @@ use object::read::ReadRef;
 use object::FileFlags;
 use uuid::Uuid;
 
-use crate::mapped_path::MappedPath;
+use crate::mapped_path::UnparsedMappedPath;
 use crate::symbol_map::SymbolMapTrait;
 
 pub type FileAndPathHelperError = Box<dyn std::error::Error + Send + Sync + 'static>;
@@ -517,42 +518,31 @@ pub trait FileLocation: Clone + Display {
 /// build machine). The mapped path is something like a permalink which potentially
 /// allows obtaining the source file from a source server or a public hosted repository.
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
-pub struct SourceFilePath {
-    /// The raw path to the source file, as written down in the debug file. This is
-    /// usually an absolute path.
-    raw_path: String,
-
-    /// A variant of the path which may allow obtaining the source code for this file
-    /// from the web.
-    mapped_path: Option<MappedPath>,
+pub enum SourceFilePath {
+    RawPath(String),
+    BreakpadSpecialPathStr(String),
+    RawPathAndUrl(String, String),
 }
 
 impl SourceFilePath {
-    /// Create a new `SourceFilePath`.
-    pub fn new(raw_path: String, mapped_path: Option<MappedPath>) -> Self {
-        Self {
-            raw_path,
-            mapped_path,
-        }
-    }
-
-    /// Create a `SourceFilePath` from a path in a Breakpad .sym file. Such files can
-    /// contain the "special path" serialization of a mapped path, but they can
-    /// also contain absolute paths.
-    pub fn from_breakpad_path(raw_path: String) -> Self {
-        let mapped_path = MappedPath::from_special_path_str(&raw_path);
-        Self {
-            raw_path,
-            mapped_path,
-        }
-    }
-
     /// A short, display-friendly version of this path.
-    pub fn display_path(&self) -> String {
-        match self.mapped_path() {
-            Some(mapped_path) => mapped_path.display_path(),
-            None => self.raw_path.clone(),
+    pub fn display_path(&self) -> Cow<'_, str> {
+        if let Some(display_path) = self.mapped_path().display_path() {
+            let display_path = display_path.to_string();
+            return display_path.into();
         }
+        Cow::Borrowed(self.raw_path())
+    }
+
+    pub fn special_path_str(&self) -> Option<Cow<'_, str>> {
+        if let Self::BreakpadSpecialPathStr(bsp) = self {
+            return Some(bsp.into());
+        }
+        if let Some(bsp) = self.mapped_path().special_path_str() {
+            let bsp = bsp.to_string();
+            return Some(bsp.into());
+        }
+        None
     }
 
     /// The raw path to the source file, as written down in the debug file. This is
@@ -583,12 +573,20 @@ impl SourceFilePath {
     /// be relative to the working directory, and because perf / objdump were resolving
     /// those relative paths relative to the current working directory.
     pub fn raw_path(&self) -> &str {
-        &self.raw_path
+        match self {
+            SourceFilePath::RawPath(raw) => raw,
+            SourceFilePath::BreakpadSpecialPathStr(bsp) => bsp, // is this ok?
+            SourceFilePath::RawPathAndUrl(raw, _) => raw,
+        }
     }
 
     /// Returns the raw path while consuming this `SourceFilePath`.
     pub fn into_raw_path(self) -> String {
-        self.raw_path
+        match self {
+            SourceFilePath::RawPath(raw) => raw,
+            SourceFilePath::BreakpadSpecialPathStr(bsp) => bsp, // is this ok?
+            SourceFilePath::RawPathAndUrl(raw, _) => raw,
+        }
     }
 
     /// A variant of the path which may allow obtaining the source code for this file
@@ -601,13 +599,14 @@ impl SourceFilePath {
     ///   - If the source file can be obtained from a github URL, and we know this either
     ///     from the `srcsrv` stream of a PDB file or because we recognize a path of the
     ///     form `/rustc/<rust-revision>/`, then we create a mapped path of the form [`MappedPath::Git`].
-    pub fn mapped_path(&self) -> Option<&MappedPath> {
-        self.mapped_path.as_ref()
-    }
-
-    /// Returns the mapped path while consuming this `SourceFilePath`.
-    pub fn into_mapped_path(self) -> Option<MappedPath> {
-        self.mapped_path
+    pub fn mapped_path(&self) -> UnparsedMappedPath {
+        match self {
+            SourceFilePath::RawPath(raw) => UnparsedMappedPath::RawPath(raw.clone()),
+            SourceFilePath::BreakpadSpecialPathStr(bsp) => {
+                UnparsedMappedPath::BreakpadSpecialPath(bsp.clone())
+            }
+            SourceFilePath::RawPathAndUrl(_, url) => UnparsedMappedPath::Url(url.clone()),
+        }
     }
 }
 

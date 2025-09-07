@@ -51,8 +51,8 @@ pub fn convert_stack_frame<R: gimli::Reader>(
         None => None,
     };
     let file_path = frame.location.as_ref().and_then(|l| l.file).map(|file| {
-        let mapped_path = path_mapper.map_path(file);
-        SourceFilePath::new(file.into(), mapped_path)
+        let _mapped_path = path_mapper.map_path(file); // TODO: remove path mapper everywhere
+        SourceFilePath::RawPath(file.into())
     });
 
     FrameDebugInfo {

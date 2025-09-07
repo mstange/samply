@@ -46,7 +46,7 @@ fn for_docs() {
             if let Some(frames) = address_info.frames {
                 for (i, frame) in frames.into_iter().enumerate() {
                     let function = frame.function.unwrap();
-                    let file = frame.file_path.unwrap().display_path();
+                    let file = frame.file_path.as_ref().unwrap().display_path();
                     let line = frame.line_number.unwrap();
                     println!("  #{i:02} {function} at {file}:{line}");
                 }

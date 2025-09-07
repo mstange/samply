@@ -19,8 +19,8 @@ fn convert_address_frame(
 ) -> Option<ProfileAddressFrame> {
     let function_name = strtab.index_for_string(frame.function.as_ref()?);
     let file = frame.file_path.as_ref().map(|source_file_path| {
-        if let Some(mapped_path) = source_file_path.mapped_path() {
-            strtab.index_for_string(&mapped_path.to_special_path_str())
+        if let Some(mapped_path) = source_file_path.special_path_str() {
+            strtab.index_for_string(&mapped_path)
         } else {
             strtab.index_for_string(source_file_path.raw_path())
         }

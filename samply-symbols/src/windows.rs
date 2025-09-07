@@ -13,7 +13,7 @@ use yoke_derive::Yokeable;
 use crate::debugid_util::debug_id_for_object;
 use crate::dwarf::Addr2lineContextData;
 use crate::error::{Context, Error};
-use crate::mapped_path::MappedPath;
+use crate::mapped_path::UnparsedMappedPath;
 use crate::path_mapper::{ExtraPathMapper, PathMapper};
 use crate::shared::{
     FileAndPathHelper, FileContents, FileContentsWrapper, FileLocation, FrameDebugInfo,
@@ -289,7 +289,15 @@ impl SymbolMapTrait for PdbSymbolMapInner<'_> {
             let mut path_mapper = self.path_mapper.lock().unwrap();
             let mut map_path = |path: Cow<str>| {
                 let mapped_path = path_mapper.map_path(&path);
-                SourceFilePath::new(path.into_owned(), mapped_path)
+                match mapped_path {
+                    UnparsedMappedPath::Url(url) => {
+                        SourceFilePath::RawPathAndUrl(path.into_owned(), url)
+                    }
+                    UnparsedMappedPath::BreakpadSpecialPath(_) => unreachable!(
+                        "path_mapper should never UnparsedMappedPath::BreakpadSpecialPath"
+                    ),
+                    UnparsedMappedPath::RawPath(_) => SourceFilePath::RawPath(path.into_owned()),
+                }
             };
             let frames: Vec<_> = function_frames
                 .frames
@@ -429,12 +437,12 @@ pub fn get_symbol_map_for_pdb<H: FileAndPathHelper>(
 ///   - "s3:<bucket>:<digest_and_path>:"
 struct SrcSrvPathMapper<'a> {
     srcsrv_stream: srcsrv::SrcSrvStream<'a>,
-    cache: HashMap<String, Option<MappedPath>>,
+    cache: HashMap<String, Option<UnparsedMappedPath>>,
     command_is_file_download_with_url_in_var4_and_uncompress_function_in_var5: bool,
 }
 
 impl ExtraPathMapper for SrcSrvPathMapper<'_> {
-    fn map_path(&mut self, path: &str) -> Option<MappedPath> {
+    fn map_path(&mut self, path: &str) -> Option<UnparsedMappedPath> {
         if let Some(value) = self.cache.get(path) {
             return value.clone();
         }
@@ -444,7 +452,7 @@ impl ExtraPathMapper for SrcSrvPathMapper<'_> {
             .source_and_raw_var_values_for_path(path, "C:\\Dummy")
         {
             Ok(Some((srcsrv::SourceRetrievalMethod::Download { url }, _map))) => {
-                MappedPath::from_url(&url)
+                Some(UnparsedMappedPath::from_url(&url))
             }
             Ok(Some((srcsrv::SourceRetrievalMethod::ExecuteCommand { .. }, map))) => {
                 // We're not going to execute a command here.
@@ -513,7 +521,7 @@ impl<'a> SrcSrvPathMapper<'a> {
     ///
     /// Due to this limitation, the Chrome PDBs contain a workaround which uses python to do the
     /// base64 decoding. We detect this workaround and try to obtain the original paths.
-    fn gitiles_to_mapped_path(&self, map: &HashMap<String, String>) -> Option<MappedPath> {
+    fn gitiles_to_mapped_path(&self, map: &HashMap<String, String>) -> Option<UnparsedMappedPath> {
         if !self.command_is_file_download_with_url_in_var4_and_uncompress_function_in_var5 {
             return None;
         }
@@ -522,7 +530,7 @@ impl<'a> SrcSrvPathMapper<'a> {
         }
 
         let url = map.get("var4")?;
-        parse_gitiles_url(url)
+        Some(UnparsedMappedPath::from_url(url))
     }
 }
 
@@ -585,52 +593,4 @@ fn function_start_and_end_addresses(pdata: &[u8]) -> (Vec<u32>, Vec<u32>) {
         end_addresses.push(end_address);
     }
     (start_addresses, end_addresses)
-}
-
-fn parse_gitiles_url(input: &str) -> Option<MappedPath> {
-    // https://pdfium.googlesource.com/pdfium.git/+/dab1161c861cc239e48a17e1a5d729aa12785a53/core/fdrm/fx_crypt.cpp?format=TEXT
-    // -> "git:pdfium.googlesource.com/pdfium:core/fdrm/fx_crypt.cpp:dab1161c861cc239e48a17e1a5d729aa12785a53"
-    // https://chromium.googlesource.com/chromium/src.git/+/c15858db55ed54c230743eaa9678117f21d5517e/third_party/blink/renderer/core/svg/svg_point.cc?format=TEXT
-    // -> "git:chromium.googlesource.com/chromium/src:third_party/blink/renderer/core/svg/svg_point.cc:c15858db55ed54c230743eaa9678117f21d5517e"
-    let input = input
-        .strip_prefix("https://")?
-        .strip_suffix("?format=TEXT")?;
-    let (repo, input) = input.split_once(".git/+/")?;
-    let (rev, path) = input.split_once('/')?;
-    Some(MappedPath::Git {
-        repo: repo.to_owned(),
-        path: path.to_owned(),
-        rev: rev.to_owned(),
-    })
-}
-
-#[cfg(test)]
-mod test {
-    use super::*;
-
-    #[test]
-    fn test_parse_gitiles_url() {
-        assert_eq!(
-            parse_gitiles_url("https://pdfium.googlesource.com/pdfium.git/+/dab1161c861cc239e48a17e1a5d729aa12785a53/core/fdrm/fx_crypt.cpp?format=TEXT"),
-            Some(MappedPath::Git{
-                repo: "pdfium.googlesource.com/pdfium".into(),
-                rev: "dab1161c861cc239e48a17e1a5d729aa12785a53".into(),
-                path: "core/fdrm/fx_crypt.cpp".into(),
-            })
-        );
-
-        assert_eq!(
-            parse_gitiles_url("https://chromium.googlesource.com/chromium/src.git/+/c15858db55ed54c230743eaa9678117f21d5517e/third_party/blink/renderer/core/svg/svg_point.cc?format=TEXT"),
-            Some(MappedPath::Git{
-                repo: "chromium.googlesource.com/chromium/src".into(),
-                rev: "c15858db55ed54c230743eaa9678117f21d5517e".into(),
-                path: "third_party/blink/renderer/core/svg/svg_point.cc".into(),
-            })
-        );
-
-        assert_eq!(
-            parse_gitiles_url("https://pdfium.googlesource.com/pdfium.git/+/dab1161c861cc239e48a17e1a5d729aa12785a53/core/fdrm/fx_crypt.cpp?format=TEXTotherstuff"),
-            None
-        );
-    }
 }

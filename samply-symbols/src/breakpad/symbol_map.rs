@@ -336,7 +336,7 @@ impl<T: FileContents> SymbolMapTrait for BreakpadSymbolMapInner<'_, T> {
                     let file = files.get_string(inlinee.call_file).ok();
                     frames.push(FrameDebugInfo {
                         function: name,
-                        file_path: file.map(SourceFilePath::from_breakpad_path),
+                        file_path: file.map(SourceFilePath::BreakpadSpecialPathStr),
                         line_number: Some(inlinee.call_line),
                     });
                     let inline_origin = inline_origins.get_string(inlinee.origin_id).ok();
@@ -352,7 +352,7 @@ impl<T: FileContents> SymbolMapTrait for BreakpadSymbolMapInner<'_, T> {
                 };
                 frames.push(FrameDebugInfo {
                     function: name,
-                    file_path: file.map(SourceFilePath::from_breakpad_path),
+                    file_path: file.map(SourceFilePath::BreakpadSpecialPathStr),
                     line_number,
                 });
                 frames.reverse();
@@ -449,7 +449,7 @@ mod test {
             frames[0],
             FrameDebugInfo {
                 function: Some("WriteRelease64(long long*, long long)".into()),
-                file_path: Some(SourceFilePath::new("/builds/worker/workspace/obj-build/browser/app/d:/agent/_work/2/s/src/externalapis/windows/10/sdk/inc/winnt.h".into(), None)),
+                file_path: Some(SourceFilePath::BreakpadSpecialPathStr("/builds/worker/workspace/obj-build/browser/app/d:/agent/_work/2/s/src/externalapis/windows/10/sdk/inc/winnt.h".into())),
                 line_number: Some(7729)
             }
         );
@@ -457,7 +457,7 @@ mod test {
             frames[1],
             FrameDebugInfo {
                 function: Some("WritePointerRelease(void**, void*)".into()),
-                file_path: Some(SourceFilePath::new("/builds/worker/workspace/obj-build/browser/app/d:/agent/_work/2/s/src/externalapis/windows/10/sdk/inc/winnt.h".into(), None)),
+                file_path: Some(SourceFilePath::BreakpadSpecialPathStr("/builds/worker/workspace/obj-build/browser/app/d:/agent/_work/2/s/src/externalapis/windows/10/sdk/inc/winnt.h".into())),
                 line_number: Some(8358)
             }
         );
@@ -465,7 +465,7 @@ mod test {
             frames[2],
             FrameDebugInfo {
                 function: Some("DloadUnlock()".into()),
-                file_path: Some(SourceFilePath::new("/builds/worker/workspace/obj-build/browser/app/d:/agent/_work/2/s/src/vctools/delayimp/dloadsup.h".into(), None)),
+                file_path: Some(SourceFilePath::BreakpadSpecialPathStr("/builds/worker/workspace/obj-build/browser/app/d:/agent/_work/2/s/src/vctools/delayimp/dloadsup.h".into())),
                 line_number: Some(345)
             }
         );
@@ -473,7 +473,7 @@ mod test {
             frames[3],
             FrameDebugInfo {
                 function: Some("DloadAcquireSectionWriteAccess()".into()),
-                file_path: Some(SourceFilePath::new("/builds/worker/workspace/obj-build/browser/app/d:/agent/_work/2/s/src/vctools/delayimp/dloadsup.h".into(), None)),
+                file_path: Some(SourceFilePath::BreakpadSpecialPathStr("/builds/worker/workspace/obj-build/browser/app/d:/agent/_work/2/s/src/vctools/delayimp/dloadsup.h".into())),
                 line_number: Some(665)
             }
         );
