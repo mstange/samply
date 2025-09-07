@@ -6,20 +6,6 @@ where
     serializer.collect_str(&format_args!("{field:#x}"))
 }
 
-pub fn as_optional_hex_string<S, T>(
-    field: &Option<T>,
-    serializer: S,
-) -> std::result::Result<S::Ok, S::Error>
-where
-    S: serde::Serializer,
-    T: std::fmt::LowerHex,
-{
-    match field {
-        Some(field) => serializer.collect_str(&format_args!("{field:#x}")),
-        None => serializer.serialize_none(),
-    }
-}
-
 pub fn from_prefixed_hex_str<'de, D>(deserializer: D) -> Result<u32, D::Error>
 where
     D: serde::Deserializer<'de>,
