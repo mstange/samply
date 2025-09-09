@@ -229,7 +229,6 @@ mod external_file;
 mod jitdump;
 mod macho;
 mod mapped_path;
-mod path_mapper;
 mod shared;
 mod symbol_map;
 mod symbol_map_object;

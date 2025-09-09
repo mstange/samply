@@ -14,7 +14,6 @@ use crate::debugid_util::debug_id_for_object;
 use crate::dwarf::Addr2lineContextData;
 use crate::error::{Context, Error};
 use crate::mapped_path::UnparsedMappedPath;
-use crate::path_mapper::{ExtraPathMapper, PathMapper};
 use crate::shared::{
     FileAndPathHelper, FileContents, FileContentsWrapper, FileLocation, FrameDebugInfo,
     FramesLookupResult, LookupAddress, SourceFilePath, SymbolInfo,
@@ -181,7 +180,6 @@ impl<FC: FileContents + 'static> PdbObjectTrait for PdbObject<'_, FC> {
             )?)),
             None => None,
         };
-        let path_mapper = PathMapper::new_with_maybe_extra_mapper(path_mapper);
 
         let symbol_map = PdbSymbolMapInner {
             context,
@@ -233,7 +231,7 @@ pub struct PdbSymbolMapInnerWrapper<'data>(Box<dyn SymbolMapTrait + Send + 'data
 struct PdbSymbolMapInner<'object> {
     context: Box<dyn PdbAddr2lineContextTrait + Send + 'object>,
     debug_id: DebugId,
-    path_mapper: Mutex<PathMapper<SrcSrvPathMapper<'object>>>,
+    path_mapper: Mutex<Option<SrcSrvPathMapper<'object>>>,
 }
 
 impl SymbolMapTrait for PdbSymbolMapInner<'_> {
@@ -288,16 +286,12 @@ impl SymbolMapTrait for PdbSymbolMapInner<'_> {
         let frames = if has_debug_info(&function_frames) {
             let mut path_mapper = self.path_mapper.lock().unwrap();
             let mut map_path = |path: Cow<str>| {
-                let mapped_path = path_mapper.map_path(&path);
-                match mapped_path {
-                    UnparsedMappedPath::Url(url) => {
-                        SourceFilePath::RawPathAndUrl(path.into_owned(), url)
+                if let Some(path_mapper) = &mut *path_mapper {
+                    if let Some(UnparsedMappedPath::Url(url)) = path_mapper.map_path(&path) {
+                        return SourceFilePath::RawPathAndUrl(path.into_owned(), url);
                     }
-                    UnparsedMappedPath::BreakpadSpecialPath(_) => unreachable!(
-                        "path_mapper should never UnparsedMappedPath::BreakpadSpecialPath"
-                    ),
-                    UnparsedMappedPath::RawPath(_) => SourceFilePath::RawPath(path.into_owned()),
                 }
+                SourceFilePath::RawPath(path.into_owned())
             };
             let frames: Vec<_> = function_frames
                 .frames
@@ -441,7 +435,7 @@ struct SrcSrvPathMapper<'a> {
     command_is_file_download_with_url_in_var4_and_uncompress_function_in_var5: bool,
 }
 
-impl ExtraPathMapper for SrcSrvPathMapper<'_> {
+impl<'a> SrcSrvPathMapper<'a> {
     fn map_path(&mut self, path: &str) -> Option<UnparsedMappedPath> {
         if let Some(value) = self.cache.get(path) {
             return value.clone();
@@ -464,9 +458,7 @@ impl ExtraPathMapper for SrcSrvPathMapper<'_> {
         self.cache.insert(path.to_string(), value.clone());
         value
     }
-}
 
-impl<'a> SrcSrvPathMapper<'a> {
     pub fn new(srcsrv_stream: srcsrv::SrcSrvStream<'a>) -> Self {
         let command_is_file_download_with_url_in_var4_and_uncompress_function_in_var5 =
             Self::matches_chrome_gitiles_workaround(&srcsrv_stream);
