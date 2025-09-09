@@ -46,9 +46,11 @@ fn for_docs() {
             if let Some(frames) = address_info.frames {
                 for (i, frame) in frames.into_iter().enumerate() {
                     let function = frame.function.unwrap();
-                    let file = frame.file_path.as_ref().unwrap().display_path();
+
+                    let file = symbol_map.resolve_source_file_path(frame.file_path.unwrap());
+                    let path = file.display_path();
                     let line = frame.line_number.unwrap();
-                    println!("  #{i:02} {function} at {file}:{line}");
+                    println!("  #{i:02} {function} at {path}:{line}");
                 }
             }
         } else {
@@ -148,11 +150,15 @@ async fn dwz_symbolication() {
 
     // Check information coming from the debug info found via build ID:
     assert_eq!(
-        frames[0].file_path.as_ref().unwrap().raw_path(),
+        symbol_map
+            .resolve_source_file_path(frames[0].file_path.unwrap())
+            .raw_path(),
         "./src/ls.c"
     );
     assert_eq!(
-        frames[1].file_path.as_ref().unwrap().raw_path(),
+        symbol_map
+            .resolve_source_file_path(frames[1].file_path.unwrap())
+            .raw_path(),
         "./src/ls.c"
     );
 
@@ -189,10 +195,17 @@ mod simple_example {
             .map(|frame| {
                 (
                     frame.function.as_deref().unwrap(),
-                    frame.file_path.as_ref().unwrap().raw_path(),
+                    symbol_map
+                        .resolve_source_file_path(frame.file_path.unwrap())
+                        .raw_path()
+                        .to_owned(),
                     frame.line_number.unwrap(),
                 )
             })
+            .collect();
+        let test_frames: Vec<_> = test_frames
+            .iter()
+            .map(|(f, p, l)| (*f, p.as_str(), *l))
             .collect();
         let test_address_info = TestAddressInfo {
             symbol: (

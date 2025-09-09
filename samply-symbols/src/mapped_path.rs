@@ -8,13 +8,13 @@ use nom::sequence::{delimited, preceded, terminated, tuple};
 use nom::Err;
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
-pub enum UnparsedMappedPath {
-    Url(String),
-    BreakpadSpecialPath(String),
-    RawPath(String),
+pub enum UnparsedMappedPath<'a> {
+    Url(Cow<'a, str>),
+    BreakpadSpecialPath(Cow<'a, str>),
+    RawPath(Cow<'a, str>),
 }
 
-impl UnparsedMappedPath {
+impl<'a> UnparsedMappedPath<'a> {
     pub fn parse(&self) -> Option<MappedPath<'_>> {
         match self {
             UnparsedMappedPath::Url(url) => MappedPath::from_url(url),
@@ -28,7 +28,7 @@ impl UnparsedMappedPath {
     pub fn special_path_str(&self) -> Option<Cow<'_, str>> {
         let mp = match self {
             UnparsedMappedPath::Url(url) => MappedPath::from_url(url),
-            UnparsedMappedPath::BreakpadSpecialPath(bsp) => return Some(bsp.into()),
+            UnparsedMappedPath::BreakpadSpecialPath(bsp) => return Some(Cow::Borrowed(bsp)),
             UnparsedMappedPath::RawPath(raw) => MappedPath::from_raw_path(raw),
         };
         mp.map(|mp| mp.to_special_path_str().into())

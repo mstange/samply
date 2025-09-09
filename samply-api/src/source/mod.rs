@@ -73,6 +73,7 @@ impl<'a, H: FileAndPathHelper> SourceApi<'a, H> {
         let source_file_path = frames
             .into_iter()
             .filter_map(|frame| frame.file_path)
+            .map(|path| symbol_map.resolve_source_file_path(path))
             .find(|file_path| to_api_file_path(file_path) == *requested_file)
             .ok_or(SourceError::InvalidPath)?;
 

@@ -7,22 +7,23 @@ use gimli::{DwarfPackage, EndianSlice, Reader, RunTimeEndian, SectionId};
 use object::read::ReadRef;
 use object::CompressionFormat;
 
-use crate::shared::FrameDebugInfo;
-use crate::{demangle, Error, SourceFilePath};
+use crate::{demangle, Error, FrameDebugInfo, PathInterner};
 
 pub fn get_frames<R: Reader>(
     address: u64,
     context: Option<&addr2line::Context<R>>,
+    path_interner: &mut PathInterner,
 ) -> Option<Vec<FrameDebugInfo>> {
     let frame_iter = context?.find_frames(address).skip_all_loads().ok()?;
-    convert_frames(frame_iter)
+    convert_frames(frame_iter, path_interner)
 }
 
 pub fn convert_frames<'a, R: gimli::Reader>(
     frame_iter: impl FallibleIterator<Item = addr2line::Frame<'a, R>>,
+    path_interner: &mut PathInterner,
 ) -> Option<Vec<FrameDebugInfo>> {
     let frames: Vec<_> = frame_iter
-        .map(|f| Ok(convert_stack_frame(f)))
+        .map(|f| Ok(convert_stack_frame(f, path_interner)))
         .collect()
         .ok()?;
 
@@ -33,7 +34,10 @@ pub fn convert_frames<'a, R: gimli::Reader>(
     }
 }
 
-pub fn convert_stack_frame<R: gimli::Reader>(frame: addr2line::Frame<R>) -> FrameDebugInfo {
+pub fn convert_stack_frame<R: gimli::Reader>(
+    frame: addr2line::Frame<R>,
+    path_interner: &mut PathInterner,
+) -> FrameDebugInfo {
     let function = match frame.function {
         Some(function_name) => {
             if let Ok(name) = function_name.raw_name() {
@@ -48,7 +52,7 @@ pub fn convert_stack_frame<R: gimli::Reader>(frame: addr2line::Frame<R>) -> Fram
         .location
         .as_ref()
         .and_then(|l| l.file)
-        .map(|file| SourceFilePath::RawPath(file.into()));
+        .map(|file| path_interner.intern_owned(file));
 
     FrameDebugInfo {
         function,

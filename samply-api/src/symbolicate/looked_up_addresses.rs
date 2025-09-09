@@ -1,6 +1,16 @@
 use std::collections::BTreeMap;
 
-use samply_symbols::FrameDebugInfo;
+use samply_symbols::{FrameDebugInfo, SourceFilePath, SourceFilePathHandle};
+
+pub trait PathResolver {
+    fn resolve_source_file_path(&self, handle: SourceFilePathHandle) -> SourceFilePath<'_>;
+}
+
+impl PathResolver for () {
+    fn resolve_source_file_path(&self, _handle: SourceFilePathHandle) -> SourceFilePath<'_> {
+        unreachable!()
+    }
+}
 
 pub struct AddressResult {
     pub symbol_address: u32,

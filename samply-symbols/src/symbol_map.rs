@@ -3,10 +3,10 @@ use std::sync::Arc;
 
 use debugid::DebugId;
 
-use crate::shared::LookupAddress;
 use crate::{
     AddressInfo, ExternalFileAddressRef, ExternalFileRef, FileAndPathHelper, FileLocation,
-    FrameDebugInfo, FramesLookupResult, SyncAddressInfo,
+    FrameDebugInfo, FramesLookupResult, LookupAddress, SourceFilePath, SourceFilePathHandle,
+    SyncAddressInfo,
 };
 
 pub trait SymbolMapTrait {
@@ -24,6 +24,8 @@ pub trait SymbolMapTrait {
     /// `FramesLookupResult::External` if the caller actually needs to supply new
     /// file contents with a follow-up call to `try_lookup_external_with_file_contents`.
     fn lookup_sync(&self, address: LookupAddress) -> Option<SyncAddressInfo>;
+
+    fn resolve_source_file_path(&self, handle: SourceFilePathHandle) -> SourceFilePath<'_>;
 }
 
 pub trait SymbolMapTraitWithExternalFileSupport<FC>: SymbolMapTrait {
@@ -213,5 +215,9 @@ impl<H: FileAndPathHelper> SymbolMap<H> {
             };
             lookup_result = inner.try_lookup_external_with_file_contents(&external, file_contents);
         }
+    }
+
+    pub fn resolve_source_file_path(&self, handle: SourceFilePathHandle) -> SourceFilePath<'_> {
+        self.inner().resolve_source_file_path(handle)
     }
 }

@@ -4,11 +4,14 @@ use std::path::PathBuf;
 
 use assert_json_diff::assert_json_eq;
 pub use samply_api::debugid::DebugId;
-use samply_api::{samply_symbols, Api, QueryApiJsonResult};
+use samply_api::samply_symbols;
 use samply_symbols::{
     CandidatePathInfo, FileAndPathHelper, FileAndPathHelperResult, FileLocation, LibraryInfo,
     OptionallySendFuture, SymbolManager,
 };
+
+#[derive(serde_derive::Serialize)]
+pub struct QueryApiJsonResult(samply_api::QueryApiJsonResult<Helper>);
 
 pub async fn query_api(
     request_url: &str,
@@ -17,8 +20,8 @@ pub async fn query_api(
 ) -> QueryApiJsonResult {
     let helper = Helper { symbol_directory };
     let symbol_manager = SymbolManager::with_helper(helper);
-    let api = Api::new(&symbol_manager);
-    api.query_api(request_url, request_json).await
+    let api = samply_api::Api::new(&symbol_manager);
+    QueryApiJsonResult(api.query_api(request_url, request_json).await)
 }
 
 struct Helper {

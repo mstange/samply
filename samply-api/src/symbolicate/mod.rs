@@ -1,10 +1,14 @@
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use samply_symbols::{
-    FileAndPathHelper, FramesLookupResult, LibraryInfo, LookupAddress, SymbolManager,
+    FileAndPathHelper, FramesLookupResult, LibraryInfo, LookupAddress, SourceFilePath,
+    SourceFilePathHandle, SymbolManager, SymbolMap,
 };
 
 use crate::error::Error;
+use crate::symbolicate::looked_up_addresses::PathResolver;
+use crate::symbolicate::response_json::{PerLibResult, Response};
 use crate::to_debug_id;
 
 pub mod looked_up_addresses;
@@ -14,11 +18,17 @@ pub mod response_json;
 use looked_up_addresses::LookedUpAddresses;
 use request_json::Lib;
 
+impl<H: FileAndPathHelper> PathResolver for SymbolMap<H> {
+    fn resolve_source_file_path(&self, handle: SourceFilePathHandle) -> SourceFilePath<'_> {
+        self.resolve_source_file_path(handle)
+    }
+}
+
 pub struct SymbolicateApi<'a, H: FileAndPathHelper> {
     symbol_manager: &'a SymbolManager<H>,
 }
 
-impl<'a, H: FileAndPathHelper> SymbolicateApi<'a, H> {
+impl<'a, H: FileAndPathHelper + 'static> SymbolicateApi<'a, H> {
     /// Create a [`SymbolicateApi`] instance which uses the provided [`SymbolManager`].
     pub fn new(symbol_manager: &'a SymbolManager<H>) -> Self {
         Self { symbol_manager }
@@ -27,7 +37,7 @@ impl<'a, H: FileAndPathHelper> SymbolicateApi<'a, H> {
     pub async fn query_api_json(
         &self,
         request_json: &str,
-    ) -> Result<response_json::Response, Error> {
+    ) -> Result<response_json::Response<H>, Error> {
         let request: request_json::Request = serde_json::from_str(request_json)?;
         self.query_api(request).await
     }
@@ -35,18 +45,21 @@ impl<'a, H: FileAndPathHelper> SymbolicateApi<'a, H> {
     pub async fn query_api(
         &self,
         request: request_json::Request,
-    ) -> Result<response_json::Response, Error> {
+    ) -> Result<response_json::Response<H>, Error> {
         let requested_addresses = gather_requested_addresses(&request)?;
-        let symbolicated_addresses = self
+        let per_lib_results = self
             .symbolicate_requested_addresses(requested_addresses)
             .await;
-        Ok(create_response(request, symbolicated_addresses))
+        Ok(Response {
+            request,
+            per_lib_results,
+        })
     }
 
     async fn symbolicate_requested_addresses(
         &self,
         requested_addresses: HashMap<Lib, Vec<u32>>,
-    ) -> HashMap<Lib, Result<LookedUpAddresses, samply_symbols::Error>> {
+    ) -> HashMap<Lib, Result<PerLibResult<H>, samply_symbols::Error>> {
         let mut symbolicated_addresses = HashMap::new();
         for (lib, addresses) in requested_addresses.into_iter() {
             let address_results = self
@@ -61,7 +74,7 @@ impl<'a, H: FileAndPathHelper> SymbolicateApi<'a, H> {
         &self,
         lib: &Lib,
         mut addresses: Vec<u32>,
-    ) -> Result<LookedUpAddresses, samply_symbols::Error> {
+    ) -> Result<PerLibResult<H>, samply_symbols::Error> {
         // Sort the addresses before the lookup, to have a higher chance of hitting
         // the same external file for subsequent addresses.
         addresses.sort_unstable();
@@ -69,7 +82,6 @@ impl<'a, H: FileAndPathHelper> SymbolicateApi<'a, H> {
 
         let debug_id = to_debug_id(&lib.breakpad_id)?;
 
-        let mut symbolication_result = LookedUpAddresses::for_addresses(&addresses);
         let mut external_addresses = Vec::new();
 
         // Do the synchronous work first, and accumulate external_addresses which need
@@ -82,6 +94,7 @@ impl<'a, H: FileAndPathHelper> SymbolicateApi<'a, H> {
             ..Default::default()
         };
         let symbol_map = self.symbol_manager.load_symbol_map(&info).await?;
+        let mut symbolication_result = LookedUpAddresses::for_addresses(&addresses);
 
         symbolication_result.set_total_symbol_count(symbol_map.symbol_count() as u32);
 
@@ -117,7 +130,12 @@ impl<'a, H: FileAndPathHelper> SymbolicateApi<'a, H> {
             }
         }
 
-        Ok(symbolication_result)
+        let outcome = PerLibResult {
+            address_results: symbolication_result,
+            symbol_map: Arc::new(symbol_map),
+        };
+
+        Ok(outcome)
     }
 }
 
@@ -146,16 +164,4 @@ fn gather_requested_addresses(
         }
     }
     Ok(requested_addresses)
-}
-
-fn create_response(
-    request: request_json::Request,
-    symbolicated_addresses: HashMap<Lib, Result<LookedUpAddresses, samply_symbols::Error>>,
-) -> response_json::Response {
-    use response_json::{Response, Results};
-
-    Response(Results {
-        request,
-        symbolicated_addresses,
-    })
 }

@@ -1289,9 +1289,9 @@ checksum = "bfae20f6b19ad527b550c223fddc3077a547fc70cda94b9b566575423fd303ee"
 
 [[package]]
 name = "linux-perf-data"
-version = "0.11.0"
+version = "0.11.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1f85f35725e15ad6c62b9db73f3d62439094e616a2f83500f7bcdc01ae5b84d8"
+checksum = "3ee44f48bb8d8ac1f6e55e294b211960d118c069863e7206913d138d2ddd6175"
 dependencies = [
  "byteorder",
  "linear-map",
@@ -3025,6 +3025,7 @@ dependencies = [
  "samply-api",
  "samply-symbols",
  "scopeguard",
+ "serde",
  "symsrv",
  "thiserror 2.0.16",
  "tokio",

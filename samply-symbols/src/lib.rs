@@ -226,10 +226,13 @@ mod dwarf;
 mod elf;
 mod error;
 mod external_file;
+mod generation;
 mod jitdump;
 mod macho;
 mod mapped_path;
+mod path_interner;
 mod shared;
+mod source_file_path;
 mod symbol_map;
 mod symbol_map_object;
 mod windows;
@@ -244,17 +247,19 @@ pub use crate::debugid_util::{debug_id_for_object, DebugIdExt};
 pub use crate::demangle::demangle_any;
 pub use crate::error::Error;
 pub use crate::external_file::{load_external_file, ExternalFileSymbolMap};
+pub use crate::generation::SymbolMapGeneration;
 pub use crate::jitdump::debug_id_and_code_id_for_jitdump;
 pub use crate::macho::FatArchiveMember;
 pub use crate::mapped_path::MappedPath;
+pub use crate::path_interner::PathInterner;
 pub use crate::shared::{
     relative_address_base, AddressInfo, CandidatePathInfo, CodeId, ElfBuildId,
     ExternalFileAddressInFileRef, ExternalFileAddressRef, ExternalFileRef, FileAndPathHelper,
     FileAndPathHelperError, FileAndPathHelperResult, FileContents, FileContentsWrapper,
     FileLocation, FrameDebugInfo, FramesLookupResult, LibraryInfo, LookupAddress,
-    MultiArchDisambiguator, OptionallySendFuture, PeCodeId, SourceFilePath, SymbolInfo,
-    SyncAddressInfo,
+    MultiArchDisambiguator, OptionallySendFuture, PeCodeId, SymbolInfo, SyncAddressInfo,
 };
+pub use crate::source_file_path::{SourceFilePath, SourceFilePathHandle, SourceFilePathIndex};
 pub use crate::symbol_map::{SymbolMap, SymbolMapTrait};
 
 pub struct SymbolManager<H: FileAndPathHelper> {
@@ -282,7 +287,7 @@ where
     pub async fn load_source_file(
         &self,
         debug_file_location: &H::FL,
-        source_file_path: &SourceFilePath,
+        source_file_path: &SourceFilePath<'_>,
     ) -> Result<String, Error> {
         let source_file_location = debug_file_location
             .location_for_source_file(source_file_path.raw_path())

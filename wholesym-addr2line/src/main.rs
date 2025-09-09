@@ -213,7 +213,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             }
                         }
 
-                        print_loc(&frame.file_path, frame.line_number, basenames, llvm);
+                        let path = frame
+                            .file_path
+                            .map(|p| symbol_map.resolve_source_file_path(p));
+                        print_loc(&path, frame.line_number, basenames, llvm);
 
                         printed_anything = true;
 
@@ -222,7 +225,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         }
                     }
                 } else if let Some(frame) = frames.first() {
-                    print_loc(&frame.file_path, frame.line_number, basenames, llvm);
+                    let path = frame
+                        .file_path
+                        .map(|p| symbol_map.resolve_source_file_path(p));
+                    print_loc(&path, frame.line_number, basenames, llvm);
                     printed_anything = true;
                 }
             } else {

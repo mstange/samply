@@ -14,6 +14,7 @@ use object::ReadRef;
 use zerocopy::{IntoBytes, LittleEndian, Ref, U32, U64};
 use zerocopy_derive::*;
 
+use crate::source_file_path::SourceFilePathIndex;
 use crate::CodeId;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -988,7 +989,7 @@ pub struct SourceLine {
     /// The source file name that generated this machine code.
     ///
     /// This is an index into `SymbolFile::files`.
-    pub file: u32,
+    pub file: SourceFilePathIndex,
     /// The line number in `file` that generated this machine code.
     pub line: u32,
 }
@@ -1005,7 +1006,7 @@ pub struct Inlinee {
     /// The source file which contains the function call.
     ///
     /// This is an index into `SymbolFile::files`.
-    pub call_file: u32,
+    pub call_file: SourceFilePathIndex,
     /// The line number in `call_file` for the function call.
     pub call_line: u32,
     /// The function name, as an index into `SymbolFile::inline_origins`.
@@ -1022,7 +1023,7 @@ fn parse_func_data_line(tokenizer: &mut Tokenizer) -> Result<SourceLine, ()> {
     tokenizer.consume_space1()?;
     let line = tokenizer.consume_decimal_u32()?;
     tokenizer.consume_space1()?;
-    let file = tokenizer.consume_decimal_u32()?;
+    let file = SourceFilePathIndex(tokenizer.consume_decimal_u32()?);
     Ok(SourceLine {
         address: address as u32,
         size,
@@ -1122,7 +1123,7 @@ fn parse_inline_line_remainder(
     tokenizer.consume_space1()?;
     let call_line = tokenizer.consume_decimal_u32()?;
     tokenizer.consume_space1()?;
-    let call_file = tokenizer.consume_decimal_u32()?;
+    let call_file = SourceFilePathIndex(tokenizer.consume_decimal_u32()?);
     tokenizer.consume_space1()?;
     let origin_id = tokenizer.consume_decimal_u32()?;
     tokenizer.consume_space1()?;
@@ -1242,7 +1243,7 @@ mod test {
             SourceLine {
                 address: 0x1130,
                 size: 0xf,
-                file: 0,
+                file: SourceFilePathIndex(0),
                 line: 24,
             }
         );
@@ -1251,7 +1252,7 @@ mod test {
             SourceLine {
                 address: 0x114f,
                 size: 0x9,
-                file: 0,
+                file: SourceFilePathIndex(0),
                 line: 27,
             }
         );

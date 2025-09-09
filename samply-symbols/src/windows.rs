@@ -13,16 +13,17 @@ use yoke_derive::Yokeable;
 use crate::debugid_util::debug_id_for_object;
 use crate::dwarf::Addr2lineContextData;
 use crate::error::{Context, Error};
+use crate::generation::SymbolMapGeneration;
 use crate::mapped_path::UnparsedMappedPath;
 use crate::shared::{
     FileAndPathHelper, FileContents, FileContentsWrapper, FileLocation, FrameDebugInfo,
-    FramesLookupResult, LookupAddress, SourceFilePath, SymbolInfo,
+    FramesLookupResult, LookupAddress, SymbolInfo,
 };
 use crate::symbol_map::{GetInnerSymbolMap, SymbolMap, SymbolMapTrait};
 use crate::symbol_map_object::{
     ObjectSymbolMap, ObjectSymbolMapInnerWrapper, ObjectSymbolMapOuter,
 };
-use crate::{demangle, SyncAddressInfo};
+use crate::{demangle, PathInterner, SourceFilePath, SourceFilePathHandle, SyncAddressInfo};
 
 pub async fn load_symbol_map_for_pdb_corresponding_to_binary<H: FileAndPathHelper>(
     file_kind: FileKind,
@@ -185,6 +186,7 @@ impl<FC: FileContents + 'static> PdbObjectTrait for PdbObject<'_, FC> {
             context,
             debug_id: self.debug_id,
             path_mapper: Mutex::new(path_mapper),
+            path_interner: Mutex::new(PathInterner::new(SymbolMapGeneration::new())),
         };
         Ok(symbol_map)
     }
@@ -232,9 +234,10 @@ struct PdbSymbolMapInner<'object> {
     context: Box<dyn PdbAddr2lineContextTrait + Send + 'object>,
     debug_id: DebugId,
     path_mapper: Mutex<Option<SrcSrvPathMapper<'object>>>,
+    path_interner: Mutex<PathInterner<'object>>,
 }
 
-impl SymbolMapTrait for PdbSymbolMapInner<'_> {
+impl<'object> SymbolMapTrait for PdbSymbolMapInner<'object> {
     fn debug_id(&self) -> DebugId {
         self.debug_id
     }
@@ -284,21 +287,13 @@ impl SymbolMapTrait for PdbSymbolMapInner<'_> {
             name: symbol_name,
         };
         let frames = if has_debug_info(&function_frames) {
-            let mut path_mapper = self.path_mapper.lock().unwrap();
-            let mut map_path = |path: Cow<str>| {
-                if let Some(path_mapper) = &mut *path_mapper {
-                    if let Some(UnparsedMappedPath::Url(url)) = path_mapper.map_path(&path) {
-                        return SourceFilePath::RawPathAndUrl(path.into_owned(), url);
-                    }
-                }
-                SourceFilePath::RawPath(path.into_owned())
-            };
+            let mut path_interner = self.path_interner.lock().unwrap();
             let frames: Vec<_> = function_frames
                 .frames
                 .into_iter()
                 .map(|frame| FrameDebugInfo {
                     function: frame.function,
-                    file_path: frame.file.map(&mut map_path),
+                    file_path: frame.file.map(|p| path_interner.intern_owned(&p)),
                     line_number: frame.line,
                 })
                 .collect();
@@ -308,6 +303,19 @@ impl SymbolMapTrait for PdbSymbolMapInner<'_> {
         };
 
         Some(SyncAddressInfo { symbol, frames })
+    }
+
+    fn resolve_source_file_path(&self, handle: SourceFilePathHandle) -> SourceFilePath<'object> {
+        let mut path_mapper = self.path_mapper.lock().unwrap();
+        let path_interner = self.path_interner.lock().unwrap();
+        let path = path_interner.resolve(handle).expect("unknown handle?");
+
+        if let Some(path_mapper) = &mut *path_mapper {
+            if let Some(UnparsedMappedPath::Url(url)) = path_mapper.map_path(&path) {
+                return SourceFilePath::RawPathAndUrl(path.clone(), url.clone());
+            }
+        }
+        SourceFilePath::RawPath(path.clone())
     }
 }
 
@@ -408,6 +416,10 @@ impl<T: FileContents> SymbolMapTrait for PdbSymbolMap<T> {
     fn lookup_sync(&self, address: LookupAddress) -> Option<SyncAddressInfo> {
         self.with_inner(|inner| inner.lookup_sync(address))
     }
+
+    fn resolve_source_file_path(&self, handle: SourceFilePathHandle) -> SourceFilePath<'_> {
+        self.with_inner(|inner| inner.resolve_source_file_path(handle).to_owned())
+    }
 }
 
 pub fn get_symbol_map_for_pdb<H: FileAndPathHelper>(
@@ -431,12 +443,12 @@ pub fn get_symbol_map_for_pdb<H: FileAndPathHelper>(
 ///   - "s3:<bucket>:<digest_and_path>:"
 struct SrcSrvPathMapper<'a> {
     srcsrv_stream: srcsrv::SrcSrvStream<'a>,
-    cache: HashMap<String, Option<UnparsedMappedPath>>,
+    cache: HashMap<String, Option<UnparsedMappedPath<'a>>>,
     command_is_file_download_with_url_in_var4_and_uncompress_function_in_var5: bool,
 }
 
 impl<'a> SrcSrvPathMapper<'a> {
-    fn map_path(&mut self, path: &str) -> Option<UnparsedMappedPath> {
+    fn map_path(&mut self, path: &str) -> Option<UnparsedMappedPath<'a>> {
         if let Some(value) = self.cache.get(path) {
             return value.clone();
         }
@@ -446,12 +458,12 @@ impl<'a> SrcSrvPathMapper<'a> {
             .source_and_raw_var_values_for_path(path, "C:\\Dummy")
         {
             Ok(Some((srcsrv::SourceRetrievalMethod::Download { url }, _map))) => {
-                Some(UnparsedMappedPath::Url(url))
+                Some(UnparsedMappedPath::Url(Cow::Owned(url)))
             }
             Ok(Some((srcsrv::SourceRetrievalMethod::ExecuteCommand { .. }, map))) => {
                 // We're not going to execute a command here.
                 // Instead, we have special handling for a few known cases (well, only one case for now).
-                self.gitiles_to_mapped_path(&map)
+                self.gitiles_to_mapped_path(map)
             }
             _ => None,
         };
@@ -513,16 +525,19 @@ impl<'a> SrcSrvPathMapper<'a> {
     ///
     /// Due to this limitation, the Chrome PDBs contain a workaround which uses python to do the
     /// base64 decoding. We detect this workaround and try to obtain the original paths.
-    fn gitiles_to_mapped_path(&self, map: &HashMap<String, String>) -> Option<UnparsedMappedPath> {
+    fn gitiles_to_mapped_path(
+        &self,
+        mut map: HashMap<String, String>,
+    ) -> Option<UnparsedMappedPath<'a>> {
         if !self.command_is_file_download_with_url_in_var4_and_uncompress_function_in_var5 {
             return None;
         }
-        if map.get("var5").map(String::as_str) != Some("base64.b64decode") {
+        if map.remove("var5").as_deref() != Some("base64.b64decode") {
             return None;
         }
 
-        let url = map.get("var4")?;
-        Some(UnparsedMappedPath::Url(url.clone()))
+        let url = map.remove("var4")?;
+        Some(UnparsedMappedPath::Url(Cow::Owned(url)))
     }
 }
 

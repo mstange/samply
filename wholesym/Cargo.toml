@@ -14,12 +14,13 @@ keywords = ["symbols", "profiling", "addr2line", "debuginfo"]
 [features]
 default = []
 # Enable the JSON API interface.
-api = ["samply-api"]
+api = ["samply-api", "serde"]
 
 [dependencies]
 debugid = "0.8.0"
 samply-api = { version = "0.24.0", path = "../samply-api", features = ["send_futures"], optional = true }
 samply-symbols = { version = "0.24.1", path = "../samply-symbols", features = ["send_futures"] }
+serde = { version = "1", optional = true }
 # symsrv = { path = "../../symsrv" }
 symsrv = "0.5.2"
 yoke = "0.8"

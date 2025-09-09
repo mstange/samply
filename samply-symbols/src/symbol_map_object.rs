@@ -13,6 +13,7 @@ use yoke::Yoke;
 use yoke_derive::Yokeable;
 
 use crate::dwarf::convert_frames;
+use crate::generation::SymbolMapGeneration;
 use crate::shared::{
     relative_address_base, ExternalFileAddressInFileRef, ExternalFileAddressRef, ExternalFileRef,
     FramesLookupResult, LookupAddress, SymbolInfo,
@@ -21,7 +22,10 @@ use crate::symbol_map::{
     GetInnerSymbolMap, GetInnerSymbolMapWithLookupFramesExt, SymbolMapTrait,
     SymbolMapTraitWithExternalFileSupport,
 };
-use crate::{demangle, Error, ExternalFileSymbolMap, FileContents, SyncAddressInfo};
+use crate::{
+    demangle, Error, ExternalFileSymbolMap, FileContents, PathInterner, SourceFilePath,
+    SourceFilePathHandle, SyncAddressInfo,
+};
 
 enum FullSymbolListEntry<'a, Symbol> {
     /// A synthesized symbol for a function start address that's known
@@ -360,6 +364,7 @@ pub struct ObjectSymbolMapInner<'a, Symbol, FC: FileContents + 'static, DDM> {
     image_base_address: u64,
     dwo_dwarf_maker: &'a DDM,
     cached_external_file: Mutex<Option<ExternalFileSymbolMap<FC>>>,
+    path_interner: Mutex<PathInterner<'a>>,
     _phantom: PhantomData<FC>,
 }
 
@@ -407,6 +412,7 @@ where
         external: &ExternalFileAddressRef,
         mut request: ExternalLookupRequest<FC>,
     ) -> Option<FramesLookupResult> {
+        let mut path_interner = self.path_interner.lock().unwrap();
         match &external.file_ref {
             ExternalFileRef::MachoExternalObject { file_path } => {
                 {
@@ -414,7 +420,7 @@ where
                     match &*cached_external_file {
                         Some(external_file) if external_file.file_path() == file_path => {
                             return external_file
-                                .lookup(&external.address_in_file)
+                                .lookup(&external.address_in_file, &mut path_interner)
                                 .map(FramesLookupResult::Available);
                         }
                         _ => {}
@@ -430,7 +436,7 @@ where
                 };
                 let external_file = ExternalFileSymbolMap::new(file_path, file_contents).ok()?;
                 let lookup_result = external_file
-                    .lookup(&external.address_in_file)
+                    .lookup(&external.address_in_file, &mut path_interner)
                     .map(FramesLookupResult::Available);
 
                 *self.cached_external_file.lock().unwrap() = Some(external_file);
@@ -478,7 +484,8 @@ where
                             continue;
                         }
                         LookupResult::Output(Ok(frame_iter)) => {
-                            convert_frames(frame_iter).map(FramesLookupResult::Available)
+                            convert_frames(frame_iter, &mut path_interner)
+                                .map(FramesLookupResult::Available)
                         }
                         LookupResult::Output(Err(_)) => None,
                     };
@@ -540,6 +547,7 @@ where
 
         let mut frames = None;
         if let Some(context) = self.context.as_ref() {
+            let mut path_interner = self.path_interner.lock().unwrap();
             let context = context.lock().unwrap();
             let mut lookup_result = context.find_frames(svma);
 
@@ -560,7 +568,8 @@ where
                         ))
                     }
                     LookupResult::Output(Ok(frame_iter)) => {
-                        convert_frames(frame_iter).map(FramesLookupResult::Available)
+                        convert_frames(frame_iter, &mut path_interner)
+                            .map(FramesLookupResult::Available)
                     }
                     LookupResult::Output(Err(_)) => {
                         drop(lookup_result);
@@ -580,6 +589,12 @@ where
             );
         }
         Some(SyncAddressInfo { symbol, frames })
+    }
+
+    fn resolve_source_file_path(&self, handle: SourceFilePathHandle) -> SourceFilePath<'_> {
+        let path_interner = self.path_interner.lock().unwrap();
+        let raw_path = path_interner.resolve(handle).expect("unknown handle?");
+        SourceFilePath::RawPath(raw_path.clone())
     }
 }
 
@@ -678,6 +693,7 @@ impl<'a, FC: FileContents + 'static> ObjectSymbolMapInnerWrapper<'a, FC> {
             svma_file_ranges: SvmaFileRanges::from_object(object_file),
             dwo_dwarf_maker,
             cached_external_file: Mutex::new(None),
+            path_interner: Mutex::new(PathInterner::new(SymbolMapGeneration::new())),
             _phantom: PhantomData,
         };
         Self(Box::new(inner))
