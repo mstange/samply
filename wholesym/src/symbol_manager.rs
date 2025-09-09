@@ -286,7 +286,11 @@ impl SymbolManager {
 
     /// Run a symbolication query with the "Tecken" JSON API.
     #[cfg(feature = "api")]
-    pub async fn query_json_api(&self, path: &str, request_json: &str) -> String {
+    pub async fn query_json_api(
+        &self,
+        path: &str,
+        request_json: &str,
+    ) -> samply_api::QueryApiJsonResult {
         let api = samply_api::Api::new(&self.symbol_manager);
         api.query_api(path, request_json).await
     }

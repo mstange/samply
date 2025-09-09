@@ -1,4 +1,7 @@
-use std::path::PathBuf;
+use std::{
+    io::{stdout, BufWriter},
+    path::PathBuf,
+};
 
 use clap::Parser;
 use query_api::query_api;
@@ -29,7 +32,9 @@ fn main() -> anyhow::Result<()> {
     };
     let response_json =
         futures::executor::block_on(query_api(&opt.url, &request_json, opt.symbol_directory));
-    println!("{response_json}");
+    let stdout_writer = stdout().lock();
+    let stdout_writer = BufWriter::new(stdout_writer);
+    serde_json::to_writer(stdout_writer, &response_json).unwrap();
     Ok(())
 }
 

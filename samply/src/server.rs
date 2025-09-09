@@ -1,5 +1,7 @@
 use std::collections::HashMap;
+use std::convert::Infallible;
 use std::ffi::OsStr;
+use std::io::BufWriter;
 use std::net::{IpAddr, SocketAddr};
 use std::ops::Range;
 use std::path::{Path, PathBuf};
@@ -8,7 +10,7 @@ use std::sync::Arc;
 
 use futures_util::TryStreamExt;
 use http_body_util::combinators::BoxBody;
-use http_body_util::{BodyExt, Either, StreamBody};
+use http_body_util::{BodyExt, Either, Full, StreamBody};
 use hyper::body::{Bytes, Frame};
 use hyper::server::conn::http1;
 use hyper::service::service_fn;
@@ -240,13 +242,15 @@ async fn run_server(
     }
 }
 
+type MyBody = Either<String, Either<BoxBody<Bytes, std::io::Error>, BoxBody<Bytes, Infallible>>>;
+
 async fn symbolication_service(
     req: Request<hyper::body::Incoming>,
     template_values: Arc<HashMap<&'static str, String>>,
     symbol_manager: Arc<SymbolManager>,
     profile_filename: Option<PathBuf>,
     path_prefix: String,
-) -> Result<Response<Either<String, BoxBody<Bytes, std::io::Error>>>, hyper::Error> {
+) -> Result<Response<MyBody>, hyper::Error> {
     let has_profile = profile_filename.is_some();
     let method = req.method();
     let path = req.uri().path();
@@ -339,7 +343,7 @@ async fn symbolication_service(
             let reader_stream = ReaderStream::new(reader);
 
             let stream_body = StreamBody::new(reader_stream.map_ok(Frame::data));
-            *response.body_mut() = Either::Right(stream_body.boxed());
+            *response.body_mut() = Either::Right(Either::Left(stream_body.boxed()));
         }
         (&Method::POST, path, _) => {
             response.headers_mut().insert(
@@ -348,13 +352,17 @@ async fn symbolication_service(
             );
             let path = path.to_string();
             // Await the full body to be concatenated into a `Collected<Bytes>`.
-            let full_body = req.into_body().collect().await?;
+            let request_body = req.into_body().collect().await?;
             // Convert the `Collected<Bytes>` into a `String`.
-            let full_body =
-                String::from_utf8(full_body.to_bytes().to_vec()).expect("invalid utf-8");
-            let response_json = symbol_manager.query_json_api(&path, &full_body).await;
+            let request_body =
+                String::from_utf8(request_body.to_bytes().to_vec()).expect("invalid utf-8");
+            let response_json = symbol_manager.query_json_api(&path, &request_body).await;
+            let mut response_bytes = Vec::new();
+            let response_writer = BufWriter::new(&mut response_bytes);
+            serde_json::to_writer(response_writer, &response_json).expect("json writing error");
+            let response_body = Full::new(Bytes::from(response_bytes));
 
-            *response.body_mut() = Either::Left(response_json);
+            *response.body_mut() = Either::Right(Either::Right(response_body.boxed()));
         }
         _ => {
             *response.status_mut() = StatusCode::NOT_FOUND;
