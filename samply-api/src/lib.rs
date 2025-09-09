@@ -28,7 +28,7 @@
 //!     let symbol_manager = SymbolManager::with_helper(helper);
 //!     let api = samply_api::Api::new(&symbol_manager);
 //!
-//!     api.query_api(
+//!     let api_result = api.query_api(
 //!         "/symbolicate/v5",
 //!         r#"{
 //!             "memoryMap": [
@@ -46,7 +46,8 @@
 //!               ]
 //!             ]
 //!           }"#,
-//!     ).await
+//!     ).await;
+//!     serde_json::to_string(&api_result).unwrap()
 //! }
 //!
 //! struct ExampleHelper {
@@ -147,7 +148,6 @@ use debugid::DebugId;
 pub use samply_symbols;
 pub use samply_symbols::debugid;
 use samply_symbols::{FileAndPathHelper, SymbolManager};
-use serde_json::json;
 use source::SourceApi;
 use symbolicate::SymbolicateApi;
 
@@ -158,6 +158,8 @@ mod hex;
 mod source;
 mod symbolicate;
 
+pub use error::Error;
+
 pub(crate) fn to_debug_id(breakpad_id: &str) -> Result<DebugId, samply_symbols::Error> {
     // Only accept breakpad IDs with the right syntax, and which aren't all-zeros.
     match DebugId::from_breakpad(breakpad_id) {
@@ -165,6 +167,42 @@ pub(crate) fn to_debug_id(breakpad_id: &str) -> Result<DebugId, samply_symbols::
         _ => Err(samply_symbols::Error::InvalidBreakpadId(
             breakpad_id.to_string(),
         )),
+    }
+}
+
+#[derive(serde_derive::Serialize)]
+pub struct QueryApiJsonResult(QueryApiJsonResultInner);
+
+#[derive(serde_derive::Serialize)]
+#[serde(untagged)]
+enum QueryApiJsonResultInner {
+    SymbolicateResponse(symbolicate::response_json::Response),
+    SourceResponse(source::response_json::Response),
+    AsmResponse(asm::response_json::Response),
+    Err(Error),
+}
+
+impl From<symbolicate::response_json::Response> for QueryApiJsonResult {
+    fn from(value: symbolicate::response_json::Response) -> Self {
+        Self(QueryApiJsonResultInner::SymbolicateResponse(value))
+    }
+}
+
+impl From<source::response_json::Response> for QueryApiJsonResult {
+    fn from(value: source::response_json::Response) -> Self {
+        Self(QueryApiJsonResultInner::SourceResponse(value))
+    }
+}
+
+impl From<asm::response_json::Response> for QueryApiJsonResult {
+    fn from(value: asm::response_json::Response) -> Self {
+        Self(QueryApiJsonResultInner::AsmResponse(value))
+    }
+}
+
+impl From<Error> for QueryApiJsonResult {
+    fn from(value: Error) -> Self {
+        Self(QueryApiJsonResultInner::Err(value))
     }
 }
 
@@ -194,18 +232,30 @@ impl<'a, H: FileAndPathHelper> Api<'a, H> {
     ///    symbol information for that address.
     ///  - `/asm/v1`: Experimental API. Symbolicates an address and lets you read one of the files in the
     ///    symbol information for that address.
-    pub async fn query_api(self, request_url: &str, request_json_data: &str) -> String {
+    pub async fn query_api(self, request_url: &str, request_json_data: &str) -> QueryApiJsonResult {
+        self.query_api_fallible(request_url, request_json_data)
+            .await
+            .unwrap_or_else(|e| e.into())
+    }
+    pub async fn query_api_fallible(
+        self,
+        request_url: &str,
+        request_json_data: &str,
+    ) -> Result<QueryApiJsonResult, Error> {
         if request_url == "/symbolicate/v5" {
             let symbolicate_api = SymbolicateApi::new(self.symbol_manager);
-            symbolicate_api.query_api_json(request_json_data).await
+            Ok(symbolicate_api
+                .query_api_json(request_json_data)
+                .await?
+                .into())
         } else if request_url == "/source/v1" {
             let source_api = SourceApi::new(self.symbol_manager);
-            source_api.query_api_json(request_json_data).await
+            Ok(source_api.query_api_json(request_json_data).await?.into())
         } else if request_url == "/asm/v1" {
             let asm_api = AsmApi::new(self.symbol_manager);
-            asm_api.query_api_json(request_json_data).await
+            Ok(asm_api.query_api_json(request_json_data).await?.into())
         } else {
-            json!({ "error": format!("Unrecognized URL {request_url}") }).to_string()
+            Err(Error::UnrecognizedUrl(request_url.into()))
         }
     }
 }

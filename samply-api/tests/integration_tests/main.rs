@@ -4,18 +4,23 @@ use std::path::PathBuf;
 
 use assert_json_diff::assert_json_eq;
 pub use samply_api::debugid::DebugId;
-use samply_api::{samply_symbols, Api};
+use samply_api::{samply_symbols, Api, QueryApiJsonResult};
 use samply_symbols::{
     CandidatePathInfo, FileAndPathHelper, FileAndPathHelperResult, FileLocation, LibraryInfo,
     OptionallySendFuture, SymbolManager,
 };
 
-pub async fn query_api(request_url: &str, request_json: &str, symbol_directory: PathBuf) -> String {
+pub async fn query_api(
+    request_url: &str,
+    request_json: &str,
+    symbol_directory: PathBuf,
+) -> QueryApiJsonResult {
     let helper = Helper { symbol_directory };
     let symbol_manager = SymbolManager::with_helper(helper);
     let api = Api::new(&symbol_manager);
     api.query_api(request_url, request_json).await
 }
+
 struct Helper {
     symbol_directory: PathBuf,
 }
@@ -229,6 +234,7 @@ fn compare_snapshot(
         request_json,
         symbol_directory,
     ));
+    let output = serde_json::to_string(&output).unwrap();
 
     let output_json: serde_json::Value = serde_json::from_str(&output).unwrap();
 

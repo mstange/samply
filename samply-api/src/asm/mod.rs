@@ -5,21 +5,17 @@ use samply_symbols::{
     object, CodeByteReadingError, CodeId, FileAndPathHelper, FileAndPathHelperError, LibraryInfo,
     LookupAddress, SymbolManager,
 };
-use serde_json::json;
 use yaxpeax_arch::{Arch, DecodeError, LengthedInstruction, Reader, U8Reader};
 use yaxpeax_x86::amd64::{Opcode, Operand};
 
 use self::response_json::Response;
 use crate::asm::response_json::DecodedInstruction;
 
-mod request_json;
-mod response_json;
+pub mod request_json;
+pub mod response_json;
 
 #[derive(thiserror::Error, Debug)]
-enum AsmError {
-    #[error("Couldn't parse request: {0}")]
-    ParseRequestErrorSerde(#[from] serde_json::error::Error),
-
+pub enum AsmError {
     #[error("An error occurred when loading the binary: {0}")]
     LoadBinaryError(#[from] samply_symbols::Error),
 
@@ -49,20 +45,15 @@ impl<'a, H: FileAndPathHelper> AsmApi<'a, H> {
         Self { symbol_manager }
     }
 
-    pub async fn query_api_json(&self, request_json: &str) -> String {
-        match self.query_api_fallible_json(request_json).await {
-            Ok(response_json) => response_json,
-            Err(err) => json!({ "error": err.to_string() }).to_string(),
-        }
-    }
-
-    async fn query_api_fallible_json(&self, request_json: &str) -> Result<String, AsmError> {
+    pub async fn query_api_json(
+        &self,
+        request_json: &str,
+    ) -> Result<response_json::Response, crate::Error> {
         let request: request_json::Request = serde_json::from_str(request_json)?;
-        let response = self.query_api(&request).await?;
-        Ok(serde_json::to_string(&response)?)
+        Ok(self.query_api(&request).await?)
     }
 
-    async fn query_api(
+    pub async fn query_api(
         &self,
         request: &request_json::Request,
     ) -> Result<response_json::Response, AsmError> {

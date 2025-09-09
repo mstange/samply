@@ -6,9 +6,13 @@ use samply_api::samply_symbols::{
     CandidatePathInfo, FileAndPathHelper, FileAndPathHelperResult, FileLocation, LibraryInfo,
     OptionallySendFuture, SymbolManager,
 };
-use samply_api::Api;
+use samply_api::{Api, QueryApiJsonResult};
 
-pub async fn query_api(request_url: &str, request_json: &str, symbol_directory: PathBuf) -> String {
+pub async fn query_api(
+    request_url: &str,
+    request_json: &str,
+    symbol_directory: PathBuf,
+) -> QueryApiJsonResult {
     let helper = Helper { symbol_directory };
     let symbol_manager = SymbolManager::with_helper(helper);
     let api = Api::new(&symbol_manager);

@@ -13,7 +13,6 @@ pub mod response_json;
 
 use looked_up_addresses::LookedUpAddresses;
 use request_json::Lib;
-use serde_json::json;
 
 pub struct SymbolicateApi<'a, H: FileAndPathHelper> {
     symbol_manager: &'a SymbolManager<H>,
@@ -25,17 +24,12 @@ impl<'a, H: FileAndPathHelper> SymbolicateApi<'a, H> {
         Self { symbol_manager }
     }
 
-    pub async fn query_api_json(&self, request_json: &str) -> String {
-        match self.query_api_fallible_json(request_json).await {
-            Ok(response_json) => response_json,
-            Err(err) => json!({ "error": err.to_string() }).to_string(),
-        }
-    }
-
-    pub async fn query_api_fallible_json(&self, request_json: &str) -> Result<String, Error> {
+    pub async fn query_api_json(
+        &self,
+        request_json: &str,
+    ) -> Result<response_json::Response, Error> {
         let request: request_json::Request = serde_json::from_str(request_json)?;
-        let response = self.query_api(request).await?;
-        Ok(serde_json::to_string(&response)?)
+        self.query_api(request).await
     }
 
     pub async fn query_api(

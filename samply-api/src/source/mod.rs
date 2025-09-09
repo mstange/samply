@@ -1,19 +1,15 @@
 use samply_symbols::{
     FileAndPathHelper, FileAndPathHelperError, LibraryInfo, LookupAddress, SymbolManager,
 };
-use serde_json::json;
 
 use crate::api_file_path::to_api_file_path;
-use crate::to_debug_id;
+use crate::{to_debug_id, Error};
 
-mod request_json;
-mod response_json;
+pub mod request_json;
+pub mod response_json;
 
 #[derive(thiserror::Error, Debug)]
-enum SourceError {
-    #[error("Couldn't parse request: {0}")]
-    ParseRequestErrorSerde(#[from] serde_json::error::Error),
-
+pub enum SourceError {
     #[error("Could not obtain symbols for the requested library: {0}")]
     NoSymbols(#[from] samply_symbols::Error),
 
@@ -37,20 +33,15 @@ impl<'a, H: FileAndPathHelper> SourceApi<'a, H> {
         Self { symbol_manager }
     }
 
-    pub async fn query_api_json(&self, request_json: &str) -> String {
-        match self.query_api_fallible_json(request_json).await {
-            Ok(response_json) => response_json,
-            Err(err) => json!({ "error": err.to_string() }).to_string(),
-        }
-    }
-
-    async fn query_api_fallible_json(&self, request_json: &str) -> Result<String, SourceError> {
+    pub async fn query_api_json(
+        &self,
+        request_json: &str,
+    ) -> Result<response_json::Response, Error> {
         let request: request_json::Request = serde_json::from_str(request_json)?;
-        let response = self.query_api(&request).await?;
-        Ok(serde_json::to_string(&response)?)
+        Ok(self.query_api(&request).await?)
     }
 
-    async fn query_api(
+    pub async fn query_api(
         &self,
         request: &request_json::Request,
     ) -> Result<response_json::Response, SourceError> {
