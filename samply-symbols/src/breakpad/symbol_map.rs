@@ -14,6 +14,7 @@ use super::index::{
     SYMBOL_ENTRY_KIND_PUBLIC,
 };
 use crate::breakpad::index::{Inlinee, SourceLine};
+use crate::shared::{SourceFilePathHandle, SymbolMapGeneration};
 use crate::symbol_map::{GetInnerSymbolMap, SymbolMapTrait};
 use crate::{
     Error, FileContents, FileContentsWrapper, FrameDebugInfo, FramesLookupResult, LookupAddress,
@@ -107,6 +108,7 @@ impl<T: FileContents> BreakpadSymbolMapOuter<T> {
             data: &self.data,
             index,
             cache,
+            generation: SymbolMapGeneration::new(),
         };
         BreakpadSymbolMapInnerWrapper(Box::new(inner_impl))
     }
@@ -119,6 +121,7 @@ struct BreakpadSymbolMapInner<'a, T: FileContents> {
     data: &'a FileContentsWrapper<T>,
     index: BreakpadIndex<'a>,
     cache: Mutex<BreakpadSymbolMapCache<'a, T>>,
+    generation: SymbolMapGeneration,
 }
 
 #[derive(Debug)]
@@ -299,9 +302,9 @@ impl<T: FileContents> SymbolMapTrait for BreakpadSymbolMapInner<'_, T> {
         let next_symbol_address = self.index.symbol_addresses.get(index + 1).map(|a| a.get());
         let mut cache = self.cache.lock().unwrap();
         let BreakpadSymbolMapCache {
-            files,
             inline_origins,
             symbols,
+            ..
         } = &mut *cache;
         let entry = &self.index.symbol_entries[index];
         let kind = entry.kind.get();
@@ -339,11 +342,9 @@ impl<T: FileContents> SymbolMapTrait for BreakpadSymbolMapInner<'_, T> {
                 while let Some(inlinee) =
                     info.get_inlinee_at_depth(depth, address, &symbols.inlinees)
                 {
-                    let file = files.get_string(inlinee.call_file).ok();
                     frames.push(FrameDebugInfo {
                         function: name.map(ToString::to_string),
-                        file_path: file
-                            .map(|f| SourceFilePath::BreakpadSpecialPathStr(f.to_string())),
+                        file_path: Some(self.generation.source_file_handle(inlinee.call_file)),
                         line_number: Some(inlinee.call_line),
                     });
                     let inline_origin = inline_origins.get_string(inlinee.origin_id).ok();
@@ -352,14 +353,14 @@ impl<T: FileContents> SymbolMapTrait for BreakpadSymbolMapInner<'_, T> {
                 }
                 let line_info = info.get_innermost_sourceloc(address, &symbols.lines);
                 let (file, line_number) = if let Some(line_info) = line_info {
-                    let file = files.get_string(line_info.file).ok();
+                    let file = Some(self.generation.source_file_handle(line_info.file));
                     (file, Some(line_info.line))
                 } else {
                     (None, None)
                 };
                 frames.push(FrameDebugInfo {
                     function: name.map(ToString::to_string),
-                    file_path: file.map(|f| SourceFilePath::BreakpadSpecialPathStr(f.to_string())),
+                    file_path: file,
                     line_number,
                 });
                 frames.reverse();
@@ -375,6 +376,13 @@ impl<T: FileContents> SymbolMapTrait for BreakpadSymbolMapInner<'_, T> {
             }
             _ => None,
         }
+    }
+
+    fn resolve_source_file_path(&self, handle: SourceFilePathHandle) -> Option<SourceFilePath> {
+        let index = self.generation.unwrap_source_file_index(handle);
+        let mut cache = self.cache.lock().unwrap();
+        let s = cache.files.get_string(index.0).ok()?;
+        Some(SourceFilePath::BreakpadSpecialPathStr(s.to_string()))
     }
 }
 
@@ -453,36 +461,43 @@ mod test {
         };
         assert_eq!(frames.len(), 4);
         assert_eq!(
-            frames[0],
-            FrameDebugInfo {
-                function: Some("WriteRelease64(long long*, long long)".into()),
-                file_path: Some(SourceFilePath::BreakpadSpecialPathStr("/builds/worker/workspace/obj-build/browser/app/d:/agent/_work/2/s/src/externalapis/windows/10/sdk/inc/winnt.h".into())),
-                line_number: Some(7729)
-            }
+            frames[0].function.as_deref().unwrap(),
+            "WriteRelease64(long long*, long long)"
         );
         assert_eq!(
-            frames[1],
-            FrameDebugInfo {
-                function: Some("WritePointerRelease(void**, void*)".into()),
-                file_path: Some(SourceFilePath::BreakpadSpecialPathStr("/builds/worker/workspace/obj-build/browser/app/d:/agent/_work/2/s/src/externalapis/windows/10/sdk/inc/winnt.h".into())),
-                line_number: Some(8358)
-            }
+            symbol_map.get_inner_symbol_map().resolve_source_file_path(frames[0].file_path.unwrap()).unwrap().raw_path(),
+            "/builds/worker/workspace/obj-build/browser/app/d:/agent/_work/2/s/src/externalapis/windows/10/sdk/inc/winnt.h"
+        );
+        assert_eq!(frames[0].line_number, Some(7729));
+
+        assert_eq!(
+            frames[1].function.as_deref().unwrap(),
+            "WritePointerRelease(void**, void*)"
         );
         assert_eq!(
-            frames[2],
-            FrameDebugInfo {
-                function: Some("DloadUnlock()".into()),
-                file_path: Some(SourceFilePath::BreakpadSpecialPathStr("/builds/worker/workspace/obj-build/browser/app/d:/agent/_work/2/s/src/vctools/delayimp/dloadsup.h".into())),
-                line_number: Some(345)
-            }
+            symbol_map.get_inner_symbol_map().resolve_source_file_path(frames[1].file_path.unwrap()).unwrap().raw_path(),
+            "/builds/worker/workspace/obj-build/browser/app/d:/agent/_work/2/s/src/externalapis/windows/10/sdk/inc/winnt.h"
+        );
+        assert_eq!(frames[1].line_number, Some(8358));
+
+        assert_eq!(
+            frames[2].function.as_deref().unwrap(),
+            "DloadUnlock()"
         );
         assert_eq!(
-            frames[3],
-            FrameDebugInfo {
-                function: Some("DloadAcquireSectionWriteAccess()".into()),
-                file_path: Some(SourceFilePath::BreakpadSpecialPathStr("/builds/worker/workspace/obj-build/browser/app/d:/agent/_work/2/s/src/vctools/delayimp/dloadsup.h".into())),
-                line_number: Some(665)
-            }
+            symbol_map.get_inner_symbol_map().resolve_source_file_path(frames[2].file_path.unwrap()).unwrap().raw_path(),
+            "/builds/worker/workspace/obj-build/browser/app/d:/agent/_work/2/s/src/vctools/delayimp/dloadsup.h"
         );
+        assert_eq!(frames[2].line_number, Some(345));
+
+        assert_eq!(
+            frames[3].function.as_deref().unwrap(),
+            "DloadAcquireSectionWriteAccess()"
+        );
+        assert_eq!(
+            symbol_map.get_inner_symbol_map().resolve_source_file_path(frames[3].file_path.unwrap()).unwrap().raw_path(),
+            "/builds/worker/workspace/obj-build/browser/app/d:/agent/_work/2/s/src/vctools/delayimp/dloadsup.h"
+        );
+        assert_eq!(frames[3].line_number, Some(665));
     }
 }

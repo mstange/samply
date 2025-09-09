@@ -6,6 +6,7 @@ use std::future::Future;
 use std::marker::PhantomData;
 use std::ops::{Deref, Range};
 use std::str::FromStr;
+use std::sync::atomic::AtomicU32;
 use std::sync::Arc;
 
 #[cfg(feature = "partial_read_stats")]
@@ -454,14 +455,47 @@ pub trait FileContents: Send + Sync {
     ) -> FileAndPathHelperResult<()>;
 }
 
+/// A handle for a [`SourceFilePath`]. Can be resolved with the symbol map.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct SourceFilePathIndex(pub(crate) u32);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct SymbolMapGeneration(pub(crate) u32);
+
+const SYMBOL_MAP_GENERATION: AtomicU32 = AtomicU32::new(0);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct SourceFilePathHandle {
+    generation: SymbolMapGeneration,
+    index: SourceFilePathIndex,
+}
+
+impl SymbolMapGeneration {
+    pub fn new() -> Self {
+        Self(SYMBOL_MAP_GENERATION.fetch_add(1, std::sync::atomic::Ordering::Relaxed))
+    }
+
+    pub fn source_file_handle(&self, index: SourceFilePathIndex) -> SourceFilePathHandle {
+        SourceFilePathHandle {
+            generation: *self,
+            index,
+        }
+    }
+
+    pub fn unwrap_source_file_index(&self, handle: SourceFilePathHandle) -> SourceFilePathIndex {
+        assert_eq!(handle.generation, self.0, "SourceFilePathHandle from wrong symbol map used");
+        handle.index
+    }
+}
+
 /// The debug information (function name, file path, line number) for a single frame
 /// at the looked-up address.
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct FrameDebugInfo {
     /// The function name for this frame, if known.
     pub function: Option<String>,
-    /// The [`SourceFilePath`] for this frame, if known.
-    pub file_path: Option<SourceFilePath>,
+    /// The [`SourceFilePathHandle`] for this frame, if known.
+    pub file_path: Option<SourceFilePathHandle>,
     /// The line number for this frame, if known.
     pub line_number: Option<u32>,
 }
