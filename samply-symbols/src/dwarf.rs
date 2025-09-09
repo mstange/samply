@@ -7,25 +7,22 @@ use gimli::{DwarfPackage, EndianSlice, Reader, RunTimeEndian, SectionId};
 use object::read::ReadRef;
 use object::CompressionFormat;
 
-use crate::path_mapper::PathMapper;
 use crate::shared::FrameDebugInfo;
 use crate::{demangle, Error, SourceFilePath};
 
 pub fn get_frames<R: Reader>(
     address: u64,
     context: Option<&addr2line::Context<R>>,
-    path_mapper: &mut PathMapper<()>,
 ) -> Option<Vec<FrameDebugInfo>> {
     let frame_iter = context?.find_frames(address).skip_all_loads().ok()?;
-    convert_frames(frame_iter, path_mapper)
+    convert_frames(frame_iter)
 }
 
 pub fn convert_frames<'a, R: gimli::Reader>(
     frame_iter: impl FallibleIterator<Item = addr2line::Frame<'a, R>>,
-    path_mapper: &mut PathMapper<()>,
 ) -> Option<Vec<FrameDebugInfo>> {
     let frames: Vec<_> = frame_iter
-        .map(|f| Ok(convert_stack_frame(f, &mut *path_mapper)))
+        .map(|f| Ok(convert_stack_frame(f)))
         .collect()
         .ok()?;
 
@@ -36,10 +33,7 @@ pub fn convert_frames<'a, R: gimli::Reader>(
     }
 }
 
-pub fn convert_stack_frame<R: gimli::Reader>(
-    frame: addr2line::Frame<R>,
-    path_mapper: &mut PathMapper<()>,
-) -> FrameDebugInfo {
+pub fn convert_stack_frame<R: gimli::Reader>(frame: addr2line::Frame<R>) -> FrameDebugInfo {
     let function = match frame.function {
         Some(function_name) => {
             if let Ok(name) = function_name.raw_name() {
@@ -50,10 +44,11 @@ pub fn convert_stack_frame<R: gimli::Reader>(
         }
         None => None,
     };
-    let file_path = frame.location.as_ref().and_then(|l| l.file).map(|file| {
-        let _mapped_path = path_mapper.map_path(file); // TODO: remove path mapper everywhere
-        SourceFilePath::RawPath(file.into())
-    });
+    let file_path = frame
+        .location
+        .as_ref()
+        .and_then(|l| l.file)
+        .map(|file| SourceFilePath::RawPath(file.into()));
 
     FrameDebugInfo {
         function,

@@ -13,7 +13,6 @@ use yoke::Yoke;
 use yoke_derive::Yokeable;
 
 use crate::dwarf::convert_frames;
-use crate::path_mapper::PathMapper;
 use crate::shared::{
     relative_address_base, ExternalFileAddressInFileRef, ExternalFileAddressRef, ExternalFileRef,
     FramesLookupResult, LookupAddress, SymbolInfo,
@@ -353,7 +352,6 @@ impl std::fmt::Debug for SvmaFileRange {
 pub struct ObjectSymbolMapInner<'a, Symbol, FC: FileContents + 'static, DDM> {
     list: SymbolList<'a, Symbol>,
     debug_id: DebugId,
-    path_mapper: Mutex<PathMapper<()>>,
     object_map: ObjectMap<'a>,
     context: Option<Mutex<addr2line::Context<gimli::EndianSlice<'a, gimli::RunTimeEndian>>>>,
     dwp_package:
@@ -480,9 +478,7 @@ where
                             continue;
                         }
                         LookupResult::Output(Ok(frame_iter)) => {
-                            let mut path_mapper = self.path_mapper.lock().unwrap();
-                            convert_frames(frame_iter, &mut path_mapper)
-                                .map(FramesLookupResult::Available)
+                            convert_frames(frame_iter).map(FramesLookupResult::Available)
                         }
                         LookupResult::Output(Err(_)) => None,
                     };
@@ -564,9 +560,7 @@ where
                         ))
                     }
                     LookupResult::Output(Ok(frame_iter)) => {
-                        let mut path_mapper = self.path_mapper.lock().unwrap();
-                        convert_frames(frame_iter, &mut path_mapper)
-                            .map(FramesLookupResult::Available)
+                        convert_frames(frame_iter).map(FramesLookupResult::Available)
                     }
                     LookupResult::Output(Err(_)) => {
                         drop(lookup_result);
@@ -677,7 +671,6 @@ impl<'a, FC: FileContents + 'static> ObjectSymbolMapInnerWrapper<'a, FC> {
         let inner = ObjectSymbolMapInner {
             list,
             debug_id,
-            path_mapper: Mutex::new(PathMapper::new()),
             object_map: object_file.object_map(),
             context: addr2line_context.map(Mutex::new),
             dwp_package,
