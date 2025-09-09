@@ -13,6 +13,7 @@ use super::index::{
     BreakpadPublicSymbol, BreakpadPublicSymbolInfo, FileOrInlineOrigin, SYMBOL_ENTRY_KIND_FUNC,
     SYMBOL_ENTRY_KIND_PUBLIC,
 };
+use crate::breakpad::index::{Inlinee, SourceLine};
 use crate::symbol_map::{GetInnerSymbolMap, SymbolMapTrait};
 use crate::{
     Error, FileContents, FileContentsWrapper, FrameDebugInfo, FramesLookupResult, LookupAddress,
@@ -131,6 +132,8 @@ struct BreakpadSymbolMapCache<'a, T: FileContents> {
 struct BreakpadSymbolMapSymbolCache<'a> {
     public_symbols: HashMap<u64, BreakpadPublicSymbolInfo<'a>>,
     func_symbols: HashMap<u64, BreakpadFuncSymbolInfo<'a>>,
+    lines: Vec<SourceLine>,
+    inlinees: Vec<Inlinee>,
 }
 
 impl<'a, T: FileContents> BreakpadSymbolMapCache<'a, T> {
@@ -169,17 +172,17 @@ impl<'a> BreakpadSymbolMapSymbolCache<'a> {
         file_offset: u64,
         block_length: u32,
         data: &'a FileContentsWrapper<T>,
-    ) -> Result<&'s BreakpadFuncSymbolInfo<'a>, Error> {
+    ) -> Result<BreakpadFuncSymbolInfo<'a>, Error> {
         match self.func_symbols.entry(file_offset) {
-            Entry::Occupied(info) => Ok(info.into_mut()),
+            Entry::Occupied(info) => Ok(*info.get()),
             Entry::Vacant(vacant) => {
                 let block = data
                     .read_bytes_at(file_offset, block_length.into())
                     .map_err(|e| {
                         Error::HelperErrorDuringFileReading("Breakpad FUNC symbol".to_string(), e)
                     })?;
-                let info = BreakpadFuncSymbol::parse(block)?;
-                Ok(vacant.insert(info))
+                let info = BreakpadFuncSymbol::parse(block, &mut self.lines, &mut self.inlinees)?;
+                Ok(*vacant.insert(info))
             }
         }
     }
@@ -324,6 +327,7 @@ impl<T: FileContents> SymbolMapTrait for BreakpadSymbolMapInner<'_, T> {
                 let info = symbols
                     .get_func_info(offset, line_or_block_len, self.data)
                     .ok()?;
+                let symbols = &*symbols;
                 let func_end_addr = symbol_address + info.size;
                 if address >= func_end_addr {
                     return None;
@@ -332,7 +336,9 @@ impl<T: FileContents> SymbolMapTrait for BreakpadSymbolMapInner<'_, T> {
                 let mut frames = Vec::new();
                 let mut depth = 0;
                 let mut name = Some(info.name);
-                while let Some(inlinee) = info.get_inlinee_at_depth(depth, address) {
+                while let Some(inlinee) =
+                    info.get_inlinee_at_depth(depth, address, &symbols.inlinees)
+                {
                     let file = files.get_string(inlinee.call_file).ok();
                     frames.push(FrameDebugInfo {
                         function: name.map(ToString::to_string),
@@ -344,7 +350,7 @@ impl<T: FileContents> SymbolMapTrait for BreakpadSymbolMapInner<'_, T> {
                     name = inline_origin;
                     depth += 1;
                 }
-                let line_info = info.get_innermost_sourceloc(address);
+                let line_info = info.get_innermost_sourceloc(address, &symbols.lines);
                 let (file, line_number) = if let Some(line_info) = line_info {
                     let file = files.get_string(line_info.file).ok();
                     (file, Some(line_info.line))
