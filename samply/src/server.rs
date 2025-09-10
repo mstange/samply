@@ -16,6 +16,7 @@ use hyper::{header, Method, Request, Response, StatusCode};
 use hyper_util::rt::TokioIo;
 use percent_encoding::{utf8_percent_encode, AsciiSet, CONTROLS};
 use rand::RngCore;
+use tokio::io::BufReader;
 use tokio::net::TcpListener;
 use tokio_util::io::ReaderStream;
 use wholesym::SymbolManager;
@@ -333,8 +334,9 @@ async fn symbolication_service(
                 .await
                 .expect("couldn't open profile file");
 
-            // Wrap in a tokio_util::io::ReaderStream
-            let reader_stream = ReaderStream::new(file);
+            // Wrap in a buffered tokio_util::io::ReaderStream
+            let reader = BufReader::with_capacity(64 * 1024, file);
+            let reader_stream = ReaderStream::new(reader);
 
             let stream_body = StreamBody::new(reader_stream.map_ok(Frame::data));
             *response.body_mut() = Either::Right(stream_body.boxed());
