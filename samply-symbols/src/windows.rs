@@ -11,12 +11,13 @@ use yoke::Yoke;
 use yoke_derive::Yokeable;
 
 use crate::debugid_util::debug_id_for_object;
-use crate::dwarf::Addr2lineContextData;
+use crate::dwarf::{Addr2lineContextData, PathInterner};
 use crate::error::{Context, Error};
 use crate::mapped_path::UnparsedMappedPath;
 use crate::shared::{
     FileAndPathHelper, FileContents, FileContentsWrapper, FileLocation, FrameDebugInfo,
-    FramesLookupResult, LookupAddress, SourceFilePath, SymbolInfo,
+    FramesLookupResult, LookupAddress, SourceFilePath, SourceFilePathHandle, SymbolInfo,
+    SymbolMapGeneration,
 };
 use crate::symbol_map::{GetInnerSymbolMap, SymbolMap, SymbolMapTrait};
 use crate::symbol_map_object::{
@@ -185,6 +186,7 @@ impl<FC: FileContents + 'static> PdbObjectTrait for PdbObject<'_, FC> {
             context,
             debug_id: self.debug_id,
             path_mapper: Mutex::new(path_mapper),
+            path_interner: Mutex::new(PathInterner::new(SymbolMapGeneration::new())),
         };
         Ok(symbol_map)
     }
@@ -232,6 +234,7 @@ struct PdbSymbolMapInner<'object> {
     context: Box<dyn PdbAddr2lineContextTrait + Send + 'object>,
     debug_id: DebugId,
     path_mapper: Mutex<Option<SrcSrvPathMapper<'object>>>,
+    path_interner: Mutex<PathInterner<'object>>,
 }
 
 impl SymbolMapTrait for PdbSymbolMapInner<'_> {
@@ -284,21 +287,13 @@ impl SymbolMapTrait for PdbSymbolMapInner<'_> {
             name: symbol_name,
         };
         let frames = if has_debug_info(&function_frames) {
-            let mut path_mapper = self.path_mapper.lock().unwrap();
-            let mut map_path = |path: Cow<str>| {
-                if let Some(path_mapper) = &mut *path_mapper {
-                    if let Some(UnparsedMappedPath::Url(url)) = path_mapper.map_path(&path) {
-                        return SourceFilePath::RawPathAndUrl(path.into_owned(), url);
-                    }
-                }
-                SourceFilePath::RawPath(path.into_owned())
-            };
+            let mut path_interner = self.path_interner.lock().unwrap();
             let frames: Vec<_> = function_frames
                 .frames
                 .into_iter()
                 .map(|frame| FrameDebugInfo {
                     function: frame.function,
-                    file_path: frame.file.map(&mut map_path),
+                    file_path: frame.file.map(|p| path_interner.intern_owned(&p)),
                     line_number: frame.line,
                 })
                 .collect();
@@ -308,6 +303,19 @@ impl SymbolMapTrait for PdbSymbolMapInner<'_> {
         };
 
         Some(SyncAddressInfo { symbol, frames })
+    }
+
+    fn resolve_source_file_path(&self, handle: SourceFilePathHandle) -> Option<SourceFilePath> {
+        let mut path_mapper = self.path_mapper.lock().unwrap();
+        let path_interner = self.path_interner.lock().unwrap();
+        let path = path_interner.resolve(handle)?;
+
+        if let Some(path_mapper) = &mut *path_mapper {
+            if let Some(UnparsedMappedPath::Url(url)) = path_mapper.map_path(&path) {
+                return Some(SourceFilePath::RawPathAndUrl(path.into_owned(), url));
+            }
+        }
+        Some(SourceFilePath::RawPath(path.into_owned()))
     }
 }
 
@@ -407,6 +415,10 @@ impl<T: FileContents> SymbolMapTrait for PdbSymbolMap<T> {
 
     fn lookup_sync(&self, address: LookupAddress) -> Option<SyncAddressInfo> {
         self.with_inner(|inner| inner.lookup_sync(address))
+    }
+
+    fn resolve_source_file_path(&self, handle: SourceFilePathHandle) -> Option<SourceFilePath> {
+        self.with_inner(|inner| inner.resolve_source_file_path(handle))
     }
 }
 

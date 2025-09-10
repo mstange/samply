@@ -140,8 +140,9 @@ impl ExternalFileSymbolMap {
     pub fn lookup(
         &self,
         external_file_address: &ExternalFileAddressInFileRef,
+        path_interner: &mut PathInterner
     ) -> Option<Vec<FrameDebugInfo>> {
-        self.0.lookup(external_file_address)
+        self.0.lookup(external_file_address, path_interner)
     }
 }
 

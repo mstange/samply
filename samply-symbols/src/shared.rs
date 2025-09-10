@@ -483,7 +483,7 @@ impl SymbolMapGeneration {
     }
 
     pub fn unwrap_source_file_index(&self, handle: SourceFilePathHandle) -> SourceFilePathIndex {
-        assert_eq!(handle.generation, self.0, "SourceFilePathHandle from wrong symbol map used");
+        assert_eq!(handle.generation, *self, "SourceFilePathHandle from wrong symbol map used");
         handle.index
     }
 }

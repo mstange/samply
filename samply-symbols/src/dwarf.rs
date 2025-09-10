@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+use std::collections::HashMap;
 use std::marker::PhantomData;
 
 use addr2line::{fallible_iterator, gimli};
@@ -7,22 +9,105 @@ use gimli::{DwarfPackage, EndianSlice, Reader, RunTimeEndian, SectionId};
 use object::read::ReadRef;
 use object::CompressionFormat;
 
-use crate::shared::FrameDebugInfo;
-use crate::{demangle, Error, SourceFilePath};
+use crate::shared::{
+    FrameDebugInfo, SourceFilePathHandle, SourceFilePathIndex, SymbolMapGeneration,
+};
+use crate::{demangle, Error};
+
+#[derive(Debug)]
+pub struct PathInterner<'a> {
+    symbol_map_generation: SymbolMapGeneration,
+    borrowed_strings: Vec<&'a str>,
+    index_for_borrowed_string: HashMap<&'a str, usize>,
+    owned_strings: Vec<String>,
+    index_for_owned_string: HashMap<String, usize>,
+}
+
+impl<'a> PathInterner<'a> {
+    pub fn new(symbol_map_generation: SymbolMapGeneration) -> Self {
+        Self {
+            symbol_map_generation,
+            borrowed_strings: Default::default(),
+            index_for_borrowed_string: Default::default(),
+            owned_strings: Default::default(),
+            index_for_owned_string: Default::default(),
+        }
+    }
+
+    pub fn intern_cow(&mut self, cow: Cow<'a, str>) -> SourceFilePathHandle {
+        match cow {
+            Cow::Borrowed(s) => self.intern(s),
+            Cow::Owned(s) => self.intern_owned(&s),
+        }
+    }
+
+    pub fn intern(&mut self, s: &'a str) -> SourceFilePathHandle {
+        let index = self.intern_inner(s);
+        self.symbol_map_generation.source_file_handle(index)
+    }
+
+    fn intern_inner(&mut self, s: &'a str) -> SourceFilePathIndex {
+        if let Some(index) = self.index_for_borrowed_string.get(s) {
+            return SourceFilePathIndex((*index as u32) << 1);
+        }
+        if let Some(index) = self.index_for_owned_string.get(s) {
+            return SourceFilePathIndex(((*index as u32) << 1) | 1);
+        }
+        let index = self.borrowed_strings.len();
+        self.borrowed_strings.push(s);
+        self.index_for_borrowed_string.insert(s, index);
+        SourceFilePathIndex((index as u32) << 1)
+    }
+
+    pub fn intern_owned(&mut self, s: &str) -> SourceFilePathHandle {
+        let index = self.intern_owned_inner(s);
+        self.symbol_map_generation.source_file_handle(index)
+    }
+
+    pub fn intern_owned_inner(&mut self, s: &str) -> SourceFilePathIndex {
+        if let Some(index) = self.index_for_borrowed_string.get(s) {
+            return SourceFilePathIndex((*index as u32) << 1);
+        }
+        if let Some(index) = self.index_for_owned_string.get(s) {
+            return SourceFilePathIndex(((*index as u32) << 1) | 1);
+        }
+        let index = self.owned_strings.len();
+        self.owned_strings.push(s.to_string());
+        self.index_for_owned_string.insert(s.to_string(), index);
+        SourceFilePathIndex(((index as u32) << 1) | 1)
+    }
+
+    pub fn resolve(&self, handle: SourceFilePathHandle) -> Option<Cow<'a, str>> {
+        let index = self.symbol_map_generation.unwrap_source_file_index(handle);
+        match index.0 & 1 {
+            0 => self
+                .borrowed_strings
+                .get((index.0 >> 1) as usize)
+                .map(|s| Cow::Borrowed(*s)),
+            1 => self
+                .owned_strings
+                .get((index.0 >> 1) as usize)
+                .map(|s| Cow::Owned(s.clone())),
+            _ => unreachable!(),
+        }
+    }
+}
 
 pub fn get_frames<R: Reader>(
     address: u64,
     context: Option<&addr2line::Context<R>>,
+    path_interner: &mut PathInterner,
 ) -> Option<Vec<FrameDebugInfo>> {
     let frame_iter = context?.find_frames(address).skip_all_loads().ok()?;
-    convert_frames(frame_iter)
+    convert_frames(frame_iter, path_interner)
 }
 
 pub fn convert_frames<'a, R: gimli::Reader>(
     frame_iter: impl FallibleIterator<Item = addr2line::Frame<'a, R>>,
+    path_interner: &mut PathInterner,
 ) -> Option<Vec<FrameDebugInfo>> {
     let frames: Vec<_> = frame_iter
-        .map(|f| Ok(convert_stack_frame(f)))
+        .map(|f| Ok(convert_stack_frame(f, path_interner)))
         .collect()
         .ok()?;
 
@@ -33,7 +118,10 @@ pub fn convert_frames<'a, R: gimli::Reader>(
     }
 }
 
-pub fn convert_stack_frame<R: gimli::Reader>(frame: addr2line::Frame<R>) -> FrameDebugInfo {
+pub fn convert_stack_frame<R: gimli::Reader>(
+    frame: addr2line::Frame<R>,
+    path_interner: &mut PathInterner,
+) -> FrameDebugInfo {
     let function = match frame.function {
         Some(function_name) => {
             if let Ok(name) = function_name.raw_name() {
@@ -48,7 +136,7 @@ pub fn convert_stack_frame<R: gimli::Reader>(frame: addr2line::Frame<R>) -> Fram
         .location
         .as_ref()
         .and_then(|l| l.file)
-        .map(|file| SourceFilePath::RawPath(file.into()));
+        .map(|file| path_interner.intern_owned(file));
 
     FrameDebugInfo {
         function,

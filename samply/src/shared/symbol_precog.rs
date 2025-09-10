@@ -194,6 +194,10 @@ impl wholesym::samply_symbols::SymbolMapTrait for PrecogLibrarySymbols {
             wholesym::LookupAddress::FileOffset(_) => None,
         }
     }
+
+    fn resolve_source_file_path(&self, handle: SourceFilePathHandle) -> Option<SourceFilePath> {
+        None
+    }
 }
 
 impl std::fmt::Debug for PrecogSymbolInfo {

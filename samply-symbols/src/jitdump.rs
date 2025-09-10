@@ -1,22 +1,23 @@
 use std::borrow::Cow;
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
-use std::sync::Mutex;
+use std::sync::{Mutex, MutexGuard};
 
 use debugid::DebugId;
 use linux_perf_data::jitdump::{
-    JitCodeDebugInfoRecord, JitCodeLoadRecord, JitDumpReader, JitDumpRecord, JitDumpRecordHeader,
-    JitDumpRecordType,
+    JitCodeDebugInfoEntry, JitCodeDebugInfoRecord, JitCodeLoadRecord, JitDumpReader, JitDumpRecord,
+    JitDumpRecordHeader, JitDumpRecordType,
 };
 use linux_perf_data::linux_perf_event_reader::RawData;
 use linux_perf_data::Endianness;
 use yoke::Yoke;
 use yoke_derive::Yokeable;
 
+use crate::dwarf::PathInterner;
 use crate::error::Error;
 use crate::shared::{
     FileContents, FileContentsCursor, FileContentsWrapper, FrameDebugInfo, FramesLookupResult,
-    LookupAddress, SourceFilePath, SymbolInfo,
+    LookupAddress, SourceFilePath, SourceFilePathHandle, SymbolInfo, SymbolMapGeneration,
 };
 use crate::symbol_map::{GetInnerSymbolMap, SymbolMap, SymbolMapTrait};
 use crate::{FileAndPathHelper, SyncAddressInfo};
@@ -200,7 +201,11 @@ impl<T: FileContents> JitDumpSymbolMapOuter<T> {
     pub fn make_symbol_map(&self) -> JitDumpSymbolMapInnerWrapper<'_> {
         let inner = JitDumpSymbolMapInner {
             index: &self.index,
-            cache: Mutex::new(JitDumpSymbolMapCache::new(&self.data, &self.index)),
+            cache: Mutex::new(JitDumpSymbolMapCache::new(
+                &self.data,
+                &self.index,
+                SymbolMapGeneration::new(),
+            )),
         };
         JitDumpSymbolMapInnerWrapper(Box::new(inner))
     }
@@ -218,15 +223,21 @@ pub struct JitDumpSymbolMapInnerWrapper<'data>(pub Box<dyn SymbolMapTrait + Send
 struct JitDumpSymbolMapCache<'a, T: FileContents> {
     names: HashMap<usize, &'a [u8]>,
     debug_infos: HashMap<usize, JitCodeDebugInfoRecord<'a>>,
+    path_interner: PathInterner<'a>,
     data: &'a FileContentsWrapper<T>,
     index: &'a JitDumpIndex,
 }
 
 impl<'a, T: FileContents> JitDumpSymbolMapCache<'a, T> {
-    pub fn new(data: &'a FileContentsWrapper<T>, index: &'a JitDumpIndex) -> Self {
+    pub fn new(
+        data: &'a FileContentsWrapper<T>,
+        index: &'a JitDumpIndex,
+        generation: SymbolMapGeneration,
+    ) -> Self {
         Self {
             names: HashMap::new(),
             debug_infos: HashMap::new(),
+            path_interner: PathInterner::new(generation),
             data,
             index,
         }
@@ -267,36 +278,63 @@ impl<'a, T: FileContents> JitDumpSymbolMapCache<'a, T> {
     }
 }
 
-impl<T: FileContents> JitDumpSymbolMapInner<'_, T> {
+impl<'a, T: FileContents> JitDumpSymbolMapInner<'a, T> {
     fn lookup_by_entry_index(
         &self,
         index: usize,
         symbol_address: u32,
         offset_relative_to_symbol: u64,
     ) -> Option<SyncAddressInfo> {
-        let mut cache = self.cache.lock().unwrap();
+        let mut cache: MutexGuard<'_, JitDumpSymbolMapCache<'a, T>> = self.cache.lock().unwrap();
         let name_bytes = cache.get_function_name(index)?;
         let name = String::from_utf8_lossy(name_bytes).into_owned();
-        let debug_info = cache.get_debug_info(index);
-        let frames = debug_info.and_then(|debug_info| {
-            let lookup_avma = debug_info.code_addr + offset_relative_to_symbol;
-            let entry = debug_info.lookup(lookup_avma)?;
-            let file_path = String::from_utf8_lossy(&entry.file_path.as_slice()).into_owned();
-            let frame = FrameDebugInfo {
-                function: Some(name.clone()),
-                file_path: Some(SourceFilePath::RawPath(file_path)),
-                line_number: Some(entry.line),
-            };
-            Some(FramesLookupResult::Available(vec![frame]))
-        });
-        Some(SyncAddressInfo {
-            symbol: SymbolInfo {
-                address: symbol_address,
-                size: Some(self.index.entries[index].code_bytes_len as u32),
-                name,
-            },
-            frames,
-        })
+        let symbol = SymbolInfo {
+            address: symbol_address,
+            size: Some(self.index.entries[index].code_bytes_len as u32),
+            name,
+        };
+        let cache_inner = &mut *cache;
+        let Some(debug_info): Option<&JitCodeDebugInfoRecord<'a>> =
+            cache_inner.get_debug_info(index)
+        else {
+            return Some(SyncAddressInfo {
+                symbol,
+                frames: None,
+            });
+        };
+        let lookup_avma = debug_info.code_addr + offset_relative_to_symbol;
+        let debug_info_clone: JitCodeDebugInfoRecord<'a> = debug_info.clone();
+        drop(debug_info);
+        let entry_option: Option<&JitCodeDebugInfoEntry<'a>> = debug_info_clone.lookup(lookup_avma);
+        let entry: &JitCodeDebugInfoEntry<'a> = entry_option?;
+        let entry: JitCodeDebugInfoEntry<'a> = entry.clone();
+        let file_path_bytes: Cow<'a, [u8]> = entry.file_path.as_slice();
+        let file_path: Cow<'a, str> = match file_path_bytes {
+            Cow::Borrowed(s) => {
+                let p: Cow<'a, str> = String::from_utf8_lossy(s);
+                p
+            }
+            Cow::Owned(s) => {
+                let p: Cow<str> = String::from_utf8_lossy(&s);
+                let p = p.into_owned();
+                let p: Cow<'a, str> = p.into();
+                p
+            }
+        };
+        let line = entry.line;
+        drop(entry);
+        drop(debug_info_clone);
+        drop(cache);
+        let mut cache = self.cache.lock().unwrap();
+        let file_path = cache.path_interner.intern_owned(&file_path);
+        let frame = FrameDebugInfo {
+            function: Some(symbol.name.clone()),
+            file_path: Some(file_path),
+            line_number: Some(line),
+        };
+
+        let frames = Some(FramesLookupResult::Available(vec![frame]));
+        Some(SyncAddressInfo { symbol, frames })
     }
 }
 
@@ -329,5 +367,10 @@ impl<T: FileContents> SymbolMapTrait for JitDumpSymbolMapInner<'_, T> {
             LookupAddress::FileOffset(offset) => self.index.lookup_offset(offset)?,
         };
         self.lookup_by_entry_index(index, symbol_address, offset_from_symbol)
+    }
+
+    fn resolve_source_file_path(&self, handle: SourceFilePathHandle) -> Option<SourceFilePath> {
+        let s = self.cache.lock().unwrap().path_interner.resolve(handle)?;
+        Some(SourceFilePath::RawPath(s.into_owned()))
     }
 }
