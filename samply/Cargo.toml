@@ -31,7 +31,7 @@ memmap2 = "0.9.4"
 serde_json = "1"
 thiserror = "2"
 tempfile = "3.13"
-uuid = { version = "1.11", features = ["v4"] }
+uuid = { version = "1.18", features = ["v4"] }
 percent-encoding = "2.1.0"
 libc = "0.2"
 flate2 = "1.0"
