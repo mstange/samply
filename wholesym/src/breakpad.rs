@@ -4,7 +4,7 @@ use std::sync::Arc;
 use samply_symbols::{BreakpadIndexCreator, BreakpadParseError};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
-use crate::downloader::{Downloader, DownloaderObserver, FileDownloadOutcome};
+use crate::downloader::{ChunkConsumer, Downloader, DownloaderObserver, FileDownloadOutcome};
 use crate::file_creation::{create_file_cleanly, CleanFileCreationError};
 use crate::DownloadError;
 
@@ -160,15 +160,14 @@ impl BreakpadSymbolDownloaderInner {
 
         let observer = self.observer.clone();
         let download = self.downloader.initiate_download(&url, observer).await?;
-        let mut index_generator = BreakpadIndexCreator::new();
-        let mut consumer = |chunk: &[u8]| index_generator.consume(chunk);
+        let index_generator = BreakpadIndexCreatorChunkConsumer(BreakpadIndexCreator::new());
         let outcome = download
-            .download_to_file(&dest_path, Some(&mut consumer))
+            .download_to_file_with_chunk_consumer(&dest_path, index_generator)
             .await?;
 
         match outcome {
-            FileDownloadOutcome::DidCreateNewFile => {
-                if let Ok(index) = index_generator.finish() {
+            FileDownloadOutcome::DidCreateNewFile(index_result) => {
+                if let Ok(index) = index_result {
                     if let Some(symindex_path) = self.symindex_path(rel_path) {
                         let _ = self.write_symindex(&symindex_path, index).await;
                     }
@@ -287,5 +286,19 @@ impl BreakpadSymbolDownloaderInner {
         parser
             .finish()
             .map_err(SymindexGenerationError::BreakpadParsing)
+    }
+}
+
+struct BreakpadIndexCreatorChunkConsumer(BreakpadIndexCreator);
+
+impl ChunkConsumer for BreakpadIndexCreatorChunkConsumer {
+    type Output = Result<Vec<u8>, BreakpadParseError>;
+
+    fn consume_chunk(&mut self, chunk_data: &[u8]) {
+        self.0.consume(chunk_data);
+    }
+
+    fn finish(self) -> Self::Output {
+        self.0.finish()
     }
 }

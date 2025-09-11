@@ -14,12 +14,13 @@ keywords = ["symbols", "profiling", "addr2line", "debuginfo"]
 [features]
 default = []
 # Enable the JSON API interface.
-api = ["samply-api"]
+api = ["samply-api", "serde"]
 
 [dependencies]
 debugid = "0.8.0"
 samply-api = { version = "0.24.0", path = "../samply-api", features = ["send_futures"], optional = true }
 samply-symbols = { version = "0.24.1", path = "../samply-symbols", features = ["send_futures"] }
+serde = { version = "1", optional = true }
 # symsrv = { path = "../../symsrv" }
 symsrv = "0.5.2"
 yoke = "0.8"
@@ -35,7 +36,7 @@ reqwest = { version = "0.12", default-features = false, features = [
 ] }
 bytes = "1.10"
 memmap2 = "0.9.4"
-tokio = { version = "1.38", features = ["fs"] }
+tokio = { version = "1.38", features = ["fs", "macros"] }
 futures-util = "0.3.30"
 fs4 = "0.13"
 thiserror = "2"
@@ -62,4 +63,4 @@ features = ["zlib-rs"]
 
 [dev-dependencies]
 futures = "0.3.5"
-tokio = { version = "1.38", features = ["macros"] } # Feature "macros" for #[tokio::test]
+tokio = { version = "1.38", features = ["macros", "rt", "rt-multi-thread"] } # Features for #[tokio::test]

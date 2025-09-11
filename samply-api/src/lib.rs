@@ -28,7 +28,7 @@
 //!     let symbol_manager = SymbolManager::with_helper(helper);
 //!     let api = samply_api::Api::new(&symbol_manager);
 //!
-//!     api.query_api(
+//!     let api_result = api.query_api(
 //!         "/symbolicate/v5",
 //!         r#"{
 //!             "memoryMap": [
@@ -46,7 +46,8 @@
 //!               ]
 //!             ]
 //!           }"#,
-//!     ).await
+//!     ).await;
+//!     serde_json::to_string(&api_result).unwrap()
 //! }
 //!
 //! struct ExampleHelper {
@@ -147,7 +148,7 @@ use debugid::DebugId;
 pub use samply_symbols;
 pub use samply_symbols::debugid;
 use samply_symbols::{FileAndPathHelper, SymbolManager};
-use serde_json::json;
+use serde::Serialize;
 use source::SourceApi;
 use symbolicate::SymbolicateApi;
 
@@ -157,6 +158,8 @@ mod error;
 mod hex;
 mod source;
 mod symbolicate;
+
+pub use error::Error;
 
 pub(crate) fn to_debug_id(breakpad_id: &str) -> Result<DebugId, samply_symbols::Error> {
     // Only accept breakpad IDs with the right syntax, and which aren't all-zeros.
@@ -168,12 +171,57 @@ pub(crate) fn to_debug_id(breakpad_id: &str) -> Result<DebugId, samply_symbols::
     }
 }
 
+pub enum QueryApiJsonResult<H: FileAndPathHelper> {
+    SymbolicateResponse(symbolicate::response_json::Response<H>),
+    SourceResponse(source::response_json::Response),
+    AsmResponse(asm::response_json::Response),
+    Err(Error),
+}
+
+impl<H: FileAndPathHelper> From<symbolicate::response_json::Response<H>> for QueryApiJsonResult<H> {
+    fn from(value: symbolicate::response_json::Response<H>) -> Self {
+        QueryApiJsonResult::SymbolicateResponse(value)
+    }
+}
+
+impl<H: FileAndPathHelper> From<source::response_json::Response> for QueryApiJsonResult<H> {
+    fn from(value: source::response_json::Response) -> Self {
+        QueryApiJsonResult::SourceResponse(value)
+    }
+}
+
+impl<H: FileAndPathHelper> From<asm::response_json::Response> for QueryApiJsonResult<H> {
+    fn from(value: asm::response_json::Response) -> Self {
+        QueryApiJsonResult::AsmResponse(value)
+    }
+}
+
+impl<H: FileAndPathHelper> From<Error> for QueryApiJsonResult<H> {
+    fn from(value: Error) -> Self {
+        QueryApiJsonResult::Err(value)
+    }
+}
+
+impl<H: FileAndPathHelper> Serialize for QueryApiJsonResult<H> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        match self {
+            QueryApiJsonResult::SymbolicateResponse(response) => response.serialize(serializer),
+            QueryApiJsonResult::SourceResponse(response) => response.serialize(serializer),
+            QueryApiJsonResult::AsmResponse(response) => response.serialize(serializer),
+            QueryApiJsonResult::Err(error) => error.serialize(serializer),
+        }
+    }
+}
+
 #[derive(Clone, Copy)]
 pub struct Api<'a, H: FileAndPathHelper> {
     symbol_manager: &'a SymbolManager<H>,
 }
 
-impl<'a, H: FileAndPathHelper> Api<'a, H> {
+impl<'a, H: FileAndPathHelper + 'static> Api<'a, H> {
     /// Create a [`Api`] instance which uses the provided [`SymbolManager`].
     pub fn new(symbol_manager: &'a SymbolManager<H>) -> Self {
         Self { symbol_manager }
@@ -194,18 +242,34 @@ impl<'a, H: FileAndPathHelper> Api<'a, H> {
     ///    symbol information for that address.
     ///  - `/asm/v1`: Experimental API. Symbolicates an address and lets you read one of the files in the
     ///    symbol information for that address.
-    pub async fn query_api(self, request_url: &str, request_json_data: &str) -> String {
+    pub async fn query_api(
+        self,
+        request_url: &str,
+        request_json_data: &str,
+    ) -> QueryApiJsonResult<H> {
+        self.query_api_fallible(request_url, request_json_data)
+            .await
+            .unwrap_or_else(|e| e.into())
+    }
+    pub async fn query_api_fallible(
+        self,
+        request_url: &str,
+        request_json_data: &str,
+    ) -> Result<QueryApiJsonResult<H>, Error> {
         if request_url == "/symbolicate/v5" {
             let symbolicate_api = SymbolicateApi::new(self.symbol_manager);
-            symbolicate_api.query_api_json(request_json_data).await
+            Ok(symbolicate_api
+                .query_api_json(request_json_data)
+                .await?
+                .into())
         } else if request_url == "/source/v1" {
             let source_api = SourceApi::new(self.symbol_manager);
-            source_api.query_api_json(request_json_data).await
+            Ok(source_api.query_api_json(request_json_data).await?.into())
         } else if request_url == "/asm/v1" {
             let asm_api = AsmApi::new(self.symbol_manager);
-            asm_api.query_api_json(request_json_data).await
+            Ok(asm_api.query_api_json(request_json_data).await?.into())
         } else {
-            json!({ "error": format!("Unrecognized URL {request_url}") }).to_string()
+            Err(Error::UnrecognizedUrl(request_url.into()))
         }
     }
 }

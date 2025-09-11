@@ -14,6 +14,7 @@ use object::ReadRef;
 use zerocopy::{IntoBytes, LittleEndian, Ref, U32, U64};
 use zerocopy_derive::*;
 
+use crate::source_file_path::SourceFilePathIndex;
 use crate::CodeId;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -401,29 +402,40 @@ pub struct BreakpadFuncSymbol {
 }
 
 impl BreakpadFuncSymbol {
-    pub fn parse(mut input: &[u8]) -> Result<BreakpadFuncSymbolInfo<'_>, BreakpadParseError> {
+    pub fn parse<'a, 'b>(
+        mut input: &'a [u8],
+        lines: &'b mut Vec<SourceLine>,
+        inlinees: &'b mut Vec<Inlinee>,
+    ) -> Result<BreakpadFuncSymbolInfo<'a>, BreakpadParseError> {
         let first_line = read_line_and_advance(&mut input);
         let (_address, size, name) =
             func_line(first_line).map_err(|_| BreakpadParseError::ParsingFunc)?;
 
+        let lines_start_index = lines.len();
+        let inlinees_start_index = inlinees.len();
+
         let mut tokenizer = Tokenizer::new(input);
-        let mut inlinees = Vec::new();
-        let mut lines = Vec::new();
         while !tokenizer.eof() {
             if tokenizer.consume_token(b"INLINE").is_ok() {
-                parse_inline_line_remainder(&mut tokenizer, &mut inlinees)
+                parse_inline_line_remainder(&mut tokenizer, inlinees)
                     .map_err(|_| BreakpadParseError::ParsingInline)?;
             } else if let Ok(line_data) = parse_func_data_line(&mut tokenizer) {
                 lines.push(line_data);
             }
             tokenizer.consume_until_after_next_line_break_or_eof();
         }
-        inlinees.sort_unstable_by_key(|inlinee| (inlinee.depth, inlinee.address));
+
+        let lines_end_index = lines.len();
+        let inlinees_end_index = inlinees.len();
+
+        inlinees[inlinees_start_index..inlinees_end_index]
+            .sort_unstable_by_key(|inlinee| (inlinee.depth, inlinee.address));
+
         Ok(BreakpadFuncSymbolInfo {
             name: str::from_utf8(name).map_err(|_| BreakpadParseError::BadUtf8)?,
             size,
-            lines,
-            inlinees,
+            line_index_range: (lines_start_index as u32, lines_end_index as u32),
+            inlinee_index_range: (inlinees_start_index as u32, inlinees_end_index as u32),
         })
     }
 }
@@ -782,15 +794,25 @@ pub struct BreakpadPublicSymbolInfo<'a> {
     pub name: &'a str,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct BreakpadFuncSymbolInfo<'a> {
     pub name: &'a str,
     pub size: u32,
-    pub lines: Vec<SourceLine>,
-    pub inlinees: Vec<Inlinee>,
+    pub line_index_range: (u32, u32),
+    pub inlinee_index_range: (u32, u32),
 }
 
 impl BreakpadFuncSymbolInfo<'_> {
+    pub fn lines<'a>(&self, lines: &'a [SourceLine]) -> &'a [SourceLine] {
+        let (s, e) = self.line_index_range;
+        &lines[s as usize..e as usize]
+    }
+
+    pub fn inlinees<'a>(&self, inlinees: &'a [Inlinee]) -> &'a [Inlinee] {
+        let (s, e) = self.inlinee_index_range;
+        &inlinees[s as usize..e as usize]
+    }
+
     /// Returns `(file_id, line, address)` of the line record that covers the
     /// given address. Line records describe locations at the deepest level of
     /// inlining at that address.
@@ -799,13 +821,14 @@ impl BreakpadFuncSymbolInfo<'_> {
     /// address, i.e. both the call to B and the call to C have been inlined all
     /// the way into A (A being the "outer function"), then this method reports
     /// locations in C.
-    pub fn get_innermost_sourceloc(&self, addr: u32) -> Option<&SourceLine> {
-        let line_index = match self.lines.binary_search_by_key(&addr, |line| line.address) {
+    pub fn get_innermost_sourceloc(&self, addr: u32, lines: &[SourceLine]) -> Option<SourceLine> {
+        let lines = self.lines(lines);
+        let line_index = match lines.binary_search_by_key(&addr, |line| line.address) {
             Ok(i) => i,
             Err(0) => return None,
             Err(i) => i - 1,
         };
-        Some(&self.lines[line_index])
+        Some(lines[line_index])
     }
 
     /// Returns `(call_file_id, call_line, address, inline_origin)` of the
@@ -815,22 +838,27 @@ impl BreakpadFuncSymbolInfo<'_> {
     /// A -> B -> C at an address, i.e. both the call to B and the call to C have
     /// been inlined all the way into A (A being the "outer function"), then the
     /// call A -> B is at level zero, and the call B -> C is at level one.
-    pub fn get_inlinee_at_depth(&self, depth: u32, addr: u32) -> Option<&Inlinee> {
-        let index = match self
-            .inlinees
+    pub fn get_inlinee_at_depth(
+        &self,
+        depth: u32,
+        addr: u32,
+        inlinees: &[Inlinee],
+    ) -> Option<Inlinee> {
+        let inlinees = self.inlinees(inlinees);
+        let index = match inlinees
             .binary_search_by_key(&(depth, addr), |inlinee| (inlinee.depth, inlinee.address))
         {
             Ok(i) => i,
             Err(0) => return None,
             Err(i) => i - 1,
         };
-        let inlinee = &self.inlinees[index];
+        let inlinee = &inlinees[index];
         if inlinee.depth != depth {
             return None;
         }
         let end_address = inlinee.address.checked_add(inlinee.size)?;
         if addr < end_address {
-            Some(inlinee)
+            Some(*inlinee)
         } else {
             None
         }
@@ -952,7 +980,7 @@ fn public_line(input: &[u8]) -> IResult<&[u8], (u32, &[u8])> {
 }
 
 /// A mapping from machine code bytes to source line and file.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SourceLine {
     /// The start address relative to the module's load address.
     pub address: u32,
@@ -961,13 +989,13 @@ pub struct SourceLine {
     /// The source file name that generated this machine code.
     ///
     /// This is an index into `SymbolFile::files`.
-    pub file: u32,
+    pub file: SourceFilePathIndex,
     /// The line number in `file` that generated this machine code.
     pub line: u32,
 }
 
 /// A single range which is covered by an inlined function call.
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Inlinee {
     /// The depth of the inline call.
     pub depth: u32,
@@ -978,7 +1006,7 @@ pub struct Inlinee {
     /// The source file which contains the function call.
     ///
     /// This is an index into `SymbolFile::files`.
-    pub call_file: u32,
+    pub call_file: SourceFilePathIndex,
     /// The line number in `call_file` for the function call.
     pub call_line: u32,
     /// The function name, as an index into `SymbolFile::inline_origins`.
@@ -995,7 +1023,7 @@ fn parse_func_data_line(tokenizer: &mut Tokenizer) -> Result<SourceLine, ()> {
     tokenizer.consume_space1()?;
     let line = tokenizer.consume_decimal_u32()?;
     tokenizer.consume_space1()?;
-    let file = tokenizer.consume_decimal_u32()?;
+    let file = SourceFilePathIndex(tokenizer.consume_decimal_u32()?);
     Ok(SourceLine {
         address: address as u32,
         size,
@@ -1095,7 +1123,7 @@ fn parse_inline_line_remainder(
     tokenizer.consume_space1()?;
     let call_line = tokenizer.consume_decimal_u32()?;
     tokenizer.consume_space1()?;
-    let call_file = tokenizer.consume_decimal_u32()?;
+    let call_file = SourceFilePathIndex(tokenizer.consume_decimal_u32()?);
     tokenizer.consume_space1()?;
     let origin_id = tokenizer.consume_decimal_u32()?;
     tokenizer.consume_space1()?;
@@ -1204,25 +1232,27 @@ mod test {
             block_length: (block.len() - "JUNK\n".len() - "\nJUNK".len()) as u32,
         };
         let input = &block[func.file_offset as usize..][..func.block_length as usize];
-        let func = BreakpadFuncSymbol::parse(input).unwrap();
+        let mut lines = Vec::new();
+        let mut inlinees = Vec::new();
+        let func = BreakpadFuncSymbol::parse(input, &mut lines, &mut inlinees).unwrap();
         assert_eq!(func.name, "main");
         assert_eq!(func.size, 0x28);
-        assert_eq!(func.lines.len(), 4);
+        assert_eq!(func.lines(&lines).len(), 4);
         assert_eq!(
-            func.lines[0],
+            func.lines(&lines)[0],
             SourceLine {
                 address: 0x1130,
                 size: 0xf,
-                file: 0,
+                file: SourceFilePathIndex(0),
                 line: 24,
             }
         );
         assert_eq!(
-            func.lines[3],
+            func.lines(&lines)[3],
             SourceLine {
                 address: 0x114f,
                 size: 0x9,
-                file: 0,
+                file: SourceFilePathIndex(0),
                 line: 27,
             }
         );

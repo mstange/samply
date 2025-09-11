@@ -6,16 +6,20 @@ use samply_api::samply_symbols::{
     CandidatePathInfo, FileAndPathHelper, FileAndPathHelperResult, FileLocation, LibraryInfo,
     OptionallySendFuture, SymbolManager,
 };
-use samply_api::Api;
+use samply_api::{Api, QueryApiJsonResult};
 
-pub async fn query_api(request_url: &str, request_json: &str, symbol_directory: PathBuf) -> String {
+pub async fn query_api(
+    request_url: &str,
+    request_json: &str,
+    symbol_directory: PathBuf,
+) -> QueryApiJsonResult<Helper> {
     let helper = Helper { symbol_directory };
     let symbol_manager = SymbolManager::with_helper(helper);
     let api = Api::new(&symbol_manager);
     api.query_api(request_url, request_json).await
 }
 
-struct Helper {
+pub struct Helper {
     symbol_directory: PathBuf,
 }
 
@@ -167,7 +171,7 @@ impl FileAndPathHelper for Helper {
 }
 
 #[derive(Clone)]
-struct FileLocationType(PathBuf);
+pub struct FileLocationType(PathBuf);
 
 impl FileLocationType {
     pub fn new(path: impl Into<PathBuf>) -> Self {

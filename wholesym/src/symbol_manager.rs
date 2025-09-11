@@ -5,7 +5,8 @@ use std::sync::Arc;
 use debugid::DebugId;
 use samply_symbols::{
     self, AddressInfo, Error, ExternalFileAddressInFileRef, ExternalFileAddressRef, FrameDebugInfo,
-    LibraryInfo, LookupAddress, MultiArchDisambiguator, SymbolMapTrait, SyncAddressInfo,
+    LibraryInfo, LookupAddress, MultiArchDisambiguator, PathInterner, SourceFilePath,
+    SourceFilePathHandle, SymbolMapTrait, SyncAddressInfo,
 };
 
 use crate::config::SymbolManagerConfig;
@@ -125,6 +126,10 @@ impl SymbolMap {
     pub fn iter_symbols(&self) -> Box<dyn Iterator<Item = (u32, Cow<'_, str>)> + '_> {
         self.0.iter_symbols()
     }
+
+    pub fn resolve_source_file_path(&self, handle: SourceFilePathHandle) -> SourceFilePath<'_> {
+        self.0.resolve_source_file_path(handle)
+    }
 }
 
 pub struct ExternalFileSymbolMap(samply_symbols::ExternalFileSymbolMap<WholesymFileContents>);
@@ -140,8 +145,9 @@ impl ExternalFileSymbolMap {
     pub fn lookup(
         &self,
         external_file_address: &ExternalFileAddressInFileRef,
+        path_interner: &mut PathInterner,
     ) -> Option<Vec<FrameDebugInfo>> {
-        self.0.lookup(external_file_address)
+        self.0.lookup(external_file_address, path_interner)
     }
 }
 
@@ -286,8 +292,21 @@ impl SymbolManager {
 
     /// Run a symbolication query with the "Tecken" JSON API.
     #[cfg(feature = "api")]
-    pub async fn query_json_api(&self, path: &str, request_json: &str) -> String {
+    pub async fn query_json_api(&self, path: &str, request_json: &str) -> QueryApiJsonResult {
         let api = samply_api::Api::new(&self.symbol_manager);
-        api.query_api(path, request_json).await
+        QueryApiJsonResult(api.query_api(path, request_json).await)
+    }
+}
+
+#[cfg(feature = "api")]
+pub struct QueryApiJsonResult(samply_api::QueryApiJsonResult<Helper>);
+
+#[cfg(feature = "api")]
+impl serde::Serialize for QueryApiJsonResult {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        self.0.serialize(serializer)
     }
 }

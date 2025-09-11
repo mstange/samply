@@ -1,11 +1,14 @@
-use std::fs::File;
 use std::path::Path;
 use std::str::FromStr;
 use std::sync::Arc;
+use std::{borrow::Cow, fs::File};
 
 use serde::de::{Deserialize, Deserializer};
 use serde_derive::Deserialize;
-use wholesym::SourceFilePath;
+use wholesym::{
+    samply_symbols::{SourceFilePathHandle, SourceFilePathIndex, SymbolMapGeneration},
+    SourceFilePath,
+};
 
 #[derive(Debug, Copy, Clone, PartialOrd, Ord, PartialEq, Eq, Hash)]
 struct StringTableIndex(usize);
@@ -20,6 +23,7 @@ impl<'de> Deserialize<'de> for StringTableIndex {
 // so many string tables, none of them convenient
 struct StringTable {
     strings: Vec<String>,
+    generation: SymbolMapGeneration,
 }
 
 impl StringTable {
@@ -31,7 +35,11 @@ impl StringTable {
 impl<'de> Deserialize<'de> for StringTable {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         let strings = Vec::<String>::deserialize(deserializer)?;
-        Ok(StringTable { strings })
+        let generation = SymbolMapGeneration::new();
+        Ok(StringTable {
+            strings,
+            generation,
+        })
     }
 }
 
@@ -135,6 +143,25 @@ impl PrecogLibrarySymbols {
     fn get_owned_opt_string(&self, index: Option<StringTableIndex>) -> Option<String> {
         index.map(|index| self.get_string(index).to_owned())
     }
+
+    fn handle_for_string_index(&self, index: StringTableIndex) -> SourceFilePathHandle {
+        self.string_table
+            .as_ref()
+            .unwrap()
+            .generation
+            .source_file_handle(SourceFilePathIndex(index.0 as u32))
+    }
+
+    fn string_index_for_handle(&self, handle: SourceFilePathHandle) -> StringTableIndex {
+        StringTableIndex(
+            self.string_table
+                .as_ref()
+                .unwrap()
+                .generation
+                .unwrap_source_file_index(handle)
+                .0 as usize,
+        )
+    }
 }
 
 impl wholesym::samply_symbols::SymbolMapTrait for PrecogLibrarySymbols {
@@ -180,9 +207,9 @@ impl wholesym::samply_symbols::SymbolMapTrait for PrecogLibrarySymbols {
                                 .iter()
                                 .map(|frame| wholesym::FrameDebugInfo {
                                     function: self.get_owned_opt_string(frame.function),
-                                    file_path: frame.file.map(|file| {
-                                        SourceFilePath::new(self.get_string(file).to_owned(), None)
-                                    }),
+                                    file_path: frame
+                                        .file
+                                        .map(|file| self.handle_for_string_index(file)),
                                     line_number: frame.line,
                                 })
                                 .collect(),
@@ -193,6 +220,12 @@ impl wholesym::samply_symbols::SymbolMapTrait for PrecogLibrarySymbols {
             wholesym::LookupAddress::Svma(_) => None,
             wholesym::LookupAddress::FileOffset(_) => None,
         }
+    }
+
+    fn resolve_source_file_path(&self, handle: SourceFilePathHandle) -> SourceFilePath<'_> {
+        let index = self.string_index_for_handle(handle);
+        let s = self.get_string(index);
+        SourceFilePath::RawPath(Cow::Borrowed(s))
     }
 }
 

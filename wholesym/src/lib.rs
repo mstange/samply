@@ -34,9 +34,10 @@
 //!     if let Some(frames) = address_info.frames {
 //!         for (i, frame) in frames.into_iter().enumerate() {
 //!             let function = frame.function.unwrap();
-//!             let file = frame.file_path.unwrap().display_path();
+//!             let file = symbol_map.resolve_source_file_path(frame.file_path.unwrap());
+//!             let path = file.display_path();
 //!             let line = frame.line_number.unwrap();
-//!             println!("  #{i:02} {function} at {file}:{line}");
+//!             println!("  #{i:02} {function} at {path}:{line}");
 //!         }
 //!     }
 //! } else {
@@ -129,6 +130,7 @@
 
 pub use debugid;
 
+mod async_double_buffer;
 mod breakpad;
 mod config;
 mod debuginfod;

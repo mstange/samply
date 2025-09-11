@@ -1,60 +1,65 @@
 use std::collections::HashMap;
-use std::num::NonZeroU32;
+use std::sync::Arc;
 
 use samply_symbols::{
-    FileAndPathHelper, FramesLookupResult, LibraryInfo, LookupAddress, SymbolManager,
+    FileAndPathHelper, FramesLookupResult, LibraryInfo, LookupAddress, SourceFilePath,
+    SourceFilePathHandle, SymbolManager, SymbolMap,
 };
 
-use crate::api_file_path::to_api_file_path;
 use crate::error::Error;
+use crate::symbolicate::looked_up_addresses::PathResolver;
+use crate::symbolicate::response_json::{PerLibResult, Response};
 use crate::to_debug_id;
 
 pub mod looked_up_addresses;
 pub mod request_json;
 pub mod response_json;
 
-use looked_up_addresses::{AddressResults, LookedUpAddresses};
+use looked_up_addresses::LookedUpAddresses;
 use request_json::Lib;
-use serde_json::json;
+
+impl<H: FileAndPathHelper> PathResolver for SymbolMap<H> {
+    fn resolve_source_file_path(&self, handle: SourceFilePathHandle) -> SourceFilePath<'_> {
+        self.resolve_source_file_path(handle)
+    }
+}
 
 pub struct SymbolicateApi<'a, H: FileAndPathHelper> {
     symbol_manager: &'a SymbolManager<H>,
 }
 
-impl<'a, H: FileAndPathHelper> SymbolicateApi<'a, H> {
+impl<'a, H: FileAndPathHelper + 'static> SymbolicateApi<'a, H> {
     /// Create a [`SymbolicateApi`] instance which uses the provided [`SymbolManager`].
     pub fn new(symbol_manager: &'a SymbolManager<H>) -> Self {
         Self { symbol_manager }
     }
 
-    pub async fn query_api_json(&self, request_json: &str) -> String {
-        match self.query_api_fallible_json(request_json).await {
-            Ok(response_json) => response_json,
-            Err(err) => json!({ "error": err.to_string() }).to_string(),
-        }
-    }
-
-    pub async fn query_api_fallible_json(&self, request_json: &str) -> Result<String, Error> {
+    pub async fn query_api_json(
+        &self,
+        request_json: &str,
+    ) -> Result<response_json::Response<H>, Error> {
         let request: request_json::Request = serde_json::from_str(request_json)?;
-        let response = self.query_api(&request).await?;
-        Ok(serde_json::to_string(&response)?)
+        self.query_api(request).await
     }
 
     pub async fn query_api(
         &self,
-        request: &request_json::Request,
-    ) -> Result<response_json::Response, Error> {
-        let requested_addresses = gather_requested_addresses(request)?;
-        let symbolicated_addresses = self
+        request: request_json::Request,
+    ) -> Result<response_json::Response<H>, Error> {
+        let requested_addresses = gather_requested_addresses(&request)?;
+        let per_lib_results = self
             .symbolicate_requested_addresses(requested_addresses)
             .await;
-        Ok(create_response(request, symbolicated_addresses))
+        Ok(Response {
+            request,
+            per_lib_results,
+        })
     }
 
     async fn symbolicate_requested_addresses(
         &self,
         requested_addresses: HashMap<Lib, Vec<u32>>,
-    ) -> HashMap<Lib, Result<LookedUpAddresses, samply_symbols::Error>> {
+    ) -> HashMap<Lib, Result<PerLibResult<H>, samply_symbols::Error>> {
         let mut symbolicated_addresses = HashMap::new();
         for (lib, addresses) in requested_addresses.into_iter() {
             let address_results = self
@@ -69,7 +74,7 @@ impl<'a, H: FileAndPathHelper> SymbolicateApi<'a, H> {
         &self,
         lib: &Lib,
         mut addresses: Vec<u32>,
-    ) -> Result<LookedUpAddresses, samply_symbols::Error> {
+    ) -> Result<PerLibResult<H>, samply_symbols::Error> {
         // Sort the addresses before the lookup, to have a higher chance of hitting
         // the same external file for subsequent addresses.
         addresses.sort_unstable();
@@ -77,7 +82,6 @@ impl<'a, H: FileAndPathHelper> SymbolicateApi<'a, H> {
 
         let debug_id = to_debug_id(&lib.breakpad_id)?;
 
-        let mut symbolication_result = LookedUpAddresses::for_addresses(&addresses);
         let mut external_addresses = Vec::new();
 
         // Do the synchronous work first, and accumulate external_addresses which need
@@ -90,6 +94,7 @@ impl<'a, H: FileAndPathHelper> SymbolicateApi<'a, H> {
             ..Default::default()
         };
         let symbol_map = self.symbol_manager.load_symbol_map(&info).await?;
+        let mut symbolication_result = LookedUpAddresses::for_addresses(&addresses);
 
         symbolication_result.set_total_symbol_count(symbol_map.symbol_count() as u32);
 
@@ -125,7 +130,12 @@ impl<'a, H: FileAndPathHelper> SymbolicateApi<'a, H> {
             }
         }
 
-        Ok(symbolication_result)
+        let outcome = PerLibResult {
+            address_results: symbolication_result,
+            symbol_map: Arc::new(symbol_map),
+        };
+
+        Ok(outcome)
     }
 }
 
@@ -154,114 +164,4 @@ fn gather_requested_addresses(
         }
     }
     Ok(requested_addresses)
-}
-
-fn create_response(
-    request: &request_json::Request,
-    symbolicated_addresses: HashMap<Lib, Result<LookedUpAddresses, samply_symbols::Error>>,
-) -> response_json::Response {
-    use response_json::{DebugInfo, FrameDebugInfo, Response, Stack, StackFrame, Symbol};
-
-    fn result_for_job(
-        job: &request_json::Job,
-        symbolicated_addresses: &HashMap<Lib, Result<LookedUpAddresses, samply_symbols::Error>>,
-    ) -> response_json::Result {
-        let mut found_modules = HashMap::new();
-        let mut module_errors = HashMap::new();
-        let mut symbols_by_module_index = HashMap::new();
-        for (module_index, lib) in job.memory_map.iter().enumerate() {
-            if let Some(symbol_result) = symbolicated_addresses.get(lib) {
-                let module_key = format!("{}/{}", lib.debug_name, lib.breakpad_id);
-                match symbol_result {
-                    Ok(symbols) => {
-                        symbols_by_module_index
-                            .insert(module_index as u32, &symbols.address_results);
-                    }
-                    Err(err) => {
-                        module_errors.insert(module_key.clone(), vec![err.into()]);
-                    }
-                }
-                found_modules.insert(module_key, symbol_result.is_ok());
-            }
-        }
-
-        let stacks = job.stacks.iter().map(|stack| {
-            response_stack_for_request_stack(stack, &job.memory_map, &symbols_by_module_index)
-        });
-
-        response_json::Result {
-            stacks: stacks.collect(),
-            found_modules,
-            module_errors,
-        }
-    }
-
-    fn response_stack_for_request_stack(
-        stack: &request_json::Stack,
-        memory_map: &[Lib],
-        symbols_by_module_index: &HashMap<u32, &AddressResults>,
-    ) -> Stack {
-        let frames = stack.0.iter().enumerate().map(|(frame_index, frame)| {
-            response_frame_for_request_frame(
-                frame,
-                frame_index as u32,
-                memory_map,
-                symbols_by_module_index,
-            )
-        });
-        Stack(frames.collect())
-    }
-
-    fn response_frame_for_request_frame(
-        frame: &request_json::StackFrame,
-        frame_index: u32,
-        memory_map: &[Lib],
-        symbols_by_module_index: &HashMap<u32, &AddressResults>,
-    ) -> StackFrame {
-        let symbol = symbols_by_module_index
-            .get(&frame.module_index)
-            .and_then(|symbol_map| {
-                // If we have a symbol table for this library, then we know that
-                // this address is present in it.
-                symbol_map
-                    .get(&frame.address)
-                    .unwrap()
-                    .as_ref()
-                    .map(|address_result| Symbol {
-                        function: address_result.symbol_name.clone(),
-                        function_offset: frame.address - address_result.symbol_address,
-                        function_size: address_result.function_size,
-                        debug_info: address_result.inline_frames.as_ref().map(|frames| {
-                            let (outer, inlines) = frames
-                                .split_last()
-                                .expect("inline_frames should always have at least one element");
-                            DebugInfo {
-                                file: outer.file_path.as_ref().map(to_api_file_path),
-                                line: outer.line_number.and_then(NonZeroU32::new),
-                                inlines: inlines
-                                    .iter()
-                                    .map(|inline_frame| FrameDebugInfo {
-                                        function: inline_frame.function.clone(),
-                                        file: inline_frame.file_path.as_ref().map(to_api_file_path),
-                                        line: inline_frame.line_number.and_then(NonZeroU32::new),
-                                    })
-                                    .collect(),
-                            }
-                        }),
-                    })
-            });
-        StackFrame {
-            frame: frame_index,
-            module_offset: frame.address,
-            module: memory_map[frame.module_index as usize].debug_name.clone(),
-            symbol,
-        }
-    }
-
-    Response {
-        results: request
-            .jobs()
-            .map(|job| result_for_job(job, &symbolicated_addresses))
-            .collect(),
-    }
 }

@@ -1,3 +1,4 @@
+use std::io::Write;
 use std::path::Path;
 use std::pin::Pin;
 use std::sync::atomic::AtomicU64;
@@ -5,11 +6,10 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use futures_util::{AsyncRead, AsyncReadExt as _};
-use tokio::io::AsyncWriteExt;
 
 use crate::download::response_to_uncompressed_stream_with_progress;
 use crate::file_creation::{create_file_cleanly, CleanFileCreationError};
-use crate::DownloadError;
+use crate::{async_double_buffer, DownloadError};
 
 /// A trait for observing the behavior of a `BreakpadSymbolDownloader` or `DebuginfodDownloader`.
 /// This can be used for logging, displaying progress bars, expiring cached files, etc.
@@ -161,6 +161,20 @@ impl Drop for DownloadStatusReporter {
     }
 }
 
+pub trait ChunkConsumer {
+    type Output;
+    fn consume_chunk(&mut self, chunk_data: &[u8]);
+    fn finish(self) -> Self::Output;
+}
+
+struct NoopChunkConsumer;
+
+impl ChunkConsumer for NoopChunkConsumer {
+    type Output = ();
+    fn consume_chunk(&mut self, _chunk_data: &[u8]) {}
+    fn finish(self) -> Self::Output {}
+}
+
 pub struct Downloader {
     reqwest_client: Result<reqwest::Client, reqwest::Error>,
 }
@@ -283,21 +297,32 @@ pub struct PendingDownload {
     ts_after_status: Instant,
 }
 
-pub enum FileDownloadOutcome {
-    DidCreateNewFile,
+pub enum FileDownloadOutcome<T> {
+    DidCreateNewFile(T),
     FoundExistingFile,
 }
 
 impl PendingDownload {
-    #[allow(clippy::type_complexity)]
     pub async fn download_to_file(
         self,
         dest_path: &Path,
-        mut chunk_consumer: Option<&mut (dyn FnMut(&[u8]) + Send)>,
-    ) -> Result<FileDownloadOutcome, DownloadError> {
+    ) -> Result<FileDownloadOutcome<()>, DownloadError> {
+        self.download_to_file_with_chunk_consumer(dest_path, NoopChunkConsumer)
+            .await
+    }
+
+    pub async fn download_to_file_with_chunk_consumer<C, O>(
+        self,
+        dest_path: &Path,
+        chunk_consumer: C,
+    ) -> Result<FileDownloadOutcome<O>, DownloadError>
+    where
+        C: ChunkConsumer<Output = O> + Send + 'static,
+        O: Send + 'static,
+    {
         let PendingDownload {
             reporter,
-            mut stream,
+            stream,
             observer,
             ts_after_status,
         } = self;
@@ -317,36 +342,12 @@ impl PendingDownload {
         }
 
         let download_result: Result<
-            (FileDownloadOutcome, u64),
+            (FileDownloadOutcome<C::Output>, u64),
             CleanFileCreationError<DownloadError>,
         > = create_file_cleanly(
             dest_path,
             |dest_file: std::fs::File| async move {
-                let mut dest_file = tokio::fs::File::from_std(dest_file);
-                let mut buf = vec![0u8; 2 * 1024 * 1024 /* 2 MiB */];
-                let mut uncompressed_size_in_bytes = 0;
-                loop {
-                    let count = stream
-                        .read(&mut buf)
-                        .await
-                        .map_err(DownloadError::StreamRead)?;
-                    if count == 0 {
-                        break;
-                    }
-                    uncompressed_size_in_bytes += count as u64;
-                    dest_file
-                        .write_all(&buf[..count])
-                        .await
-                        .map_err(DownloadError::DiskWrite)?;
-                    if let Some(chunk_consumer) = &mut chunk_consumer {
-                        chunk_consumer(&buf[..count]);
-                    }
-                }
-                dest_file.flush().await.map_err(DownloadError::DiskWrite)?;
-                Ok((
-                    FileDownloadOutcome::DidCreateNewFile,
-                    uncompressed_size_in_bytes,
-                ))
+                consume_stream_and_write_to_file(stream, chunk_consumer, dest_file).await
             },
             || async {
                 let size = std::fs::metadata(dest_path)
@@ -395,10 +396,7 @@ impl PendingDownload {
 
     #[allow(clippy::type_complexity)]
     #[allow(dead_code)]
-    pub async fn download_to_memory(
-        self,
-        mut chunk_consumer: Option<&mut (dyn FnMut(&[u8]) + Send)>,
-    ) -> Result<Vec<u8>, DownloadError> {
+    pub async fn download_to_memory(self) -> Result<Vec<u8>, DownloadError> {
         let PendingDownload {
             reporter,
             mut stream,
@@ -423,16 +421,13 @@ impl PendingDownload {
                 }
                 uncompressed_size_in_bytes += count as u64;
                 bytes_ref.extend_from_slice(&buf[..count]);
-                if let Some(chunk_consumer) = &mut chunk_consumer {
-                    chunk_consumer(&buf[..count]);
-                }
             }
             Ok(uncompressed_size_in_bytes)
         }
         .await;
 
         let uncompressed_size_in_bytes = match download_result {
-            Ok(size) => size,
+            Ok(retval) => retval,
             Err(e) => {
                 let kind = e.kind();
                 let s = e.to_string();
@@ -450,4 +445,99 @@ impl PendingDownload {
 
         Ok(bytes)
     }
+}
+
+async fn consume_stream_and_write_to_file<C, O>(
+    mut stream: Pin<Box<dyn AsyncRead + Send + Sync>>,
+    mut chunk_consumer: C,
+    mut dest_file: std::fs::File,
+) -> Result<(FileDownloadOutcome<O>, u64), DownloadError>
+where
+    C: ChunkConsumer<Output = O> + Send + 'static,
+    O: Send + 'static,
+{
+    const CHUNK_SIZE: usize = 2 * 1024 * 1024 /* 2 MiB */;
+    let (mut producer, mut consumer) =
+        async_double_buffer::double_buffer(vec![0u8; CHUNK_SIZE], vec![0u8; CHUNK_SIZE]);
+
+    // The producer calls stream.read(...).await. For compressed streams, this will
+    // run the decompression. We want to run the chunk_consumer and the file writing
+    // on a different thread, so we put that work into a consumer_task.
+    let producer_task = async move {
+        let mut uncompressed_size_in_bytes = 0;
+        loop {
+            let mut filled_bytes_this_chunk = 0;
+            while filled_bytes_this_chunk < producer.len() {
+                let count = stream
+                    .read(&mut producer[filled_bytes_this_chunk..])
+                    .await
+                    .map_err(DownloadError::StreamRead)?;
+                if count == 0 {
+                    // We've hit the end of the input.
+                    if filled_bytes_this_chunk > 0 {
+                        // Truncate the final chunk and send it.
+                        producer.truncate(filled_bytes_this_chunk);
+                        let _ = producer.swap().await;
+                    }
+                    return Ok(uncompressed_size_in_bytes);
+                }
+                filled_bytes_this_chunk += count;
+            }
+
+            uncompressed_size_in_bytes += filled_bytes_this_chunk as u64;
+
+            // Now that the current buffer is full, indicate to the consumer
+            // that it can start processing it.
+            // This swap will wait if the consumer isn't done yet with its buffer,
+            // creating backpressure.
+            if !producer.swap().await {
+                // Consumer disconnected
+                return Err(DownloadError::Other("Consumer disconnected".into()));
+            }
+        }
+    };
+
+    // Read the downloaded data from the buffers handed out by the producer.
+    // Doing this in a blocking tokio task allows the file writing and the
+    // chunk consumption to happen on different threads.
+    // Single-threaded profile: https://share.firefox.dev/46eUtwL
+    // Multi-threaded profile: https://share.firefox.dev/3JP5zB0
+    // This was when downloading https://symbols.mozilla.org/XUL/0165BCFB93BD3DC99DA5AC4F033C164B0/XUL.sym
+    // which is a gzip-compressed file that uncompresses to 922MB. In the "single-threaded"
+    // profile above, the download was bottlenecked by CPU work. In the "multi-threaded"
+    // profile, GZ decompression and breakpad index building + file writing happen on
+    // different threads, and the download is 2x faster.
+    let consumer_task = move || {
+        if !consumer.swap_blocking() {
+            return Ok::<O, DownloadError>(chunk_consumer.finish()); // No data to consume
+        }
+
+        loop {
+            chunk_consumer.consume_chunk(&consumer[..]);
+            dest_file
+                .write_all(&consumer[..])
+                .map_err(DownloadError::DiskWrite)?;
+
+            // Swap for next buffer
+            if !consumer.swap_blocking() {
+                // No more buffers, producer is done.
+                dest_file.flush().map_err(DownloadError::DiskWrite)?;
+                let chunk_consumer_output = chunk_consumer.finish();
+                return Ok(chunk_consumer_output);
+            }
+        }
+    };
+
+    let producer_task = tokio::task::spawn(producer_task);
+    let consumer_task = tokio::task::spawn_blocking(consumer_task);
+
+    let (producer_result, consumer_result) = tokio::join!(producer_task, consumer_task);
+
+    let chunk_consumer_output = consumer_result.unwrap()?;
+    let uncompressed_size_in_bytes = producer_result.unwrap()?;
+
+    Ok((
+        FileDownloadOutcome::DidCreateNewFile(chunk_consumer_output),
+        uncompressed_size_in_bytes,
+    ))
 }

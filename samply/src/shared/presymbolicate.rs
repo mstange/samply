@@ -4,27 +4,45 @@ use std::sync::{Arc, Mutex};
 use futures_util::future::join_all;
 use fxprof_processed_profile::symbol_info::{
     AddressFrame as ProfileAddressFrame, AddressInfo as ProfileAddressInfo, LibSymbolInfo,
-    ProfileSymbolInfo, SymbolStringTable,
+    ProfileSymbolInfo, SymbolStringIndex, SymbolStringTable,
 };
 use fxprof_processed_profile::LibraryHandle;
-use wholesym::SymbolManager;
+use rustc_hash::FxHashMap;
+use wholesym::samply_symbols::SourceFilePathHandle;
+use wholesym::{SymbolManager, SymbolMap};
 
 use crate::symbols::create_symbol_manager_and_quota_manager;
 
 use super::prop_types::SymbolProps;
 
+struct StringTableAdapterForSymbolTable<'a> {
+    symbol_map: &'a SymbolMap,
+    string_table: &'a mut SymbolStringTable,
+    index_for_handle: FxHashMap<SourceFilePathHandle, SymbolStringIndex>,
+}
+
+impl<'a> StringTableAdapterForSymbolTable<'a> {
+    pub fn map_source_file_path(&mut self, handle: SourceFilePathHandle) -> SymbolStringIndex {
+        *self.index_for_handle.entry(handle).or_insert_with(|| {
+            let path = self.symbol_map.resolve_source_file_path(handle);
+            let path_str = path
+                .special_path_str()
+                .unwrap_or_else(|| path.raw_path().into());
+            self.string_table.index_for_string(&path_str)
+        })
+    }
+}
+
 fn convert_address_frame(
     frame: &wholesym::FrameDebugInfo,
-    strtab: &mut SymbolStringTable,
+    strtab: &mut StringTableAdapterForSymbolTable,
 ) -> Option<ProfileAddressFrame> {
-    let function_name = strtab.index_for_string(frame.function.as_ref()?);
-    let file = frame.file_path.as_ref().map(|source_file_path| {
-        if let Some(mapped_path) = source_file_path.mapped_path() {
-            strtab.index_for_string(&mapped_path.to_special_path_str())
-        } else {
-            strtab.index_for_string(source_file_path.raw_path())
-        }
-    });
+    let function_name = strtab
+        .string_table
+        .index_for_string(frame.function.as_ref()?);
+    let file = frame
+        .file_path
+        .map(|handle| strtab.map_source_file_path(handle));
 
     Some(ProfileAddressFrame {
         function_name,
@@ -35,9 +53,9 @@ fn convert_address_frame(
 
 fn convert_address_info(
     info: &wholesym::AddressInfo,
-    strtab: &mut SymbolStringTable,
+    strtab: &mut StringTableAdapterForSymbolTable,
 ) -> ProfileAddressInfo {
-    let symbol_name = strtab.index_for_string(&info.symbol.name);
+    let symbol_name = strtab.string_table.index_for_string(&info.symbol.name);
     let frames = info
         .frames
         .as_ref()
@@ -152,14 +170,23 @@ async fn get_lib_symbols(
     let mut sorted_addresses = Vec::new();
     let mut address_infos = Vec::new();
     for rva in rvas.iter().cloned() {
-        if let Some(addr_info) = symbol_map
+        let Some(addr_info) = symbol_map
             .lookup(wholesym::LookupAddress::Relative(rva))
             .await
-        {
-            let address_info = convert_address_info(&addr_info, &mut string_table.lock().unwrap());
-            sorted_addresses.push(rva);
-            address_infos.push(address_info);
-        }
+        else {
+            continue;
+        };
+        let mut string_table = string_table.lock().unwrap();
+
+        let mut string_table = StringTableAdapterForSymbolTable {
+            symbol_map: &symbol_map,
+            string_table: &mut string_table,
+            index_for_handle: Default::default(),
+        };
+
+        let address_info = convert_address_info(&addr_info, &mut string_table);
+        sorted_addresses.push(rva);
+        address_infos.push(address_info);
     }
 
     Some(LibSymbolInfo {
