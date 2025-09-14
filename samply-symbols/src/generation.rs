@@ -1,9 +1,12 @@
-use std::sync::atomic::AtomicU32;
+use std::{
+    num::NonZeroU32,
+    sync::atomic::{AtomicU32, Ordering},
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct SymbolMapGeneration(pub(crate) u32);
+pub struct SymbolMapGeneration(pub(crate) NonZeroU32);
 
-static SYMBOL_MAP_GENERATION: AtomicU32 = AtomicU32::new(0);
+static SYMBOL_MAP_GENERATION: AtomicU32 = AtomicU32::new(1);
 
 impl Default for SymbolMapGeneration {
     fn default() -> Self {
@@ -13,6 +16,12 @@ impl Default for SymbolMapGeneration {
 
 impl SymbolMapGeneration {
     pub fn new() -> Self {
-        Self(SYMBOL_MAP_GENERATION.fetch_add(1, std::sync::atomic::Ordering::Relaxed))
+        let next_nonzero_wrapping = loop {
+            match NonZeroU32::new(SYMBOL_MAP_GENERATION.fetch_add(1, Ordering::Relaxed)) {
+                Some(gen) => break gen,
+                None => continue,
+            }
+        };
+        Self(next_nonzero_wrapping)
     }
 }
