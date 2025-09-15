@@ -789,7 +789,7 @@ pub enum BreakpadParseError {
     NoModuleInfoInSymFile,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct BreakpadPublicSymbolInfo<'a> {
     pub name: &'a str,
 }

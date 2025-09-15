@@ -18,8 +18,8 @@ use crate::generation::SymbolMapGeneration;
 use crate::source_file_path::SourceFilePathHandle;
 use crate::symbol_map::{GetInnerSymbolMap, SymbolMapTrait};
 use crate::{
-    Error, FileContents, FileContentsWrapper, FrameDebugInfo, FramesLookupResult, LookupAddress,
-    SourceFilePath, SymbolInfo, SyncAddressInfo,
+    AccessPatternHint, Error, FileContents, FileContentsWrapper, FrameDebugInfo,
+    FramesLookupResult, LookupAddress, SourceFilePath, SymbolInfo, SyncAddressInfo,
 };
 
 pub fn get_symbol_map_for_breakpad_sym<FC: FileContents + 'static>(
@@ -138,6 +138,7 @@ struct BreakpadSymbolMapSymbolCache<'a> {
     func_symbols: HashMap<u64, BreakpadFuncSymbolInfo<'a>>,
     lines: Vec<SourceLine>,
     inlinees: Vec<Inlinee>,
+    only_store_latest: bool,
 }
 
 impl<'a, T: FileContents> BreakpadSymbolMapCache<'a, T> {
@@ -151,24 +152,27 @@ impl<'a, T: FileContents> BreakpadSymbolMapCache<'a, T> {
 }
 
 impl<'a> BreakpadSymbolMapSymbolCache<'a> {
-    pub fn get_public_info<'s, T: FileContents>(
-        &'s mut self,
+    pub fn get_public_info<T: FileContents>(
+        &mut self,
         file_offset: u64,
         line_length: u32,
         data: &'a FileContentsWrapper<T>,
-    ) -> Result<&'s BreakpadPublicSymbolInfo<'a>, Error> {
-        match self.public_symbols.entry(file_offset) {
-            Entry::Occupied(info) => Ok(info.into_mut()),
-            Entry::Vacant(vacant) => {
-                let line = data
-                    .read_bytes_at(file_offset, line_length.into())
-                    .map_err(|e| {
-                        Error::HelperErrorDuringFileReading("Breakpad PUBLIC symbol".to_string(), e)
-                    })?;
-                let info = BreakpadPublicSymbol::parse(line)?;
-                Ok(vacant.insert(info))
-            }
+    ) -> Result<BreakpadPublicSymbolInfo<'a>, Error> {
+        if let Some(info) = self.public_symbols.get(&file_offset) {
+            return Ok(*info);
         }
+
+        self.clear_if_saving_memory();
+
+        let line = data
+            .read_bytes_at(file_offset, line_length.into())
+            .map_err(|e| {
+                Error::HelperErrorDuringFileReading("Breakpad PUBLIC symbol".to_string(), e)
+            })?;
+        let info = BreakpadPublicSymbol::parse(line)?;
+        self.public_symbols.insert(file_offset, info);
+
+        Ok(info)
     }
 
     pub fn get_func_info<'s, T: FileContents>(
@@ -177,17 +181,28 @@ impl<'a> BreakpadSymbolMapSymbolCache<'a> {
         block_length: u32,
         data: &'a FileContentsWrapper<T>,
     ) -> Result<BreakpadFuncSymbolInfo<'a>, Error> {
-        match self.func_symbols.entry(file_offset) {
-            Entry::Occupied(info) => Ok(*info.get()),
-            Entry::Vacant(vacant) => {
-                let block = data
-                    .read_bytes_at(file_offset, block_length.into())
-                    .map_err(|e| {
-                        Error::HelperErrorDuringFileReading("Breakpad FUNC symbol".to_string(), e)
-                    })?;
-                let info = BreakpadFuncSymbol::parse(block, &mut self.lines, &mut self.inlinees)?;
-                Ok(*vacant.insert(info))
-            }
+        if let Some(info) = self.func_symbols.get(&file_offset) {
+            return Ok(*info);
+        }
+
+        self.clear_if_saving_memory();
+
+        let block = data
+            .read_bytes_at(file_offset, block_length.into())
+            .map_err(|e| {
+                Error::HelperErrorDuringFileReading("Breakpad FUNC symbol".to_string(), e)
+            })?;
+        let info = BreakpadFuncSymbol::parse(block, &mut self.lines, &mut self.inlinees)?;
+        self.func_symbols.insert(file_offset, info);
+        Ok(info)
+    }
+
+    fn clear_if_saving_memory(&mut self) {
+        if self.only_store_latest {
+            self.public_symbols.clear();
+            self.func_symbols.clear();
+            self.inlinees.clear();
+            self.lines.clear();
         }
     }
 }
@@ -384,6 +399,11 @@ impl<'object, T: FileContents> SymbolMapTrait for BreakpadSymbolMapInner<'object
         let mut cache = self.cache.lock().unwrap();
         let s = cache.files.get_string(index.0).ok().unwrap_or("<missing>");
         SourceFilePath::BreakpadSpecialPathStr(Cow::Borrowed(s))
+    }
+
+    fn set_access_pattern_hint(&self, hint: AccessPatternHint) {
+        let mut cache = self.cache.lock().unwrap();
+        cache.symbols.only_store_latest = hint == AccessPatternHint::SequentialLookup;
     }
 }
 

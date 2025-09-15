@@ -2,8 +2,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use samply_symbols::{
-    FileAndPathHelper, FramesLookupResult, LibraryInfo, LookupAddress, SourceFilePath,
-    SourceFilePathHandle, SymbolManager, SymbolMap,
+    AccessPatternHint, FileAndPathHelper, FramesLookupResult, LibraryInfo, LookupAddress,
+    SourceFilePath, SourceFilePathHandle, SymbolManager, SymbolMap,
 };
 
 use crate::error::Error;
@@ -94,6 +94,7 @@ impl<'a, H: FileAndPathHelper + 'static> SymbolicateApi<'a, H> {
             ..Default::default()
         };
         let symbol_map = self.symbol_manager.load_symbol_map(&info).await?;
+        symbol_map.set_access_pattern_hint(AccessPatternHint::SequentialLookup);
         let mut symbolication_result = LookedUpAddresses::for_addresses(&addresses);
 
         symbolication_result.set_total_symbol_count(symbol_map.symbol_count() as u32);
