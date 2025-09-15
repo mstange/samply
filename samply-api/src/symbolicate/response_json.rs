@@ -212,12 +212,12 @@ impl<'a> serde::Serialize for ResponseFrame<'a> {
             let address_result = symbol_map.address_results.get(&frame.address).unwrap();
             // But the result might still be None.
             if let Some(address_result) = address_result {
-                map.serialize_entry("function", &address_result.symbol_name)?;
+                map.serialize_entry("function", &address_result.symbol.name)?;
                 map.serialize_entry(
                     "function_offset",
-                    &SerializeAsHexStr(frame.address - address_result.symbol_address),
+                    &SerializeAsHexStr(frame.address - address_result.symbol.address),
                 )?;
-                if let Some(function_size) = address_result.function_size {
+                if let Some(function_size) = address_result.symbol.size {
                     map.serialize_entry("function_size", &SerializeAsHexStr(function_size))?;
                 }
 

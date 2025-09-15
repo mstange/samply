@@ -95,21 +95,19 @@ impl<'a, H: FileAndPathHelper + 'static> SymbolicateApi<'a, H> {
         let mut external_addresses = Vec::new();
 
         for (&address, address_result) in &mut address_results {
-            if let Some(address_info) = symbol_map.lookup_sync(LookupAddress::Relative(address)) {
-                *address_result = Some(AddressResult::new(
-                    address_info.symbol.address,
-                    address_info.symbol.name,
-                    address_info.symbol.size,
-                ));
-                match address_info.frames {
-                    Some(FramesLookupResult::Available(frames)) => {
-                        address_result.as_mut().unwrap().set_debug_info(frames)
-                    }
-                    Some(FramesLookupResult::External(ext_address)) => {
-                        external_addresses.push((address, ext_address));
-                    }
-                    None => {}
+            let Some(address_info) = symbol_map.lookup_sync(LookupAddress::Relative(address))
+            else {
+                continue;
+            };
+            *address_result = Some(AddressResult::new(address_info.symbol));
+            match address_info.frames {
+                Some(FramesLookupResult::Available(frames)) => {
+                    address_result.as_mut().unwrap().set_debug_info(frames)
                 }
+                Some(FramesLookupResult::External(ext_address)) => {
+                    external_addresses.push((address, ext_address));
+                }
+                None => {}
             }
         }
 
