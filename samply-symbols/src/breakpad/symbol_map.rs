@@ -10,7 +10,7 @@ use super::index::{
     BreakpadPublicSymbol, BreakpadPublicSymbolInfo, StringListRef, SYMBOL_ENTRY_KIND_FUNC,
     SYMBOL_ENTRY_KIND_PUBLIC,
 };
-use crate::breakpad::index::{Inlinee, SourceLine};
+use crate::breakpad::index::{Inlinee, OwnedBreakpadIndex, SourceLine};
 use crate::generation::SymbolMapGeneration;
 use crate::source_file_path::SourceFilePathHandle;
 use crate::symbol_map::{GetInnerSymbolMap, SymbolMapTrait};
@@ -42,7 +42,7 @@ impl<T: FileContents> GetInnerSymbolMap for BreakpadSymbolMap<T> {
 
 enum IndexStorage<T: FileContents> {
     File(FileContentsWrapper<T>),
-    Owned(Vec<u8>),
+    Owned(Box<OwnedBreakpadIndex>),
 }
 
 pub struct BreakpadSymbolMapOuter<T: FileContents> {
@@ -88,8 +88,8 @@ impl<T: FileContents> BreakpadSymbolMapOuter<T> {
             buffer.clear();
             offset += CHUNK_SIZE;
         }
-        let index_bytes = index_parser.finish()?;
-        Ok(IndexStorage::Owned(index_bytes))
+        let index = index_parser.finish()?;
+        Ok(IndexStorage::Owned(Box::new(index)))
     }
 
     pub fn make_symbol_map(&self) -> BreakpadSymbolMapInnerWrapper<'_> {
@@ -97,9 +97,7 @@ impl<T: FileContents> BreakpadSymbolMapOuter<T> {
             IndexStorage::File(index_data) => {
                 BreakpadIndex::parse_symindex_file(index_data).unwrap()
             }
-            IndexStorage::Owned(index_data) => {
-                BreakpadIndex::parse_symindex_file(&index_data[..]).unwrap()
-            }
+            IndexStorage::Owned(owned_index) => owned_index.index(),
         };
         let cache = Mutex::new(BreakpadSymbolMapCache::new(&index));
         let inner_impl = BreakpadSymbolMapInner {
@@ -421,7 +419,7 @@ mod test {
         for s in data_slices {
             parser.consume(s);
         }
-        let index_bytes = parser.finish().unwrap();
+        let index_bytes = parser.finish().unwrap().index().serialize_to_bytes();
 
         let full_sym_contents = data_slices.concat();
         let sym_fc = FileContentsWrapper::new(full_sym_contents);

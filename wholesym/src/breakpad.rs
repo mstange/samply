@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use samply_symbols::{BreakpadIndex, BreakpadIndexCreator, BreakpadParseError};
+use samply_symbols::{BreakpadIndex, BreakpadIndexCreator, BreakpadParseError, OwnedBreakpadIndex};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use crate::downloader::{ChunkConsumer, Downloader, DownloaderObserver, FileDownloadOutcome};
@@ -189,7 +189,7 @@ impl BreakpadSymbolDownloaderInner {
     async fn write_symindex(
         &self,
         symindex_path: &Path,
-        index_bytes: Vec<u8>,
+        index: OwnedBreakpadIndex,
     ) -> Result<(), SymindexGenerationError> {
         if let Some(parent_dir) = symindex_path.parent() {
             tokio::fs::create_dir_all(parent_dir).await.map_err(|e| {
@@ -202,17 +202,15 @@ impl BreakpadSymbolDownloaderInner {
         let index_size_result: Result<u64, CleanFileCreationError<SymindexGenerationError>> =
             create_file_cleanly(
                 symindex_path,
-                |index_file| async move {
-                    let mut index_file = tokio::fs::File::from_std(index_file);
-                    index_file
-                        .write_all(&index_bytes)
-                        .await
-                        .map_err(SymindexGenerationError::FileWriting)?;
-                    index_file
-                        .flush()
-                        .await
-                        .map_err(SymindexGenerationError::FileWriting)?;
-                    Ok(index_bytes.len() as u64)
+                |mut index_file| async move {
+                    tokio::task::spawn_blocking(move || -> std::io::Result<u64> {
+                        index.index().to_writer(&mut index_file)?;
+                        let metadata = index_file.metadata()?;
+                        Ok(metadata.len())
+                    })
+                    .await
+                    .unwrap()
+                    .map_err(SymindexGenerationError::FileWriting)
                 },
                 || async {
                     let size = std::fs::metadata(symindex_path)
@@ -267,15 +265,25 @@ impl BreakpadSymbolDownloaderInner {
             let _ = tokio::fs::remove_file(&symindex_path).await;
         }
 
-        let index_bytes = self.parse_sym_file_into_index(sym_path).await?;
-        self.write_symindex(&symindex_path, index_bytes).await?;
+        self.create_symindex_for_sym_file(sym_path, &symindex_path)
+            .await?;
         Ok(symindex_path)
+    }
+
+    async fn create_symindex_for_sym_file(
+        &self,
+        sym_path: &Path,
+        symindex_path: &Path,
+    ) -> Result<(), SymindexGenerationError> {
+        let index_bytes = self.parse_sym_file_into_index(sym_path).await?;
+        self.write_symindex(symindex_path, index_bytes).await?;
+        Ok(())
     }
 
     async fn parse_sym_file_into_index(
         &self,
         sym_path: &Path,
-    ) -> Result<Vec<u8>, SymindexGenerationError> {
+    ) -> Result<OwnedBreakpadIndex, SymindexGenerationError> {
         let mut sym_file = tokio::fs::File::open(sym_path)
             .await
             .map_err(SymindexGenerationError::SymReading)?;
@@ -307,7 +315,7 @@ async fn validate_symindex_magic_and_version(file: &mut tokio::fs::File) -> bool
 struct BreakpadIndexCreatorChunkConsumer(BreakpadIndexCreator);
 
 impl ChunkConsumer for BreakpadIndexCreatorChunkConsumer {
-    type Output = Result<Vec<u8>, BreakpadParseError>;
+    type Output = Result<OwnedBreakpadIndex, BreakpadParseError>;
 
     fn consume_chunk(&mut self, chunk_data: &[u8]) {
         self.0.consume(chunk_data);

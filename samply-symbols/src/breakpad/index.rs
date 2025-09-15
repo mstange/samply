@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
 use std::fmt::Debug;
+use std::io::Write;
 use std::str::FromStr;
 use std::{mem, str};
 
@@ -188,12 +189,11 @@ impl<'a> BreakpadIndex<'a> {
         })
     }
 
-    pub fn serialize_to_bytes(&self) -> Vec<u8> {
+    fn header_and_total_size(&self) -> (BreakpadSymindexFileHeader, u32) {
         let header_len = HEADER_SIZE;
         let module_info_offset = header_len;
         let module_info_len = self.module_info_bytes.len() as u32;
-        let padding_after_module_info = align_to_4_bytes(module_info_len) - module_info_len;
-        let file_entries_offset = module_info_offset + module_info_len + padding_after_module_info;
+        let file_entries_offset = module_info_offset + align_to_4_bytes(module_info_len);
         let file_count = self.files.len() as u32;
         let file_entries_len = file_count * FILE_OR_INLINE_ORIGIN_ENTRY_SIZE;
         let inline_origin_entries_offset = file_entries_offset + file_entries_len;
@@ -217,19 +217,37 @@ impl<'a> BreakpadIndex<'a> {
             symbol_addresses_offset: symbol_addresses_offset.into(),
             symbol_entries_offset: symbol_entries_offset.into(),
         };
+        (header, total_file_len)
+    }
 
-        let mut vec = Vec::with_capacity(total_file_len as usize);
-        vec.extend_from_slice(header.as_bytes());
-        vec.extend_from_slice(self.module_info_bytes);
-        vec.extend(std::iter::repeat(0).take(padding_after_module_info as usize));
-        vec.extend_from_slice(self.files.as_slice().as_bytes());
-        vec.extend_from_slice(self.inline_origins.as_slice().as_bytes());
-        vec.extend_from_slice(self.symbol_addresses.as_bytes());
-        vec.extend_from_slice(self.symbol_entries.as_bytes());
+    pub fn to_writer<W: Write>(&self, w: W) -> std::io::Result<()> {
+        let (header, _) = self.header_and_total_size();
+        self.to_writer_inner(w, header)
+    }
 
-        assert_eq!(vec.len(), total_file_len as usize);
+    fn to_writer_inner<W: Write>(
+        &self,
+        mut w: W,
+        header: BreakpadSymindexFileHeader,
+    ) -> std::io::Result<()> {
+        w.write_all(header.as_bytes())?;
+        w.write_all(self.module_info_bytes)?;
+        let padding_after_module_info = header.file_entries_offset.get()
+            - (header.module_info_offset.get() + header.module_info_len.get());
+        w.write_all(&[0; 4][..padding_after_module_info as usize])?;
+        w.write_all(self.files.as_slice().as_bytes())?;
+        w.write_all(self.inline_origins.as_slice().as_bytes())?;
+        w.write_all(self.symbol_addresses.as_bytes())?;
+        w.write_all(self.symbol_entries.as_bytes())?;
 
-        vec
+        Ok(())
+    }
+
+    pub fn serialize_to_bytes(&self) -> Vec<u8> {
+        let (header, total_size) = self.header_and_total_size();
+        let mut v = Vec::with_capacity(total_size as usize);
+        self.to_writer_inner(&mut v, header).unwrap();
+        v
     }
 }
 
@@ -583,7 +601,7 @@ impl BreakpadIndexCreator {
         line_buffer.consume(chunk, |offset, line| inner.process_line(offset, line));
     }
 
-    pub fn finish(mut self) -> Result<Vec<u8>, BreakpadParseError> {
+    pub fn finish(mut self) -> Result<OwnedBreakpadIndex, BreakpadParseError> {
         let inner = &mut self.inner;
         let final_offset = self
             .line_buffer
@@ -674,7 +692,10 @@ impl BreakpadIndexCreatorInner {
         }
     }
 
-    pub fn finish(mut self, file_end_offset: u64) -> Result<Vec<u8>, BreakpadParseError> {
+    pub fn finish(
+        mut self,
+        file_end_offset: u64,
+    ) -> Result<OwnedBreakpadIndex, BreakpadParseError> {
         self.finish_pending_func_block(file_end_offset);
         let BreakpadIndexCreatorInner {
             mut symbols,
@@ -697,20 +718,53 @@ impl BreakpadIndexCreatorInner {
 
         let (debug_id, os, arch, debug_name) =
             module_info.ok_or(BreakpadParseError::NoModuleInfoInSymFile)?;
-        let index = BreakpadIndex {
-            module_info_bytes: &module_info_bytes,
-            debug_name,
+
+        Ok(OwnedBreakpadIndex {
+            module_info_bytes,
             debug_id,
-            code_id,
-            name,
-            arch,
             os,
-            symbol_addresses: &symbol_addresses,
-            symbol_entries: &symbol_entries,
-            files: StringListRef::new(&files),
-            inline_origins: StringListRef::new(&inline_origins),
-        };
-        Ok(index.serialize_to_bytes())
+            arch,
+            debug_name,
+            name,
+            code_id,
+            files,
+            inline_origins,
+            symbol_addresses,
+            symbol_entries,
+        })
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct OwnedBreakpadIndex {
+    module_info_bytes: Vec<u8>,
+    debug_name: String,
+    debug_id: DebugId,
+    arch: String,
+    os: String,
+    name: Option<String>,
+    code_id: Option<CodeId>,
+    files: Vec<StringLocation>,
+    inline_origins: Vec<StringLocation>,
+    symbol_addresses: Vec<U32<LittleEndian>>,
+    symbol_entries: Vec<BreakpadSymbolEntry>,
+}
+
+impl OwnedBreakpadIndex {
+    pub fn index(&self) -> BreakpadIndex<'_> {
+        BreakpadIndex {
+            module_info_bytes: &self.module_info_bytes,
+            debug_name: self.debug_name.clone(),
+            debug_id: self.debug_id,
+            code_id: self.code_id.clone(),
+            name: self.name.clone(),
+            arch: self.arch.clone(),
+            os: self.os.clone(),
+            symbol_addresses: &self.symbol_addresses,
+            symbol_entries: &self.symbol_entries,
+            files: StringListRef::new(&self.files),
+            inline_origins: StringListRef::new(&self.inline_origins),
+        }
     }
 }
 
@@ -1194,7 +1248,7 @@ curity/sandbox/chromium/base/strings/safe_sprintf.cc:f150bc1f71d09e1e1941065951f
         for chunk in data.chunks(84) {
             parser.consume(chunk);
         }
-        let index_bytes = parser.finish().unwrap();
+        let index_bytes = parser.finish().unwrap().index().serialize_to_bytes();
         let index = BreakpadIndex::parse_symindex_file(&*index_bytes).unwrap();
 
         assert_eq!(
@@ -1230,7 +1284,7 @@ curity/sandbox/chromium/base/strings/safe_sprintf.cc:f150bc1f71d09e1e1941065951f
         parser.consume(b"\n2b78e 2 306 0\n2b790 c 305 0\n2b79c b 309 0\n2b7a7 10 660 0\n2b7b7 2 ");
         parser.consume(b"661 0\n2b7b9 11 662 0\n2b7ca 9 340 0\n2b7d3 e 341 0\n2b7e1 c 668 0\n2b7");
         parser.consume(b"ed b 7729 1\n2b7f8 6 668 0");
-        let index_bytes = parser.finish().unwrap();
+        let index_bytes = parser.finish().unwrap().index().serialize_to_bytes();
         let index = BreakpadIndex::parse_symindex_file(&*index_bytes).unwrap();
         assert_eq!(&index.debug_name, "firefox.pdb");
         assert_eq!(
