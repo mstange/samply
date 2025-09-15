@@ -62,7 +62,7 @@ impl<'a, H: FileAndPathHelper + 'static> SymbolicateApi<'a, H> {
         let mut symbolicated_addresses = HashMap::new();
         for (lib, addresses) in requested_addresses.into_iter() {
             let address_results = self
-                .symbolicate_requested_addresses_for_lib(&lib, addresses)
+                .symbolicate_requested_addresses_for_lib(&lib, &addresses)
                 .await;
             symbolicated_addresses.insert(lib, address_results);
         }
@@ -72,20 +72,9 @@ impl<'a, H: FileAndPathHelper + 'static> SymbolicateApi<'a, H> {
     async fn symbolicate_requested_addresses_for_lib(
         &self,
         lib: &Lib,
-        mut addresses: Vec<u32>,
+        addresses: &[u32],
     ) -> Result<PerLibResult<H>, samply_symbols::Error> {
-        // Sort the addresses before the lookup, to have a higher chance of hitting
-        // the same external file for subsequent addresses.
-        addresses.sort_unstable();
-        addresses.dedup();
-
         let debug_id = to_debug_id(&lib.breakpad_id)?;
-
-        let mut external_addresses = Vec::new();
-
-        // Do the synchronous work first, and accumulate external_addresses which need
-        // to be handled asynchronously. This allows us to group async file loads by
-        // the external file.
 
         let info = LibraryInfo {
             debug_name: Some(lib.debug_name.to_string()),
@@ -93,14 +82,20 @@ impl<'a, H: FileAndPathHelper + 'static> SymbolicateApi<'a, H> {
             ..Default::default()
         };
         let symbol_map = self.symbol_manager.load_symbol_map(&info).await?;
-        symbol_map.set_access_pattern_hint(AccessPatternHint::SequentialLookup);
 
+        // Create a BTreeMap for the lookup results. This lets us iterate over the
+        // addresses in ascending order - the sort happens when the map is created.
         let mut address_results: AddressResults =
             addresses.iter().map(|&addr| (addr, None)).collect();
+        symbol_map.set_access_pattern_hint(AccessPatternHint::SequentialLookup);
 
-        for &address in &addresses {
+        // Do the synchronous work first, and accumulate external_addresses which need
+        // to be handled asynchronously. This allows us to group async file loads by
+        // the external file.
+        let mut external_addresses = Vec::new();
+
+        for (&address, address_result) in &mut address_results {
             if let Some(address_info) = symbol_map.lookup_sync(LookupAddress::Relative(address)) {
-                let address_result = address_results.get_mut(&address).unwrap();
                 *address_result = Some(AddressResult::new(
                     address_info.symbol.address,
                     address_info.symbol.name,
