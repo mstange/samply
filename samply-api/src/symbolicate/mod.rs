@@ -7,7 +7,7 @@ use samply_symbols::{
 };
 
 use crate::error::Error;
-use crate::symbolicate::looked_up_addresses::PathResolver;
+use crate::symbolicate::looked_up_addresses::{AddressResult, AddressResults, PathResolver};
 use crate::symbolicate::response_json::{PerLibResult, Response};
 use crate::to_debug_id;
 
@@ -15,7 +15,6 @@ pub mod looked_up_addresses;
 pub mod request_json;
 pub mod response_json;
 
-use looked_up_addresses::LookedUpAddresses;
 use request_json::Lib;
 
 impl<H: FileAndPathHelper> PathResolver for SymbolMap<H> {
@@ -95,21 +94,21 @@ impl<'a, H: FileAndPathHelper + 'static> SymbolicateApi<'a, H> {
         };
         let symbol_map = self.symbol_manager.load_symbol_map(&info).await?;
         symbol_map.set_access_pattern_hint(AccessPatternHint::SequentialLookup);
-        let mut symbolication_result = LookedUpAddresses::for_addresses(&addresses);
 
-        symbolication_result.set_total_symbol_count(symbol_map.symbol_count() as u32);
+        let mut address_results: AddressResults =
+            addresses.iter().map(|&addr| (addr, None)).collect();
 
         for &address in &addresses {
             if let Some(address_info) = symbol_map.lookup_sync(LookupAddress::Relative(address)) {
-                symbolication_result.add_address_symbol(
-                    address,
+                let address_result = address_results.get_mut(&address).unwrap();
+                *address_result = Some(AddressResult::new(
                     address_info.symbol.address,
                     address_info.symbol.name,
                     address_info.symbol.size,
-                );
+                ));
                 match address_info.frames {
                     Some(FramesLookupResult::Available(frames)) => {
-                        symbolication_result.add_address_debug_info(address, frames)
+                        address_result.as_mut().unwrap().set_debug_info(frames)
                     }
                     Some(FramesLookupResult::External(ext_address)) => {
                         external_addresses.push((address, ext_address));
@@ -127,12 +126,13 @@ impl<'a, H: FileAndPathHelper + 'static> SymbolicateApi<'a, H> {
 
         for (address, ext_address) in external_addresses {
             if let Some(frames) = symbol_map.lookup_external(&ext_address).await {
-                symbolication_result.add_address_debug_info(address, frames);
+                let address_result = address_results.get_mut(&address).unwrap();
+                address_result.as_mut().unwrap().set_debug_info(frames);
             }
         }
 
         let outcome = PerLibResult {
-            address_results: symbolication_result,
+            address_results,
             symbol_map: Arc::new(symbol_map),
         };
 

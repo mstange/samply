@@ -5,14 +5,13 @@ use std::sync::Arc;
 use samply_symbols::{FileAndPathHelper, FrameDebugInfo, SymbolMap};
 use serde::ser::{SerializeMap, SerializeSeq};
 
-use super::looked_up_addresses::LookedUpAddresses;
 use super::request_json::{Job, Lib, RequestFrame, RequestStack};
 use crate::api_file_path::to_api_file_path;
 use crate::symbolicate::looked_up_addresses::{AddressResults, PathResolver};
 use crate::symbolicate::request_json::Request;
 
 pub struct PerLibResult<H: FileAndPathHelper> {
-    pub address_results: LookedUpAddresses,
+    pub address_results: AddressResults,
     pub symbol_map: Arc<SymbolMap<H>>,
 }
 
@@ -59,7 +58,7 @@ impl<H: FileAndPathHelper> serde::Serialize for Response<H> {
 }
 
 pub struct PerLibResultRef<'a> {
-    pub address_results: std::result::Result<&'a LookedUpAddresses, &'a samply_symbols::Error>,
+    pub address_results: std::result::Result<&'a AddressResults, &'a samply_symbols::Error>,
     pub path_resolver: &'a dyn PathResolver,
 }
 
@@ -106,9 +105,9 @@ impl<'a> serde::Serialize for Result<'a> {
             if let Some(per_lib_result) = self.per_lib_results.get(lib) {
                 let module_key = format!("{}/{}", lib.debug_name, lib.breakpad_id);
                 match per_lib_result.address_results {
-                    Ok(symbols) => {
+                    Ok(address_results) => {
                         let module_results = PerModuleResultsRef {
-                            address_results: &symbols.address_results,
+                            address_results,
                             path_resolver: per_lib_result.path_resolver,
                         };
                         symbols_by_module_index.insert(module_index as u32, module_results);
