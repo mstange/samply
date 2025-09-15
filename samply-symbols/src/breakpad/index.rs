@@ -543,18 +543,17 @@ pub struct BreakpadFuncSymbol {
 
 impl BreakpadFuncSymbol {
     pub fn parse<'a, 'b>(
-        mut input: &'a [u8],
+        input: &'a [u8],
         lines: &'b mut Vec<SourceLine>,
         inlinees: &'b mut Vec<Inlinee>,
     ) -> Result<BreakpadFuncSymbolInfo<'a>, BreakpadParseError> {
-        let first_line = read_line_and_advance(&mut input);
+        let mut tokenizer = Tokenizer::new(input);
         let (_address, size, name) =
-            func_line(first_line).map_err(|_| BreakpadParseError::ParsingFunc)?;
+            func_line(&mut tokenizer).map_err(|_| BreakpadParseError::ParsingFunc)?;
 
         let lines_start_index = lines.len();
         let inlinees_start_index = inlinees.len();
 
-        let mut tokenizer = Tokenizer::new(input);
         while !tokenizer.eof() {
             if tokenizer.consume_token(b"INLINE").is_ok() {
                 parse_inline_line_remainder(&mut tokenizer, inlinees)
@@ -662,7 +661,7 @@ impl BreakpadIndexCreatorInner {
                     line_or_block_len: line_len.into(),
                 },
             ));
-        } else if let Ok((address, _size, _name)) = func_line(input) {
+        } else if let Ok((address, _size, _name)) = func_line(&mut Tokenizer::new(input)) {
             self.finish_pending_func_block(file_offset);
             self.pending_func_block = Some((address, file_offset));
         } else if input.starts_with(b"INFO ") {
@@ -1113,8 +1112,7 @@ fn parse_func_data_line(tokenizer: &mut Tokenizer) -> Result<SourceLine, ()> {
 }
 
 // Matches a FUNC record.
-fn func_line(input: &[u8]) -> Result<(u32, u32, &[u8]), ()> {
-    let mut tokenizer = Tokenizer::new(input);
+fn func_line<'a>(tokenizer: &mut Tokenizer<'a>) -> Result<(u32, u32, &'a [u8]), ()> {
     tokenizer.consume_token(b"FUNC")?;
     tokenizer.consume_space1()?;
     if let Ok(()) = tokenizer.consume_token(b"m") {
