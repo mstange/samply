@@ -1,16 +1,13 @@
 use std::borrow::Cow;
-use std::collections::hash_map::Entry;
 use std::collections::HashMap;
-use std::marker::PhantomData;
 use std::sync::Mutex;
 
 use yoke::Yoke;
 use yoke_derive::Yokeable;
 
 use super::index::{
-    BreakpadFileLine, BreakpadFileOrInlineOriginListRef, BreakpadFuncSymbol,
-    BreakpadFuncSymbolInfo, BreakpadIndex, BreakpadIndexCreator, BreakpadInlineOriginLine,
-    BreakpadPublicSymbol, BreakpadPublicSymbolInfo, FileOrInlineOrigin, SYMBOL_ENTRY_KIND_FUNC,
+    BreakpadFuncSymbol, BreakpadFuncSymbolInfo, BreakpadIndex, BreakpadIndexCreator,
+    BreakpadPublicSymbol, BreakpadPublicSymbolInfo, StringListRef, SYMBOL_ENTRY_KIND_FUNC,
     SYMBOL_ENTRY_KIND_PUBLIC,
 };
 use crate::breakpad::index::{Inlinee, SourceLine};
@@ -104,7 +101,7 @@ impl<T: FileContents> BreakpadSymbolMapOuter<T> {
                 BreakpadIndex::parse_symindex_file(&index_data[..]).unwrap()
             }
         };
-        let cache = Mutex::new(BreakpadSymbolMapCache::new(&self.data, index.clone()));
+        let cache = Mutex::new(BreakpadSymbolMapCache::new(&index));
         let inner_impl = BreakpadSymbolMapInner {
             data: &self.data,
             index,
@@ -121,14 +118,14 @@ pub struct BreakpadSymbolMapInnerWrapper<'a>(Box<dyn SymbolMapTrait + Send + Syn
 struct BreakpadSymbolMapInner<'a, T: FileContents> {
     data: &'a FileContentsWrapper<T>,
     index: BreakpadIndex<'a>,
-    cache: Mutex<BreakpadSymbolMapCache<'a, T>>,
+    cache: Mutex<BreakpadSymbolMapCache<'a>>,
     generation: SymbolMapGeneration,
 }
 
 #[derive(Debug)]
-struct BreakpadSymbolMapCache<'a, T: FileContents> {
-    files: ItemCache<'a, BreakpadFileLine, T>,
-    inline_origins: ItemCache<'a, BreakpadInlineOriginLine, T>,
+struct BreakpadSymbolMapCache<'a> {
+    files: StringListRef<'a>,
+    inline_origins: StringListRef<'a>,
     symbols: BreakpadSymbolMapSymbolCache<'a>,
 }
 
@@ -141,11 +138,11 @@ struct BreakpadSymbolMapSymbolCache<'a> {
     only_store_latest: bool,
 }
 
-impl<'a, T: FileContents> BreakpadSymbolMapCache<'a, T> {
-    pub fn new(data: &'a FileContentsWrapper<T>, index: BreakpadIndex<'a>) -> Self {
+impl<'a> BreakpadSymbolMapCache<'a> {
+    pub fn new(index: &BreakpadIndex<'a>) -> Self {
         Self {
-            files: ItemCache::new(index.files, data),
-            inline_origins: ItemCache::new(index.inline_origins, data),
+            files: index.files,
+            inline_origins: index.inline_origins,
             symbols: BreakpadSymbolMapSymbolCache::default(),
         }
     }
@@ -207,52 +204,17 @@ impl<'a> BreakpadSymbolMapSymbolCache<'a> {
     }
 }
 
-#[derive(Debug)]
-struct ItemCache<'a, I: FileOrInlineOrigin, T: FileContents> {
-    item_strings: HashMap<u32, &'a str>,
-    item_map: BreakpadFileOrInlineOriginListRef<'a>,
-    data: &'a FileContentsWrapper<T>,
-    _phantom: PhantomData<I>,
-}
-
-impl<'a, I: FileOrInlineOrigin, T: FileContents> ItemCache<'a, I, T> {
-    pub fn new(
-        item_map: BreakpadFileOrInlineOriginListRef<'a>,
-        data: &'a FileContentsWrapper<T>,
-    ) -> Self {
-        Self {
-            item_strings: HashMap::new(),
-            item_map,
-            data,
-            _phantom: PhantomData,
-        }
-    }
-
-    pub fn get_string(&mut self, index: u32) -> Result<&'a str, Error> {
-        match self.item_strings.entry(index) {
-            Entry::Occupied(name) => Ok(name.get()),
-            Entry::Vacant(vacant) => {
-                let entry = self
-                    .item_map
-                    .get(index)
-                    .ok_or(Error::InvalidFileOrInlineOriginIndexInBreakpadFile(index))?;
-                let file_offset = entry.offset.get();
-                let line_length = entry.line_len.get();
-                let line = self
-                    .data
-                    .read_bytes_at(file_offset, line_length.into())
-                    .map_err(|e| {
-                        Error::HelperErrorDuringFileReading(
-                            "Breakpad FILE or INLINE_ORIGIN record".to_string(),
-                            e,
-                        )
-                    })?;
-                let s = I::parse(line)?;
-                Ok(vacant.insert(s))
-            }
-        }
-    }
-}
+// let file_offset = entry.offset.get();
+// let line_length = entry.line_len.get();
+// let line = self
+//     .data
+//     .read_bytes_at(file_offset, line_length.into())
+//     .map_err(|e| {
+//         Error::HelperErrorDuringFileReading(
+//             "Breakpad FILE or INLINE_ORIGIN record".to_string(),
+//             e,
+//         )
+//     })?;
 
 impl<'object, T: FileContents> SymbolMapTrait for BreakpadSymbolMapInner<'object, T> {
     fn debug_id(&self) -> debugid::DebugId {
@@ -363,7 +325,9 @@ impl<'object, T: FileContents> SymbolMapTrait for BreakpadSymbolMapInner<'object
                         file_path: Some(self.generation.source_file_handle(inlinee.call_file)),
                         line_number: Some(inlinee.call_line),
                     });
-                    let inline_origin = inline_origins.get_string(inlinee.origin_id).ok();
+                    let inline_origin = inline_origins
+                        .get(inlinee.origin_id, self.data)
+                        .and_then(|s| std::str::from_utf8(s).ok());
                     name = inline_origin;
                     depth += 1;
                 }
@@ -396,8 +360,12 @@ impl<'object, T: FileContents> SymbolMapTrait for BreakpadSymbolMapInner<'object
 
     fn resolve_source_file_path(&self, handle: SourceFilePathHandle) -> SourceFilePath<'object> {
         let index = self.generation.unwrap_source_file_index(handle);
-        let mut cache = self.cache.lock().unwrap();
-        let s = cache.files.get_string(index.0).ok().unwrap_or("<missing>");
+        let cache = self.cache.lock().unwrap();
+        let s = cache
+            .files
+            .get(index.0, self.data)
+            .and_then(|s| std::str::from_utf8(s).ok())
+            .unwrap_or("<missing>");
         SourceFilePath::BreakpadSpecialPathStr(Cow::Borrowed(s))
     }
 

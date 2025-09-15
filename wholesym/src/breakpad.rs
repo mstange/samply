@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use samply_symbols::{BreakpadIndexCreator, BreakpadParseError};
+use samply_symbols::{BreakpadIndex, BreakpadIndexCreator, BreakpadParseError};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use crate::downloader::{ChunkConsumer, Downloader, DownloaderObserver, FileDownloadOutcome};
@@ -251,11 +251,20 @@ impl BreakpadSymbolDownloaderInner {
             return Err(SymindexGenerationError::NoSymindexCacheDir);
         };
 
-        if self.check_file_exists(&symindex_path).await {
-            if let Some(observer) = self.observer.as_deref() {
-                observer.on_file_accessed(&symindex_path);
+        if let Ok(mut symindex_file) = tokio::fs::File::open(&symindex_path).await {
+            let file_check_ok = validate_symindex_magic_and_version(&mut symindex_file).await;
+            let _ = symindex_file.flush().await;
+            drop(symindex_file);
+
+            if file_check_ok {
+                if let Some(observer) = self.observer.as_deref() {
+                    observer.on_file_accessed(&symindex_path);
+                }
+                return Ok(symindex_path);
             }
-            return Ok(symindex_path);
+
+            // Bad symindex, let's remove it and regenerate it.
+            let _ = tokio::fs::remove_file(&symindex_path).await;
         }
 
         let index_bytes = self.parse_sym_file_into_index(sym_path).await?;
@@ -287,6 +296,12 @@ impl BreakpadSymbolDownloaderInner {
             .finish()
             .map_err(SymindexGenerationError::BreakpadParsing)
     }
+}
+
+async fn validate_symindex_magic_and_version(file: &mut tokio::fs::File) -> bool {
+    let mut magic_and_version_bytes = [0u8; 12];
+    file.read_exact(&mut magic_and_version_bytes).await.is_ok()
+        && BreakpadIndex::validate_magic_and_version(&magic_and_version_bytes).is_ok()
 }
 
 struct BreakpadIndexCreatorChunkConsumer(BreakpadIndexCreator);
