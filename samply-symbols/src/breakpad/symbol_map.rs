@@ -1,25 +1,22 @@
 use std::borrow::Cow;
-use std::collections::hash_map::Entry;
 use std::collections::HashMap;
-use std::marker::PhantomData;
 use std::sync::Mutex;
 
 use yoke::Yoke;
 use yoke_derive::Yokeable;
 
 use super::index::{
-    BreakpadFileLine, BreakpadFileOrInlineOriginListRef, BreakpadFuncSymbol,
-    BreakpadFuncSymbolInfo, BreakpadIndex, BreakpadIndexCreator, BreakpadInlineOriginLine,
-    BreakpadPublicSymbol, BreakpadPublicSymbolInfo, FileOrInlineOrigin, SYMBOL_ENTRY_KIND_FUNC,
+    BreakpadFuncSymbol, BreakpadFuncSymbolInfo, BreakpadIndex, BreakpadIndexCreator,
+    BreakpadPublicSymbol, BreakpadPublicSymbolInfo, StringListRef, SYMBOL_ENTRY_KIND_FUNC,
     SYMBOL_ENTRY_KIND_PUBLIC,
 };
-use crate::breakpad::index::{Inlinee, SourceLine};
+use crate::breakpad::index::{Inlinee, OwnedBreakpadIndex, SourceLine};
 use crate::generation::SymbolMapGeneration;
 use crate::source_file_path::SourceFilePathHandle;
 use crate::symbol_map::{GetInnerSymbolMap, SymbolMapTrait};
 use crate::{
-    Error, FileContents, FileContentsWrapper, FrameDebugInfo, FramesLookupResult, LookupAddress,
-    SourceFilePath, SymbolInfo, SyncAddressInfo,
+    AccessPatternHint, Error, FileContents, FileContentsWrapper, FrameDebugInfo,
+    FramesLookupResult, LookupAddress, SourceFilePath, SymbolInfo, SyncAddressInfo,
 };
 
 pub fn get_symbol_map_for_breakpad_sym<FC: FileContents + 'static>(
@@ -45,7 +42,7 @@ impl<T: FileContents> GetInnerSymbolMap for BreakpadSymbolMap<T> {
 
 enum IndexStorage<T: FileContents> {
     File(FileContentsWrapper<T>),
-    Owned(Vec<u8>),
+    Owned(Box<OwnedBreakpadIndex>),
 }
 
 pub struct BreakpadSymbolMapOuter<T: FileContents> {
@@ -91,8 +88,8 @@ impl<T: FileContents> BreakpadSymbolMapOuter<T> {
             buffer.clear();
             offset += CHUNK_SIZE;
         }
-        let index_bytes = index_parser.finish()?;
-        Ok(IndexStorage::Owned(index_bytes))
+        let index = index_parser.finish()?;
+        Ok(IndexStorage::Owned(Box::new(index)))
     }
 
     pub fn make_symbol_map(&self) -> BreakpadSymbolMapInnerWrapper<'_> {
@@ -100,11 +97,9 @@ impl<T: FileContents> BreakpadSymbolMapOuter<T> {
             IndexStorage::File(index_data) => {
                 BreakpadIndex::parse_symindex_file(index_data).unwrap()
             }
-            IndexStorage::Owned(index_data) => {
-                BreakpadIndex::parse_symindex_file(&index_data[..]).unwrap()
-            }
+            IndexStorage::Owned(owned_index) => owned_index.index(),
         };
-        let cache = Mutex::new(BreakpadSymbolMapCache::new(&self.data, index.clone()));
+        let cache = Mutex::new(BreakpadSymbolMapCache::new(&index));
         let inner_impl = BreakpadSymbolMapInner {
             data: &self.data,
             index,
@@ -121,14 +116,14 @@ pub struct BreakpadSymbolMapInnerWrapper<'a>(Box<dyn SymbolMapTrait + Send + Syn
 struct BreakpadSymbolMapInner<'a, T: FileContents> {
     data: &'a FileContentsWrapper<T>,
     index: BreakpadIndex<'a>,
-    cache: Mutex<BreakpadSymbolMapCache<'a, T>>,
+    cache: Mutex<BreakpadSymbolMapCache<'a>>,
     generation: SymbolMapGeneration,
 }
 
 #[derive(Debug)]
-struct BreakpadSymbolMapCache<'a, T: FileContents> {
-    files: ItemCache<'a, BreakpadFileLine, T>,
-    inline_origins: ItemCache<'a, BreakpadInlineOriginLine, T>,
+struct BreakpadSymbolMapCache<'a> {
+    files: StringListRef<'a>,
+    inline_origins: StringListRef<'a>,
     symbols: BreakpadSymbolMapSymbolCache<'a>,
 }
 
@@ -138,37 +133,41 @@ struct BreakpadSymbolMapSymbolCache<'a> {
     func_symbols: HashMap<u64, BreakpadFuncSymbolInfo<'a>>,
     lines: Vec<SourceLine>,
     inlinees: Vec<Inlinee>,
+    only_store_latest: bool,
 }
 
-impl<'a, T: FileContents> BreakpadSymbolMapCache<'a, T> {
-    pub fn new(data: &'a FileContentsWrapper<T>, index: BreakpadIndex<'a>) -> Self {
+impl<'a> BreakpadSymbolMapCache<'a> {
+    pub fn new(index: &BreakpadIndex<'a>) -> Self {
         Self {
-            files: ItemCache::new(index.files, data),
-            inline_origins: ItemCache::new(index.inline_origins, data),
+            files: index.files,
+            inline_origins: index.inline_origins,
             symbols: BreakpadSymbolMapSymbolCache::default(),
         }
     }
 }
 
 impl<'a> BreakpadSymbolMapSymbolCache<'a> {
-    pub fn get_public_info<'s, T: FileContents>(
-        &'s mut self,
+    pub fn get_public_info<T: FileContents>(
+        &mut self,
         file_offset: u64,
         line_length: u32,
         data: &'a FileContentsWrapper<T>,
-    ) -> Result<&'s BreakpadPublicSymbolInfo<'a>, Error> {
-        match self.public_symbols.entry(file_offset) {
-            Entry::Occupied(info) => Ok(info.into_mut()),
-            Entry::Vacant(vacant) => {
-                let line = data
-                    .read_bytes_at(file_offset, line_length.into())
-                    .map_err(|e| {
-                        Error::HelperErrorDuringFileReading("Breakpad PUBLIC symbol".to_string(), e)
-                    })?;
-                let info = BreakpadPublicSymbol::parse(line)?;
-                Ok(vacant.insert(info))
-            }
+    ) -> Result<BreakpadPublicSymbolInfo<'a>, Error> {
+        if let Some(info) = self.public_symbols.get(&file_offset) {
+            return Ok(*info);
         }
+
+        self.clear_if_saving_memory();
+
+        let line = data
+            .read_bytes_at(file_offset, line_length.into())
+            .map_err(|e| {
+                Error::HelperErrorDuringFileReading("Breakpad PUBLIC symbol".to_string(), e)
+            })?;
+        let info = BreakpadPublicSymbol::parse(line)?;
+        self.public_symbols.insert(file_offset, info);
+
+        Ok(info)
     }
 
     pub fn get_func_info<'s, T: FileContents>(
@@ -177,67 +176,43 @@ impl<'a> BreakpadSymbolMapSymbolCache<'a> {
         block_length: u32,
         data: &'a FileContentsWrapper<T>,
     ) -> Result<BreakpadFuncSymbolInfo<'a>, Error> {
-        match self.func_symbols.entry(file_offset) {
-            Entry::Occupied(info) => Ok(*info.get()),
-            Entry::Vacant(vacant) => {
-                let block = data
-                    .read_bytes_at(file_offset, block_length.into())
-                    .map_err(|e| {
-                        Error::HelperErrorDuringFileReading("Breakpad FUNC symbol".to_string(), e)
-                    })?;
-                let info = BreakpadFuncSymbol::parse(block, &mut self.lines, &mut self.inlinees)?;
-                Ok(*vacant.insert(info))
-            }
+        if let Some(info) = self.func_symbols.get(&file_offset) {
+            return Ok(*info);
+        }
+
+        self.clear_if_saving_memory();
+
+        let block = data
+            .read_bytes_at(file_offset, block_length.into())
+            .map_err(|e| {
+                Error::HelperErrorDuringFileReading("Breakpad FUNC symbol".to_string(), e)
+            })?;
+        let info = BreakpadFuncSymbol::parse(block, &mut self.lines, &mut self.inlinees)?;
+        self.func_symbols.insert(file_offset, info);
+        Ok(info)
+    }
+
+    fn clear_if_saving_memory(&mut self) {
+        if self.only_store_latest {
+            self.public_symbols.clear();
+            self.func_symbols.clear();
+            self.inlinees.clear();
+            self.lines.clear();
         }
     }
 }
 
-#[derive(Debug)]
-struct ItemCache<'a, I: FileOrInlineOrigin, T: FileContents> {
-    item_strings: HashMap<u32, &'a str>,
-    item_map: BreakpadFileOrInlineOriginListRef<'a>,
-    data: &'a FileContentsWrapper<T>,
-    _phantom: PhantomData<I>,
-}
-
-impl<'a, I: FileOrInlineOrigin, T: FileContents> ItemCache<'a, I, T> {
-    pub fn new(
-        item_map: BreakpadFileOrInlineOriginListRef<'a>,
-        data: &'a FileContentsWrapper<T>,
-    ) -> Self {
-        Self {
-            item_strings: HashMap::new(),
-            item_map,
-            data,
-            _phantom: PhantomData,
-        }
-    }
-
-    pub fn get_string(&mut self, index: u32) -> Result<&'a str, Error> {
-        match self.item_strings.entry(index) {
-            Entry::Occupied(name) => Ok(name.get()),
-            Entry::Vacant(vacant) => {
-                let entry = self
-                    .item_map
-                    .get(index)
-                    .ok_or(Error::InvalidFileOrInlineOriginIndexInBreakpadFile(index))?;
-                let file_offset = entry.offset.get();
-                let line_length = entry.line_len.get();
-                let line = self
-                    .data
-                    .read_bytes_at(file_offset, line_length.into())
-                    .map_err(|e| {
-                        Error::HelperErrorDuringFileReading(
-                            "Breakpad FILE or INLINE_ORIGIN record".to_string(),
-                            e,
-                        )
-                    })?;
-                let s = I::parse(line)?;
-                Ok(vacant.insert(s))
-            }
-        }
-    }
-}
+// let file_offset = entry.offset.get();
+// let line_length = entry.line_len.get();
+// let line = self
+//     .data
+//     .read_bytes_at(file_offset, line_length.into())
+//     .map_err(|e| {
+//         Error::HelperErrorDuringFileReading(
+//             "Breakpad FILE or INLINE_ORIGIN record".to_string(),
+//             e,
+//         )
+//     })?;
 
 impl<'object, T: FileContents> SymbolMapTrait for BreakpadSymbolMapInner<'object, T> {
     fn debug_id(&self) -> debugid::DebugId {
@@ -348,7 +323,9 @@ impl<'object, T: FileContents> SymbolMapTrait for BreakpadSymbolMapInner<'object
                         file_path: Some(self.generation.source_file_handle(inlinee.call_file)),
                         line_number: Some(inlinee.call_line),
                     });
-                    let inline_origin = inline_origins.get_string(inlinee.origin_id).ok();
+                    let inline_origin = inline_origins
+                        .get(inlinee.origin_id, self.data)
+                        .and_then(|s| std::str::from_utf8(s).ok());
                     name = inline_origin;
                     depth += 1;
                 }
@@ -381,9 +358,18 @@ impl<'object, T: FileContents> SymbolMapTrait for BreakpadSymbolMapInner<'object
 
     fn resolve_source_file_path(&self, handle: SourceFilePathHandle) -> SourceFilePath<'object> {
         let index = self.generation.unwrap_source_file_index(handle);
-        let mut cache = self.cache.lock().unwrap();
-        let s = cache.files.get_string(index.0).ok().unwrap_or("<missing>");
+        let cache = self.cache.lock().unwrap();
+        let s = cache
+            .files
+            .get(index.0, self.data)
+            .and_then(|s| std::str::from_utf8(s).ok())
+            .unwrap_or("<missing>");
         SourceFilePath::BreakpadSpecialPathStr(Cow::Borrowed(s))
+    }
+
+    fn set_access_pattern_hint(&self, hint: AccessPatternHint) {
+        let mut cache = self.cache.lock().unwrap();
+        cache.symbols.only_store_latest = hint == AccessPatternHint::SequentialLookup;
     }
 }
 
@@ -433,7 +419,7 @@ mod test {
         for s in data_slices {
             parser.consume(s);
         }
-        let index_bytes = parser.finish().unwrap();
+        let index_bytes = parser.finish().unwrap().index().serialize_to_bytes();
 
         let full_sym_contents = data_slices.concat();
         let sym_fc = FileContentsWrapper::new(full_sym_contents);

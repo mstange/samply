@@ -240,6 +240,7 @@ mod windows;
 pub use crate::binary_image::{BinaryImage, CodeByteReadingError};
 pub use crate::breakpad::{
     BreakpadIndex, BreakpadIndexCreator, BreakpadParseError, BreakpadSymindexParseError,
+    OwnedBreakpadIndex,
 };
 pub use crate::cache::{FileByteSource, FileContentsWithChunkedCaching};
 pub use crate::compact_symbol_table::CompactSymbolTable;
@@ -260,7 +261,7 @@ pub use crate::shared::{
     MultiArchDisambiguator, OptionallySendFuture, PeCodeId, SymbolInfo, SyncAddressInfo,
 };
 pub use crate::source_file_path::{SourceFilePath, SourceFilePathHandle, SourceFilePathIndex};
-pub use crate::symbol_map::{SymbolMap, SymbolMapTrait};
+pub use crate::symbol_map::{AccessPatternHint, SymbolMap, SymbolMapTrait};
 
 pub struct SymbolManager<H: FileAndPathHelper> {
     helper: Arc<H>,

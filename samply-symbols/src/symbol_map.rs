@@ -26,6 +26,20 @@ pub trait SymbolMapTrait {
     fn lookup_sync(&self, address: LookupAddress) -> Option<SyncAddressInfo>;
 
     fn resolve_source_file_path(&self, handle: SourceFilePathHandle) -> SourceFilePath<'_>;
+
+    fn set_access_pattern_hint(&self, _hint: AccessPatternHint) {}
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum AccessPatternHint {
+    Arbitrary,
+
+    /// Indicates that lookup calls will happen with addresses in ascending
+    /// order. This lets the symbol map to save memory because it can discard
+    /// cached information about functions other than the one that contains
+    /// the current address, because those earlier functions cover lower
+    /// addresses and their information will not be needed by higher addresses.
+    SequentialLookup,
 }
 
 pub trait SymbolMapTraitWithExternalFileSupport<FC>: SymbolMapTrait {
@@ -219,5 +233,9 @@ impl<H: FileAndPathHelper> SymbolMap<H> {
 
     pub fn resolve_source_file_path(&self, handle: SourceFilePathHandle) -> SourceFilePath<'_> {
         self.inner().resolve_source_file_path(handle)
+    }
+
+    pub fn set_access_pattern_hint(&self, hint: AccessPatternHint) {
+        self.inner().set_access_pattern_hint(hint);
     }
 }

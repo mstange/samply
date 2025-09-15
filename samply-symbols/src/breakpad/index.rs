@@ -1,4 +1,6 @@
+use std::collections::BTreeMap;
 use std::fmt::Debug;
+use std::io::Write;
 use std::str::FromStr;
 use std::{mem, str};
 
@@ -11,7 +13,7 @@ use nom::error::{Error, ErrorKind, ParseError};
 use nom::sequence::{terminated, tuple};
 use nom::{Err, IResult};
 use object::ReadRef;
-use zerocopy::{IntoBytes, LittleEndian, Ref, U32, U64};
+use zerocopy::{IntoBytes, LittleEndian, Ref, U16, U32, U64};
 use zerocopy_derive::*;
 
 use crate::source_file_path::SourceFilePathIndex;
@@ -28,16 +30,45 @@ pub struct BreakpadIndex<'a> {
     pub code_id: Option<CodeId>,
     pub symbol_addresses: &'a [U32<LittleEndian>],
     pub symbol_entries: &'a [BreakpadSymbolEntry],
-    pub files: BreakpadFileOrInlineOriginListRef<'a>,
-    pub inline_origins: BreakpadFileOrInlineOriginListRef<'a>,
+    pub files: StringListRef<'a>,
+    pub inline_origins: StringListRef<'a>,
 }
 
 const HEADER_SIZE: u32 = std::mem::size_of::<BreakpadSymindexFileHeader>() as u32;
-const FILE_OR_INLINE_ORIGIN_ENTRY_SIZE: u32 = std::mem::size_of::<FileOrInlineOriginEntry>() as u32;
+const MAGIC: [u8; 8] = *b"SYMINDEX";
+const VERSION: u32 = 3;
+const FILE_OR_INLINE_ORIGIN_ENTRY_SIZE: u32 = std::mem::size_of::<StringLocation>() as u32;
 const SYMBOL_ADDRESS_SIZE: u32 = std::mem::size_of::<u32>() as u32;
 const SYMBOL_ENTRY_SIZE: u32 = std::mem::size_of::<BreakpadSymbolEntry>() as u32;
 
+impl BreakpadSymindexMagicAndVersion {
+    pub fn validate(&self) -> Result<(), BreakpadSymindexParseError> {
+        if self.magic != MAGIC {
+            return Err(BreakpadSymindexParseError::WrongMagicBytes);
+        }
+        if self.version.get() < VERSION {
+            return Err(BreakpadSymindexParseError::VersionTooOld);
+        }
+        if self.version.get() > VERSION {
+            return Err(BreakpadSymindexParseError::VersionTooNew);
+        }
+        Ok(())
+    }
+
+    pub fn new() -> Self {
+        Self {
+            magic: MAGIC,
+            version: VERSION.into(),
+        }
+    }
+}
+
 impl<'a> BreakpadIndex<'a> {
+    pub fn validate_magic_and_version(bytes: &[u8; 12]) -> Result<(), BreakpadSymindexParseError> {
+        let magic_and_version =
+            Ref::<&[u8], BreakpadSymindexMagicAndVersion>::from_bytes(bytes).unwrap();
+        magic_and_version.validate()
+    }
     pub fn parse_symindex_file<R: ReadRef<'a>>(
         reader: R,
     ) -> Result<BreakpadIndex<'a>, BreakpadSymindexParseError> {
@@ -45,9 +76,6 @@ impl<'a> BreakpadIndex<'a> {
             .read_bytes_at(0, HEADER_SIZE.into())
             .map_err(|_| BreakpadSymindexParseError::FileTooSmallForHeader)?;
         let header = Ref::<&[u8], BreakpadSymindexFileHeader>::from_bytes(header_bytes).unwrap();
-        if &header.magic != b"SYMINDEX" {
-            return Err(BreakpadSymindexParseError::WrongMagicBytes);
-        }
         let module_info_bytes = reader
             .read_bytes_at(
                 header.module_info_offset.get().into(),
@@ -106,8 +134,7 @@ impl<'a> BreakpadIndex<'a> {
                 file_list_bytes_len.into(),
             )
             .map_err(|_| BreakpadSymindexParseError::CouldntReadFileListBytes)?;
-        let file_list =
-            Ref::<&[u8], [FileOrInlineOriginEntry]>::from_bytes(file_list_bytes).unwrap();
+        let file_list = Ref::<&[u8], [StringLocation]>::from_bytes(file_list_bytes).unwrap();
         let inline_origin_list_bytes_len = header
             .inline_origin_count
             .get()
@@ -120,7 +147,7 @@ impl<'a> BreakpadIndex<'a> {
             )
             .map_err(|_| BreakpadSymindexParseError::CouldntReadInlineOriginListBytes)?;
         let inline_origin_list =
-            Ref::<&[u8], [FileOrInlineOriginEntry]>::from_bytes(inline_origin_list_bytes).unwrap();
+            Ref::<&[u8], [StringLocation]>::from_bytes(inline_origin_list_bytes).unwrap();
         let symbol_address_list_bytes_len = header
             .symbol_count
             .get()
@@ -157,19 +184,16 @@ impl<'a> BreakpadIndex<'a> {
             code_id,
             symbol_addresses: Ref::into_ref(symbol_address_list),
             symbol_entries: Ref::into_ref(symbol_entry_list),
-            files: BreakpadFileOrInlineOriginListRef::new(Ref::into_ref(file_list)),
-            inline_origins: BreakpadFileOrInlineOriginListRef::new(Ref::into_ref(
-                inline_origin_list,
-            )),
+            files: Ref::into_ref(file_list).into(),
+            inline_origins: Ref::into_ref(inline_origin_list).into(),
         })
     }
 
-    pub fn serialize_to_bytes(&self) -> Vec<u8> {
+    fn header_and_total_size(&self) -> (BreakpadSymindexFileHeader, u32) {
         let header_len = HEADER_SIZE;
         let module_info_offset = header_len;
         let module_info_len = self.module_info_bytes.len() as u32;
-        let padding_after_module_info = align_to_4_bytes(module_info_len) - module_info_len;
-        let file_entries_offset = module_info_offset + module_info_len + padding_after_module_info;
+        let file_entries_offset = module_info_offset + align_to_4_bytes(module_info_len);
         let file_count = self.files.len() as u32;
         let file_entries_len = file_count * FILE_OR_INLINE_ORIGIN_ENTRY_SIZE;
         let inline_origin_entries_offset = file_entries_offset + file_entries_len;
@@ -182,8 +206,7 @@ impl<'a> BreakpadIndex<'a> {
         let symbol_entries_len = symbol_count * SYMBOL_ENTRY_SIZE;
         let total_file_len = symbol_entries_offset + symbol_entries_len;
         let header = BreakpadSymindexFileHeader {
-            magic: *b"SYMINDEX",
-            version: 1.into(),
+            header_and_version: BreakpadSymindexMagicAndVersion::new(),
             module_info_offset: module_info_offset.into(),
             module_info_len: module_info_len.into(),
             file_count: file_count.into(),
@@ -194,19 +217,37 @@ impl<'a> BreakpadIndex<'a> {
             symbol_addresses_offset: symbol_addresses_offset.into(),
             symbol_entries_offset: symbol_entries_offset.into(),
         };
+        (header, total_file_len)
+    }
 
-        let mut vec = Vec::with_capacity(total_file_len as usize);
-        vec.extend_from_slice(header.as_bytes());
-        vec.extend_from_slice(self.module_info_bytes);
-        vec.extend(std::iter::repeat(0).take(padding_after_module_info as usize));
-        vec.extend_from_slice(self.files.as_slice().as_bytes());
-        vec.extend_from_slice(self.inline_origins.as_slice().as_bytes());
-        vec.extend_from_slice(self.symbol_addresses.as_bytes());
-        vec.extend_from_slice(self.symbol_entries.as_bytes());
+    pub fn to_writer<W: Write>(&self, w: W) -> std::io::Result<()> {
+        let (header, _) = self.header_and_total_size();
+        self.to_writer_inner(w, header)
+    }
 
-        assert_eq!(vec.len(), total_file_len as usize);
+    fn to_writer_inner<W: Write>(
+        &self,
+        mut w: W,
+        header: BreakpadSymindexFileHeader,
+    ) -> std::io::Result<()> {
+        w.write_all(header.as_bytes())?;
+        w.write_all(self.module_info_bytes)?;
+        let padding_after_module_info = header.file_entries_offset.get()
+            - (header.module_info_offset.get() + header.module_info_len.get());
+        w.write_all(&[0; 4][..padding_after_module_info as usize])?;
+        w.write_all(self.files.as_slice().as_bytes())?;
+        w.write_all(self.inline_origins.as_slice().as_bytes())?;
+        w.write_all(self.symbol_addresses.as_bytes())?;
+        w.write_all(self.symbol_entries.as_bytes())?;
 
-        vec
+        Ok(())
+    }
+
+    pub fn serialize_to_bytes(&self) -> Vec<u8> {
+        let (header, total_size) = self.header_and_total_size();
+        let mut v = Vec::with_capacity(total_size as usize);
+        self.to_writer_inner(&mut v, header).unwrap();
+        v
     }
 }
 
@@ -227,6 +268,12 @@ pub enum BreakpadSymindexParseError {
 
     #[error("Wrong magic bytes in the symindex header")]
     WrongMagicBytes,
+
+    #[error("Old version in the symindex header")]
+    VersionTooOld,
+
+    #[error("Unknown (newer) version in the symindex header")]
+    VersionTooNew,
 
     #[error("Module info bytes couldn't be read from the file")]
     CouldntReadModuleInfoBytes,
@@ -261,11 +308,18 @@ pub enum BreakpadSymindexParseError {
 
 #[derive(FromBytes, KnownLayout, Immutable, IntoBytes, Unaligned)]
 #[repr(C)]
-struct BreakpadSymindexFileHeader {
+struct BreakpadSymindexMagicAndVersion {
     /// Always b"SYMINDEX", at 0
     magic: [u8; 8],
-    /// Always 1, at 8
+    /// Always 2, at 8
     version: U32<LittleEndian>,
+}
+
+#[derive(FromBytes, KnownLayout, Immutable, IntoBytes, Unaligned)]
+#[repr(C)]
+struct BreakpadSymindexFileHeader {
+    /// 12 bytes
+    header_and_version: BreakpadSymindexMagicAndVersion,
     /// Points right after header, to where the module info starts, 4-byte aligned, at 12
     module_info_offset: U32<LittleEndian>,
     /// The length, in bytes, of the module info, at 16
@@ -286,15 +340,101 @@ struct BreakpadSymindexFileHeader {
     symbol_entries_offset: U32<LittleEndian>,
 }
 
-#[derive(FromBytes, KnownLayout, Immutable, IntoBytes, Unaligned, Clone, Debug, PartialEq, Eq)]
+/// 48 bits offset + 16 bits len
+#[derive(
+    FromBytes,
+    KnownLayout,
+    Immutable,
+    IntoBytes,
+    Unaligned,
+    Clone,
+    Copy,
+    Debug,
+    Default,
+    PartialEq,
+    Eq,
+)]
 #[repr(C)]
-pub struct FileOrInlineOriginEntry {
-    /// The index of this entry.
-    pub index: U32<LittleEndian>,
-    /// The length of the line, excluding line break (`\r*\n`). `FILE` and `INLINE_ORIGIN` symbols only occupy a single line.
-    pub line_len: U32<LittleEndian>,
-    /// The file offset at which there is the string `FILE ` or `INLINE_ORIGIN ` at the start of the line
-    pub offset: U64<LittleEndian>,
+pub struct StringLocation {
+    pub offset_b1234: U32<LittleEndian>,
+    pub offset_b56: U16<LittleEndian>,
+    pub len: U16<LittleEndian>,
+}
+
+impl StringLocation {
+    pub fn from_refs(outer_offset: u64, outer: &[u8], inner: &[u8]) -> Result<Self, &'static str> {
+        if inner.is_empty() {
+            return Self::new(outer_offset, 0);
+        }
+
+        let outer_start = outer.as_ptr() as usize;
+        let outer_end = outer_start + outer.len();
+        let inner_start = inner.as_ptr() as usize;
+        let inner_end = inner_start + inner.len();
+        if inner_end < outer_start || inner_start > outer_end {
+            return Err("inner not a sub-slice of outer");
+        }
+
+        let inner_offset_within_outer = inner_start - outer_start;
+        let offset = outer_offset + inner_offset_within_outer as u64;
+        Self::new(offset, inner.len() as u64)
+    }
+
+    pub fn new(offset: u64, len: u64) -> Result<Self, &'static str> {
+        let offset_b1234 = offset as u32;
+        let offset_b56 = (offset >> 32) as u32;
+        let offset_b56 =
+            u16::try_from(offset_b56).map_err(|_| "StringLocation offset overflowed 48 bits")?;
+        let len = u16::try_from(len).map_err(|_| "StringLocation len overflowed 16 bits")?;
+        Ok(Self {
+            offset_b1234: offset_b1234.into(),
+            offset_b56: offset_b56.into(),
+            len: len.into(),
+        })
+    }
+
+    pub fn offset(&self) -> u64 {
+        self.offset_b1234.get() as u64 | ((self.offset_b56.get() as u64) << 32)
+    }
+
+    pub fn len(&self) -> u64 {
+        self.len.get() as u64
+    }
+
+    pub fn get<'a, R: ReadRef<'a>>(&self, data: R) -> Option<&'a [u8]> {
+        data.read_bytes_at(self.offset(), self.len()).ok()
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct StringListRef<'a> {
+    inner: &'a [StringLocation],
+}
+
+impl<'a> From<&'a [StringLocation]> for StringListRef<'a> {
+    fn from(value: &'a [StringLocation]) -> Self {
+        Self::new(value)
+    }
+}
+
+impl<'a> StringListRef<'a> {
+    pub fn new(inner: &'a [StringLocation]) -> Self {
+        Self { inner }
+    }
+    pub fn len(&self) -> usize {
+        self.inner.len()
+    }
+    #[allow(unused)]
+    pub fn is_empty(&self) -> bool {
+        self.inner.is_empty()
+    }
+    pub fn as_slice(&self) -> &'a [StringLocation] {
+        self.inner
+    }
+    pub fn get<R: ReadRef<'a>>(&self, index: u32, data: R) -> Option<&'a [u8]> {
+        let location = *self.inner.get(usize::try_from(index).ok()?)?;
+        location.get(data)
+    }
 }
 
 pub const SYMBOL_ENTRY_KIND_PUBLIC: u32 = 0;
@@ -331,10 +471,10 @@ pub struct BreakpadSymbolEntry {
 /// module_info: [u8; module_info_len], // located at module_info_offset
 ///
 /// /// File list:
-/// file_list: [FileOrInlineOriginEntry; file_count], // located at file_entries_offset
+/// file_list: [StringLocation; file_count], // located at file_entries_offset
 ///
 /// /// Inline list:
-/// inline_origin_list: [FileOrInlineOriginEntry; inline_origin_count], // located at file_entries_offset
+/// inline_origin_list: [StringLocation; inline_origin_count], // located at file_entries_offset
 ///
 /// /// Symbol addresses:
 /// symbol_addresses: [u32; symbol_count], // located at symbol_addresses_offset
@@ -343,7 +483,7 @@ pub struct BreakpadSymbolEntry {
 /// symbol_entries: [SymbolEntry; symbol_count], // located at symbol_entries_offset
 ///
 /// #[repr(C)]
-/// struct FileOrInlineOriginEntry {
+/// struct StringLocation {
 ///   pub index: u32,
 ///   pub line_len: u32,
 ///   pub offset: u64,
@@ -403,18 +543,17 @@ pub struct BreakpadFuncSymbol {
 
 impl BreakpadFuncSymbol {
     pub fn parse<'a, 'b>(
-        mut input: &'a [u8],
+        input: &'a [u8],
         lines: &'b mut Vec<SourceLine>,
         inlinees: &'b mut Vec<Inlinee>,
     ) -> Result<BreakpadFuncSymbolInfo<'a>, BreakpadParseError> {
-        let first_line = read_line_and_advance(&mut input);
+        let mut tokenizer = Tokenizer::new(input);
         let (_address, size, name) =
-            func_line(first_line).map_err(|_| BreakpadParseError::ParsingFunc)?;
+            func_line(&mut tokenizer).map_err(|_| BreakpadParseError::ParsingFunc)?;
 
         let lines_start_index = lines.len();
         let inlinees_start_index = inlinees.len();
 
-        let mut tokenizer = Tokenizer::new(input);
         while !tokenizer.eof() {
             if tokenizer.consume_token(b"INLINE").is_ok() {
                 parse_inline_line_remainder(&mut tokenizer, inlinees)
@@ -440,67 +579,6 @@ impl BreakpadFuncSymbol {
     }
 }
 
-pub trait FileOrInlineOrigin {
-    fn parse(line: &[u8]) -> Result<&str, BreakpadParseError>;
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct BreakpadFileOrInlineOriginListRef<'a> {
-    inner: &'a [FileOrInlineOriginEntry],
-}
-
-impl<'a> BreakpadFileOrInlineOriginListRef<'a> {
-    pub fn new(inner: &'a [FileOrInlineOriginEntry]) -> Self {
-        Self { inner }
-    }
-    pub fn len(&self) -> usize {
-        self.inner.len()
-    }
-    #[allow(unused)]
-    pub fn is_empty(&self) -> bool {
-        self.inner.is_empty()
-    }
-    pub fn as_slice(&self) -> &'a [FileOrInlineOriginEntry] {
-        self.inner
-    }
-    pub fn get(&self, index: u32) -> Option<&'a FileOrInlineOriginEntry> {
-        Some(&self.inner[self.get_vec_index(index)?])
-    }
-    fn get_vec_index(&self, index: u32) -> Option<usize> {
-        self.inner
-            .binary_search_by_key(&index, |item| item.index.get())
-            .ok()
-    }
-}
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct BreakpadFileLine;
-
-impl FileOrInlineOrigin for BreakpadFileLine {
-    fn parse(input: &[u8]) -> Result<&str, BreakpadParseError> {
-        let (_rest, (_index, name)) =
-            file_line(input).map_err(|_| BreakpadParseError::ParsingFile)?;
-        str::from_utf8(name).map_err(|_| BreakpadParseError::BadUtf8)
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct BreakpadInlineOriginLine {
-    /// The inline origin index of this inline origin.
-    pub index: u32,
-    /// The file offset at which there is the string `INLINE_ORIGIN ` at the start of the line
-    pub file_offset: u64,
-    /// The length of the line, excluding line break (`\r*\n`). `INLINE_ORIGIN` symbols only occupy a single line.
-    pub line_length: u32,
-}
-
-impl FileOrInlineOrigin for BreakpadInlineOriginLine {
-    fn parse(input: &[u8]) -> Result<&str, BreakpadParseError> {
-        let (_rest, (_index, name)) =
-            inline_origin_line(input).map_err(|_| BreakpadParseError::ParsingFile)?;
-        str::from_utf8(name).map_err(|_| BreakpadParseError::BadUtf8)
-    }
-}
-
 /// Parses a breakpad `.sym` file and creates the contents of its corresponding
 /// `.symindex` file.
 ///
@@ -522,65 +600,12 @@ impl BreakpadIndexCreator {
         line_buffer.consume(chunk, |offset, line| inner.process_line(offset, line));
     }
 
-    pub fn finish(mut self) -> Result<Vec<u8>, BreakpadParseError> {
+    pub fn finish(mut self) -> Result<OwnedBreakpadIndex, BreakpadParseError> {
         let inner = &mut self.inner;
         let final_offset = self
             .line_buffer
             .finish(|offset, line| inner.process_line(offset, line));
         self.inner.finish(final_offset)
-    }
-}
-
-#[derive(Debug, Clone)]
-struct SortedVecBuilder {
-    inner: Vec<FileOrInlineOriginEntry>,
-    last_sorted_index: Option<u32>,
-    is_sorted: bool,
-}
-
-impl Default for SortedVecBuilder {
-    fn default() -> Self {
-        Self {
-            inner: Vec::new(),
-            last_sorted_index: None,
-            is_sorted: true,
-        }
-    }
-}
-
-impl SortedVecBuilder {
-    pub fn push(&mut self, item: FileOrInlineOriginEntry) {
-        if self.is_sorted {
-            let item_index = item.index.get();
-            match self.last_sorted_index {
-                None => {
-                    // This is the first item.
-                    self.last_sorted_index = Some(item_index);
-                }
-                Some(last_index) if item_index > last_index => {
-                    // This is the common case.
-                    self.last_sorted_index = Some(item_index);
-                }
-                Some(last_index) if item_index == last_index => {
-                    // Discard this item. We only keep the first item with this index.
-                    // Valid files don't have duplicate indexes.
-                    return;
-                }
-                Some(_last_index) => {
-                    // item_index < last_index
-                    self.is_sorted = false;
-                }
-            }
-        }
-        self.inner.push(item);
-    }
-
-    pub fn into_sorted_vec(mut self) -> Vec<FileOrInlineOriginEntry> {
-        if !self.is_sorted {
-            self.inner.sort_unstable_by_key(|item| item.index.get());
-            self.inner.dedup_by_key(|item| item.index.get());
-        }
-        self.inner
     }
 }
 
@@ -591,8 +616,8 @@ struct BreakpadIndexCreatorInner {
     name: Option<String>,
     code_id: Option<CodeId>,
     symbols: Vec<(u32, BreakpadSymbolEntry)>,
-    files: SortedVecBuilder,
-    inline_origins: SortedVecBuilder,
+    files: BTreeMap<u32, StringLocation>,
+    inline_origins: BTreeMap<u32, StringLocation>,
     pending_func_block: Option<(u32, u64)>,
 }
 
@@ -616,18 +641,16 @@ impl BreakpadIndexCreatorInner {
             return;
         }
         let line_len = input.len() as u32;
-        if let Ok((_r, (index, _filename))) = file_line(input) {
-            self.files.push(FileOrInlineOriginEntry {
-                index: index.into(),
-                line_len: line_len.into(),
-                offset: file_offset.into(),
-            });
-        } else if let Ok((_r, (index, _inline_origin))) = inline_origin_line(input) {
-            self.inline_origins.push(FileOrInlineOriginEntry {
-                index: index.into(),
-                line_len: line_len.into(),
-                offset: file_offset.into(),
-            });
+        if let Ok((index, filename)) = file_line(input) {
+            self.files.insert(
+                index,
+                StringLocation::from_refs(file_offset, input, filename).unwrap(),
+            );
+        } else if let Ok((index, inline_origin)) = inline_origin_line(input) {
+            self.inline_origins.insert(
+                index,
+                StringLocation::from_refs(file_offset, input, inline_origin).unwrap(),
+            );
         } else if let Ok((_r, (address, _name))) = public_line(input) {
             self.finish_pending_func_block(file_offset);
             self.symbols.push((
@@ -638,7 +661,7 @@ impl BreakpadIndexCreatorInner {
                     line_or_block_len: line_len.into(),
                 },
             ));
-        } else if let Ok((address, _size, _name)) = func_line(input) {
+        } else if let Ok((address, _size, _name)) = func_line(&mut Tokenizer::new(input)) {
             self.finish_pending_func_block(file_offset);
             self.pending_func_block = Some((address, file_offset));
         } else if input.starts_with(b"INFO ") {
@@ -668,7 +691,10 @@ impl BreakpadIndexCreatorInner {
         }
     }
 
-    pub fn finish(mut self, file_end_offset: u64) -> Result<Vec<u8>, BreakpadParseError> {
+    pub fn finish(
+        mut self,
+        file_end_offset: u64,
+    ) -> Result<OwnedBreakpadIndex, BreakpadParseError> {
         self.finish_pending_func_block(file_end_offset);
         let BreakpadIndexCreatorInner {
             mut symbols,
@@ -686,26 +712,71 @@ impl BreakpadIndexCreatorInner {
         let symbol_addresses: Vec<_> = symbols.iter().map(|s| U32::from(s.0)).collect();
         let symbol_entries: Vec<_> = symbols.into_iter().map(|s| s.1).collect();
 
-        let files = files.into_sorted_vec();
-        let inline_origins = inline_origins.into_sorted_vec();
+        let files = make_dense_vec(files);
+        let inline_origins = make_dense_vec(inline_origins);
 
         let (debug_id, os, arch, debug_name) =
             module_info.ok_or(BreakpadParseError::NoModuleInfoInSymFile)?;
-        let index = BreakpadIndex {
-            module_info_bytes: &module_info_bytes,
-            debug_name,
+
+        Ok(OwnedBreakpadIndex {
+            module_info_bytes,
             debug_id,
-            code_id,
-            name,
-            arch,
             os,
-            symbol_addresses: &symbol_addresses,
-            symbol_entries: &symbol_entries,
-            files: BreakpadFileOrInlineOriginListRef::new(&files),
-            inline_origins: BreakpadFileOrInlineOriginListRef::new(&inline_origins),
-        };
-        Ok(index.serialize_to_bytes())
+            arch,
+            debug_name,
+            name,
+            code_id,
+            files,
+            inline_origins,
+            symbol_addresses,
+            symbol_entries,
+        })
     }
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct OwnedBreakpadIndex {
+    module_info_bytes: Vec<u8>,
+    debug_name: String,
+    debug_id: DebugId,
+    arch: String,
+    os: String,
+    name: Option<String>,
+    code_id: Option<CodeId>,
+    files: Vec<StringLocation>,
+    inline_origins: Vec<StringLocation>,
+    symbol_addresses: Vec<U32<LittleEndian>>,
+    symbol_entries: Vec<BreakpadSymbolEntry>,
+}
+
+impl OwnedBreakpadIndex {
+    pub fn index(&self) -> BreakpadIndex<'_> {
+        BreakpadIndex {
+            module_info_bytes: &self.module_info_bytes,
+            debug_name: self.debug_name.clone(),
+            debug_id: self.debug_id,
+            code_id: self.code_id.clone(),
+            name: self.name.clone(),
+            arch: self.arch.clone(),
+            os: self.os.clone(),
+            symbol_addresses: &self.symbol_addresses,
+            symbol_entries: &self.symbol_entries,
+            files: StringListRef::new(&self.files),
+            inline_origins: StringListRef::new(&self.inline_origins),
+        }
+    }
+}
+
+fn make_dense_vec<T: Default>(map: BTreeMap<u32, T>) -> Vec<T> {
+    let mut vec = Vec::with_capacity(map.len());
+    for (i, val) in map {
+        // Fill any holes with default values. We don't expect there to be holes.
+        while i as usize != vec.len() {
+            vec.push(Default::default());
+        }
+        vec.push(val);
+    }
+    vec
 }
 
 /// Consumes chunks and calls a callback for each line.
@@ -789,7 +860,7 @@ pub enum BreakpadParseError {
     NoModuleInfoInSymFile,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct BreakpadPublicSymbolInfo<'a> {
     pub name: &'a str,
 }
@@ -954,17 +1025,25 @@ fn info_code_id_line(input: &[u8]) -> IResult<&[u8], (&str, Option<&str>)> {
 }
 
 // Matches a FILE record.
-fn file_line(input: &[u8]) -> IResult<&[u8], (u32, &[u8])> {
-    let (input, _) = terminated(tag("FILE"), space1)(input)?;
-    let (input, (id, filename)) = cut(tuple((terminated(decimal_u32, space1), rest)))(input)?;
-    Ok((input, (id, filename)))
+fn file_line(input: &[u8]) -> Result<(u32, &[u8]), ()> {
+    let mut t = Tokenizer::new(input);
+    t.consume_token(b"FILE")?;
+    t.consume_space1()?;
+    let id = t.consume_decimal_u32()?;
+    t.consume_space1()?;
+    let filename = t.consume_until_after_next_line_break_or_eof();
+    Ok((id, filename))
 }
 
 // Matches an INLINE_ORIGIN record.
-fn inline_origin_line(input: &[u8]) -> IResult<&[u8], (u32, &[u8])> {
-    let (input, _) = terminated(tag("INLINE_ORIGIN"), space1)(input)?;
-    let (input, (id, function)) = cut(tuple((terminated(decimal_u32, space1), rest)))(input)?;
-    Ok((input, (id, function)))
+fn inline_origin_line(input: &[u8]) -> Result<(u32, &[u8]), ()> {
+    let mut t = Tokenizer::new(input);
+    t.consume_token(b"INLINE_ORIGIN")?;
+    t.consume_space1()?;
+    let id = t.consume_decimal_u32()?;
+    t.consume_space1()?;
+    let function = t.consume_until_after_next_line_break_or_eof();
+    Ok((id, function))
 }
 
 // Matches a PUBLIC record.
@@ -1033,8 +1112,7 @@ fn parse_func_data_line(tokenizer: &mut Tokenizer) -> Result<SourceLine, ()> {
 }
 
 // Matches a FUNC record.
-fn func_line(input: &[u8]) -> Result<(u32, u32, &[u8]), ()> {
-    let mut tokenizer = Tokenizer::new(input);
+fn func_line<'a>(tokenizer: &mut Tokenizer<'a>) -> Result<(u32, u32, &'a [u8]), ()> {
     tokenizer.consume_token(b"FUNC")?;
     tokenizer.consume_space1()?;
     if let Ok(()) = tokenizer.consume_token(b"m") {
@@ -1160,20 +1238,20 @@ mod test {
     #[test]
     fn test1() {
         let mut parser = BreakpadIndexCreator::new();
-        parser.consume(b"MODULE Linux x86_64 39CA3106713C8D0FFEE4605AFA2526670 libmozsandbox.so\nINFO CODE_ID ");
-        parser.consume(b"0631CA393C710F8DFEE4605AFA2526671AD4EF17\nFILE 0 hg:hg.mozilla.org/mozilla-central:se");
-        parser.consume(b"curity/sandbox/chromium/base/strings/safe_sprintf.cc:f150bc1f71d09e1e1941065951f0f5a3");
-        parser.consume(b"8628f080");
-        let index_bytes = parser.finish().unwrap();
+        let data = b"\
+MODULE Linux x86_64 39CA3106713C8D0FFEE4605AFA2526670 libmozsandbox.so\nINFO CODE_ID \
+0631CA393C710F8DFEE4605AFA2526671AD4EF17\nFILE 0 hg:hg.mozilla.org/mozilla-central:se\
+curity/sandbox/chromium/base/strings/safe_sprintf.cc:f150bc1f71d09e1e1941065951f0f5a3\
+8628f080";
+        for chunk in data.chunks(84) {
+            parser.consume(chunk);
+        }
+        let index_bytes = parser.finish().unwrap().index().serialize_to_bytes();
         let index = BreakpadIndex::parse_symindex_file(&*index_bytes).unwrap();
 
         assert_eq!(
-            index.files.get(0).unwrap(),
-            &FileOrInlineOriginEntry {
-                index: 0.into(),
-                line_len: 136.into(),
-                offset: 125.into(),
-            }
+            index.files.get(0, data.as_slice()).unwrap(),
+            b"hg:hg.mozilla.org/mozilla-central:security/sandbox/chromium/base/strings/safe_sprintf.cc:f150bc1f71d09e1e1941065951f0f5a38628f080"
         );
         assert_eq!(
             index.debug_id,
@@ -1204,7 +1282,7 @@ mod test {
         parser.consume(b"\n2b78e 2 306 0\n2b790 c 305 0\n2b79c b 309 0\n2b7a7 10 660 0\n2b7b7 2 ");
         parser.consume(b"661 0\n2b7b9 11 662 0\n2b7ca 9 340 0\n2b7d3 e 341 0\n2b7e1 c 668 0\n2b7");
         parser.consume(b"ed b 7729 1\n2b7f8 6 668 0");
-        let index_bytes = parser.finish().unwrap();
+        let index_bytes = parser.finish().unwrap().index().serialize_to_bytes();
         let index = BreakpadIndex::parse_symindex_file(&*index_bytes).unwrap();
         assert_eq!(&index.debug_name, "firefox.pdb");
         assert_eq!(

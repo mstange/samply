@@ -2,12 +2,12 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use samply_symbols::{
-    FileAndPathHelper, FramesLookupResult, LibraryInfo, LookupAddress, SourceFilePath,
-    SourceFilePathHandle, SymbolManager, SymbolMap,
+    AccessPatternHint, FileAndPathHelper, FramesLookupResult, LibraryInfo, LookupAddress,
+    SourceFilePath, SourceFilePathHandle, SymbolManager, SymbolMap,
 };
 
 use crate::error::Error;
-use crate::symbolicate::looked_up_addresses::PathResolver;
+use crate::symbolicate::looked_up_addresses::{AddressResult, AddressResults, PathResolver};
 use crate::symbolicate::response_json::{PerLibResult, Response};
 use crate::to_debug_id;
 
@@ -15,7 +15,6 @@ pub mod looked_up_addresses;
 pub mod request_json;
 pub mod response_json;
 
-use looked_up_addresses::LookedUpAddresses;
 use request_json::Lib;
 
 impl<H: FileAndPathHelper> PathResolver for SymbolMap<H> {
@@ -63,7 +62,7 @@ impl<'a, H: FileAndPathHelper + 'static> SymbolicateApi<'a, H> {
         let mut symbolicated_addresses = HashMap::new();
         for (lib, addresses) in requested_addresses.into_iter() {
             let address_results = self
-                .symbolicate_requested_addresses_for_lib(&lib, addresses)
+                .symbolicate_requested_addresses_for_lib(&lib, &addresses)
                 .await;
             symbolicated_addresses.insert(lib, address_results);
         }
@@ -73,20 +72,9 @@ impl<'a, H: FileAndPathHelper + 'static> SymbolicateApi<'a, H> {
     async fn symbolicate_requested_addresses_for_lib(
         &self,
         lib: &Lib,
-        mut addresses: Vec<u32>,
+        addresses: &[u32],
     ) -> Result<PerLibResult<H>, samply_symbols::Error> {
-        // Sort the addresses before the lookup, to have a higher chance of hitting
-        // the same external file for subsequent addresses.
-        addresses.sort_unstable();
-        addresses.dedup();
-
         let debug_id = to_debug_id(&lib.breakpad_id)?;
-
-        let mut external_addresses = Vec::new();
-
-        // Do the synchronous work first, and accumulate external_addresses which need
-        // to be handled asynchronously. This allows us to group async file loads by
-        // the external file.
 
         let info = LibraryInfo {
             debug_name: Some(lib.debug_name.to_string()),
@@ -94,27 +82,32 @@ impl<'a, H: FileAndPathHelper + 'static> SymbolicateApi<'a, H> {
             ..Default::default()
         };
         let symbol_map = self.symbol_manager.load_symbol_map(&info).await?;
-        let mut symbolication_result = LookedUpAddresses::for_addresses(&addresses);
 
-        symbolication_result.set_total_symbol_count(symbol_map.symbol_count() as u32);
+        // Create a BTreeMap for the lookup results. This lets us iterate over the
+        // addresses in ascending order - the sort happens when the map is created.
+        let mut address_results: AddressResults =
+            addresses.iter().map(|&addr| (addr, None)).collect();
+        symbol_map.set_access_pattern_hint(AccessPatternHint::SequentialLookup);
 
-        for &address in &addresses {
-            if let Some(address_info) = symbol_map.lookup_sync(LookupAddress::Relative(address)) {
-                symbolication_result.add_address_symbol(
-                    address,
-                    address_info.symbol.address,
-                    address_info.symbol.name,
-                    address_info.symbol.size,
-                );
-                match address_info.frames {
-                    Some(FramesLookupResult::Available(frames)) => {
-                        symbolication_result.add_address_debug_info(address, frames)
-                    }
-                    Some(FramesLookupResult::External(ext_address)) => {
-                        external_addresses.push((address, ext_address));
-                    }
-                    None => {}
+        // Do the synchronous work first, and accumulate external_addresses which need
+        // to be handled asynchronously. This allows us to group async file loads by
+        // the external file.
+        let mut external_addresses = Vec::new();
+
+        for (&address, address_result) in &mut address_results {
+            let Some(address_info) = symbol_map.lookup_sync(LookupAddress::Relative(address))
+            else {
+                continue;
+            };
+            *address_result = Some(AddressResult::new(address_info.symbol));
+            match address_info.frames {
+                Some(FramesLookupResult::Available(frames)) => {
+                    address_result.as_mut().unwrap().set_debug_info(frames)
                 }
+                Some(FramesLookupResult::External(ext_address)) => {
+                    external_addresses.push((address, ext_address));
+                }
+                None => {}
             }
         }
 
@@ -126,12 +119,13 @@ impl<'a, H: FileAndPathHelper + 'static> SymbolicateApi<'a, H> {
 
         for (address, ext_address) in external_addresses {
             if let Some(frames) = symbol_map.lookup_external(&ext_address).await {
-                symbolication_result.add_address_debug_info(address, frames);
+                let address_result = address_results.get_mut(&address).unwrap();
+                address_result.as_mut().unwrap().set_debug_info(frames);
             }
         }
 
         let outcome = PerLibResult {
-            address_results: symbolication_result,
+            address_results,
             symbol_map: Arc::new(symbol_map),
         };
 
