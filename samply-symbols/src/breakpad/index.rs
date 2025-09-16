@@ -431,7 +431,7 @@ impl<'a> StringListRef<'a> {
     pub fn as_slice(&self) -> &'a [StringLocation] {
         self.inner
     }
-    pub fn get<R: ReadRef<'a>>(&self, index: u32, data: R) -> Option<&'a [u8]> {
+    pub fn get<'d, R: ReadRef<'d>>(&self, index: u32, data: R) -> Option<&'d [u8]> {
         let location = *self.inner.get(usize::try_from(index).ok()?)?;
         location.get(data)
     }
