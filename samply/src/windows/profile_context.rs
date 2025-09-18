@@ -1640,7 +1640,6 @@ impl ProfileContext {
             }
             if let Some(cpus) = &mut self.cpus {
                 let combined_thread = cpus.combined_thread_handle();
-                let idle_frame_label = cpus.idle_frame_label();
                 let cpu = cpus.get_mut(cpu_index as usize, &mut self.profile);
 
                 if let Some(idle_cpu_sample) = self
@@ -1660,7 +1659,7 @@ impl ProfileContext {
                         .convert_time(idle_cpu_sample.begin_timestamp);
                     let stack =
                         self.profile
-                            .handle_for_stack(cpu.thread_handle, idle_frame_label, None);
+                            .handle_for_stack(cpu.thread_handle, cpu.idle_frame, None);
                     self.profile.add_sample(
                         cpu.thread_handle,
                         begin_timestamp,

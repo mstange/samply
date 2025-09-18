@@ -12,22 +12,23 @@ pub struct Cpus {
     process_handle: ProcessHandle,
     combined_thread_handle: ThreadHandle,
     cpus: Vec<Cpu>,
-    idle_frame_label: FrameHandle,
 }
 
 pub struct Cpu {
     pub name: StringHandle,
     pub thread_handle: ThreadHandle,
     pub context_switch_data: ThreadContextSwitchData,
+    pub idle_frame: FrameHandle,
     current_tid: Option<(i32, StringHandle, u64)>,
 }
 
 impl Cpu {
-    pub fn new(name: StringHandle, thread_handle: ThreadHandle) -> Self {
+    pub fn new(name: StringHandle, thread_handle: ThreadHandle, idle_frame: FrameHandle) -> Self {
         Self {
             name,
             thread_handle,
             context_switch_data: Default::default(),
+            idle_frame,
             current_tid: None,
         }
     }
@@ -113,28 +114,16 @@ impl Cpus {
     pub fn new(start_time: Timestamp, profile: &mut Profile) -> Self {
         let process_handle = profile.add_process("CPU", 0, start_time);
         let combined_thread_handle = profile.add_thread(process_handle, 0, start_time, true);
-        let idle_string = profile.handle_for_string("<Idle>");
-        let idle_frame_label = profile.handle_for_frame_with_label(
-            combined_thread_handle,
-            idle_string,
-            CategoryHandle::OTHER,
-            FrameFlags::empty(),
-        );
         Self {
             start_time,
             process_handle,
             combined_thread_handle,
             cpus: Vec::new(),
-            idle_frame_label,
         }
     }
 
     pub fn combined_thread_handle(&self) -> ThreadHandle {
         self.combined_thread_handle
-    }
-
-    pub fn idle_frame_label(&self) -> FrameHandle {
-        self.idle_frame_label
     }
 
     pub fn get_mut(&mut self, cpu: usize, profile: &mut Profile) -> &mut Cpu {
@@ -143,8 +132,18 @@ impl Cpus {
             let thread = profile.add_thread(self.process_handle, i as u32, self.start_time, false);
             let name = format!("CPU {i}");
             profile.set_thread_name(thread, &name);
-            self.cpus
-                .push(Cpu::new(profile.handle_for_string(&name), thread));
+            let idle_string = profile.handle_for_string("<Idle>");
+            let idle_frame = profile.handle_for_frame_with_label(
+                thread,
+                idle_string,
+                CategoryHandle::OTHER,
+                FrameFlags::empty(),
+            );
+            self.cpus.push(Cpu::new(
+                profile.handle_for_string(&name),
+                thread,
+                idle_frame,
+            ));
         }
         &mut self.cpus[cpu]
     }
