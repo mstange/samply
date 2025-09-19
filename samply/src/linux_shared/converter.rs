@@ -878,7 +878,6 @@ where
                 }
                 if let (Some(cpus), Some(cpu_index)) = (&mut self.cpus, common.cpu) {
                     let combined_thread = cpus.combined_thread_handle();
-                    let idle_frame_label = cpus.idle_frame_label();
                     let cpu = cpus.get_mut(cpu_index as usize, &mut self.profile);
                     if let Some(idle_cpu_sample) = self
                         .context_switch_handler
@@ -902,7 +901,7 @@ where
                             UnresolvedStackHandle::EMPTY,
                             cpu_delta,
                             0,
-                            Some(idle_frame_label),
+                            Some(cpu.idle_frame),
                         );
 
                         // Emit a "rest sample" with a CPU delta of zero covering the rest of the paused range.
@@ -916,7 +915,7 @@ where
                             UnresolvedStackHandle::EMPTY,
                             CpuDelta::from_nanos(0),
                             0,
-                            Some(idle_frame_label),
+                            Some(cpu.idle_frame),
                         );
                     }
                     if self.should_emit_cswitch_markers {
