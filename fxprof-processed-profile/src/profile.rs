@@ -23,7 +23,7 @@ use crate::lib_mappings::LibMappings;
 use crate::library_info::{LibraryInfo, SymbolTable};
 use crate::markers::{
     GraphColor, InternalMarkerSchema, Marker, MarkerHandle, MarkerTiming, MarkerTypeHandle,
-    RuntimeMarker, RuntimeSchemaMarkerSchema,
+    DynamicSchemaMarker, DynamicSchemaMarkerSchema,
 };
 use crate::native_symbols::NativeSymbolHandle;
 use crate::process::{Process, ThreadHandle};
@@ -1002,7 +1002,7 @@ impl Profile {
         );
     }
 
-    /// Registers a marker type for a [`RuntimeSchemaMarkerSchema`]. You only need to call this for
+    /// Registers a marker type for a [`DynamicSchemaMarkerSchema`]. You only need to call this for
     /// marker types whose schema is dynamically created at runtime.
     ///
     /// After you register the marker type, you'll save its [`MarkerTypeHandle`] somewhere, and then
@@ -1011,7 +1011,7 @@ impl Profile {
     ///
     /// For marker types whose schema is known at compile time, you'll want to implement
     /// [`Marker`] instead, and you don't need to call this method.
-    pub fn register_marker_type(&mut self, schema: RuntimeSchemaMarkerSchema) -> MarkerTypeHandle {
+    pub fn register_marker_type(&mut self, schema: DynamicSchemaMarkerSchema) -> MarkerTypeHandle {
         let handle = MarkerTypeHandle(self.marker_schemas.len());
         self.marker_schemas.push(schema.into());
         handle
@@ -1087,7 +1087,7 @@ impl Profile {
     ///     }
     /// }
     /// ```
-    pub fn add_marker<T: RuntimeMarker>(
+    pub fn add_marker<T: DynamicSchemaMarker>(
         &mut self,
         thread: ThreadHandle,
         timing: MarkerTiming,

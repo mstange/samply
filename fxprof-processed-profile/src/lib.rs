@@ -83,8 +83,8 @@ pub use library_info::{LibraryInfo, Symbol, SymbolTable};
 pub use markers::{
     FlowId, GraphColor, Marker, MarkerField, MarkerFlowFieldFormat, MarkerGraph, MarkerGraphType,
     MarkerHandle, MarkerLocations, MarkerNumberFieldFormat, MarkerStringFieldFormat, MarkerTiming,
-    MarkerTypeHandle, RuntimeMarker, RuntimeSchemaMarkerField, RuntimeSchemaMarkerFieldFormat,
-    RuntimeSchemaMarkerGraph, RuntimeSchemaMarkerSchema, Schema,
+    MarkerTypeHandle, DynamicSchemaMarker, DynamicSchemaMarkerField, DynamicSchemaMarkerFieldFormat,
+    DynamicSchemaMarkerGraph, DynamicSchemaMarkerSchema, Schema,
 };
 pub use native_symbols::NativeSymbolHandle;
 pub use process::ThreadHandle;
