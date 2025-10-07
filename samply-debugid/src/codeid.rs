@@ -1,5 +1,6 @@
 use std::str::FromStr;
 
+use object::Object;
 use uuid::Uuid;
 
 /// An enum carrying an identifier for a binary. This is stores the same information
@@ -145,4 +146,21 @@ impl std::fmt::Display for ElfBuildId {
         }
         Ok(())
     }
+}
+
+/// Tries to obtain a CodeId for an object.
+///
+/// This currently only handles mach-O and ELF.
+pub fn code_id_for_object<'data>(obj: &impl Object<'data>) -> Option<CodeId> {
+    // ELF
+    if let Ok(Some(build_id)) = obj.build_id() {
+        return Some(CodeId::ElfBuildId(ElfBuildId::from_bytes(build_id)));
+    }
+
+    // mach-O
+    if let Ok(Some(uuid)) = obj.mach_uuid() {
+        return Some(CodeId::MachoUuid(Uuid::from_bytes(uuid)));
+    }
+
+    None
 }
