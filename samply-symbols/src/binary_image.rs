@@ -3,14 +3,15 @@ use linux_perf_data::jitdump::JitDumpHeader;
 use linux_perf_data::linux_perf_event_reader::RawData;
 use object::read::pe::{ImageNtHeaders, ImageOptionalHeader, PeFile, PeFile32, PeFile64};
 use object::{FileKind, Object, ReadRef};
+use samply_debugid::{CodeId, ElfBuildId, PeCodeId};
 
 use crate::debugid_util::{code_id_for_object, debug_id_for_object};
 use crate::error::Error;
 use crate::jitdump::{debug_id_and_code_id_for_jitdump, JitDumpIndex};
 use crate::macho::{DyldCacheFileData, MachOData, MachOFatArchiveMemberData};
 use crate::shared::{
-    relative_address_base, CodeId, ElfBuildId, FileAndPathHelperError, FileContents,
-    FileContentsWrapper, LibraryInfo, PeCodeId, RangeReadRef,
+    relative_address_base, FileAndPathHelperError, FileContents, FileContentsWrapper, LibraryInfo,
+    RangeReadRef,
 };
 
 #[derive(thiserror::Error, Debug)]

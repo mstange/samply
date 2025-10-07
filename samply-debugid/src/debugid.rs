@@ -1,7 +1,8 @@
 use debugid::DebugId;
 use object::{Object, ObjectSection};
-use samply_debugid::{CodeId, ElfBuildId};
 use uuid::Uuid;
+
+use crate::{CodeId, ElfBuildId};
 
 pub trait DebugIdExt {
     /// Creates a DebugId from some identifier. The identifier could be

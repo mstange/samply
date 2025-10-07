@@ -4,10 +4,11 @@ use debugid::DebugId;
 use linux_perf_data::jitdump::JitDumpError;
 use object::FileKind;
 use pdb_addr2line::pdb::Error as PdbError;
+use samply_debugid::CodeId;
 use thiserror::Error;
 
 use crate::breakpad::BreakpadParseError;
-use crate::{CodeId, FatArchiveMember, LibraryInfo};
+use crate::{FatArchiveMember, LibraryInfo};
 
 /// The error type used in this crate.
 #[derive(Error, Debug)]
