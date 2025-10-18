@@ -5,10 +5,7 @@ use std::{borrow::Cow, fs::File};
 
 use serde::de::{Deserialize, Deserializer};
 use serde_derive::Deserialize;
-use wholesym::{
-    samply_symbols::{SourceFilePathHandle, SourceFilePathIndex, SymbolMapGeneration},
-    SourceFilePath,
-};
+use wholesym::{SourceFilePath, SourceFilePathHandle, SourceFilePathIndex, SymbolMapGeneration};
 
 #[derive(Debug, Copy, Clone, PartialOrd, Ord, PartialEq, Eq, Hash)]
 struct StringTableIndex(usize);

@@ -1,3 +1,4 @@
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -284,25 +285,28 @@ impl BreakpadSymbolDownloaderInner {
         &self,
         sym_path: &Path,
     ) -> Result<OwnedBreakpadIndex, SymindexGenerationError> {
-        let mut sym_file = tokio::fs::File::open(sym_path)
-            .await
-            .map_err(SymindexGenerationError::SymReading)?;
-        let mut parser = BreakpadIndexCreator::new();
-        const CHUNK_SIZE: usize = 2 * 1024 * 1024; // 2 MiB
-        let mut buffer = vec![0; CHUNK_SIZE];
-        loop {
-            let read_len = sym_file
-                .read(&mut buffer)
-                .await
-                .map_err(SymindexGenerationError::SymReading)?;
-            if read_len == 0 {
-                break;
+        let sym_path = sym_path.to_path_buf();
+        tokio::task::spawn_blocking(|| {
+            let mut sym_file =
+                std::fs::File::open(sym_path).map_err(SymindexGenerationError::SymReading)?;
+            let mut parser = BreakpadIndexCreator::new();
+            const CHUNK_SIZE: usize = 64 * 1024; // 64 KiB
+            let mut buffer = vec![0; CHUNK_SIZE];
+            loop {
+                let read_len = sym_file
+                    .read(&mut buffer)
+                    .map_err(SymindexGenerationError::SymReading)?;
+                if read_len == 0 {
+                    break;
+                }
+                parser.consume(&buffer[..read_len]);
             }
-            parser.consume(&buffer[..read_len]);
-        }
-        parser
-            .finish()
-            .map_err(SymindexGenerationError::BreakpadParsing)
+            parser
+                .finish()
+                .map_err(SymindexGenerationError::BreakpadParsing)
+        })
+        .await
+        .unwrap()
     }
 }
 
