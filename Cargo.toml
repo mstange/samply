@@ -5,6 +5,7 @@ members = [
     "fxprof-processed-profile",
     "gecko_profile",
     "samply-api",
+    "samply-debugid",
     "samply-quota-manager",
     "samply-symbols",
     "samply",

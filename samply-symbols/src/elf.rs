@@ -5,6 +5,7 @@ use debugid::DebugId;
 use elsa::sync::FrozenVec;
 use gimli::{CieOrFde, Dwarf, EhFrame, EndianSlice, RunTimeEndian, UnwindSection};
 use object::{File, FileKind, Object, ObjectSection, ReadRef};
+use samply_debugid::{debug_id_for_object, ElfBuildId};
 use yoke::Yoke;
 use yoke_derive::Yokeable;
 
@@ -15,7 +16,6 @@ use crate::symbol_map::SymbolMap;
 use crate::symbol_map_object::{
     DwoDwarfMaker, ObjectSymbolMap, ObjectSymbolMapInnerWrapper, ObjectSymbolMapOuter,
 };
-use crate::{debug_id_for_object, ElfBuildId};
 
 pub async fn load_symbol_map_for_elf<H: FileAndPathHelper>(
     file_location: H::FL,

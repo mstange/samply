@@ -2278,6 +2278,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "samply-debugid"
+version = "0.1.0"
+dependencies = [
+ "debugid",
+ "object 0.37.3",
+ "uuid",
+]
+
+[[package]]
 name = "samply-quota-manager"
 version = "0.1.0"
 dependencies = [
@@ -2318,6 +2327,7 @@ dependencies = [
  "pdb-addr2line",
  "rangemap",
  "rustc-demangle",
+ "samply-debugid",
  "scala-native-demangle",
  "srcsrv",
  "thiserror 2.0.16",

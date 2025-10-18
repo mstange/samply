@@ -4,7 +4,6 @@ use std::fmt::{Debug, Display};
 use std::future::Future;
 use std::marker::PhantomData;
 use std::ops::{Deref, Range};
-use std::str::FromStr;
 use std::sync::Arc;
 
 #[cfg(feature = "partial_read_stats")]
@@ -12,7 +11,7 @@ use bitvec::{bitvec, prelude::BitVec};
 use debugid::DebugId;
 use object::read::ReadRef;
 use object::FileFlags;
-use uuid::Uuid;
+use samply_debugid::{CodeId, ElfBuildId};
 
 use crate::symbol_map::SymbolMapTrait;
 use crate::SourceFilePathHandle;
@@ -144,151 +143,6 @@ pub enum MultiArchDisambiguator {
 
     /// Disambiguate by `DebugId`.
     DebugId(DebugId),
-}
-
-/// An enum carrying an identifier for a binary. This is stores the same information
-/// as a [`debugid::CodeId`], but without projecting it down to a string.
-///
-/// All types need to be treated rather differently, see their respective documentation.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub enum CodeId {
-    /// The code ID for a Windows PE file. When combined with the binary name,
-    /// the code ID lets you obtain binaries from symbol servers. It is not useful
-    /// on its own, it has to be paired with the binary name.
-    ///
-    /// On Windows, a binary's code ID is distinct from its debug ID (= pdb GUID + age).
-    /// If you have a binary file, you can get both the code ID and the debug ID
-    /// from it. If you only have a PDB file, you usually *cannot* get the code ID of
-    /// the corresponding binary from it.
-    PeCodeId(PeCodeId),
-
-    /// The code ID for a macOS / iOS binary (mach-O). This is just the mach-O UUID.
-    /// The mach-O UUID is shared between both the binary file and the debug file (dSYM),
-    /// and it can be used on its own to find dSYMs using Spotlight.
-    ///
-    /// The debug ID and the code ID contain the same information; the debug ID
-    /// is literally just the UUID plus a zero at the end.
-    MachoUuid(Uuid),
-
-    /// The code ID for a Linux ELF file. This is the "ELF build ID" (also called "GNU build ID").
-    /// The build ID is usually 20 bytes, commonly written out as 40 hex chars.
-    ///
-    /// It can be used to find debug files on the local file system or to download
-    /// binaries or debug files from a `debuginfod` symbol server. it does not have to be
-    /// paired with the binary name.
-    ///
-    /// An ELF binary's code ID is more useful than its debug ID: The debug ID is truncated
-    /// to 16 bytes (32 hex characters), whereas the code ID is the full ELF build ID.
-    ElfBuildId(ElfBuildId),
-}
-
-impl FromStr for CodeId {
-    type Err = ();
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        if s.len() <= 17 {
-            // 8 bytes timestamp + 1 to 8 bytes of image size
-            Ok(CodeId::PeCodeId(PeCodeId::from_str(s)?))
-        } else if s.len() == 32 && is_uppercase_hex(s) {
-            // mach-O UUID
-            Ok(CodeId::MachoUuid(Uuid::from_str(s).map_err(|_| ())?))
-        } else {
-            // ELF build ID. These are usually 40 hex characters (= 20 bytes).
-            Ok(CodeId::ElfBuildId(ElfBuildId::from_str(s)?))
-        }
-    }
-}
-
-fn is_uppercase_hex(s: &str) -> bool {
-    s.chars()
-        .all(|c| c.is_ascii_hexdigit() && (c.is_ascii_digit() || c.is_ascii_uppercase()))
-}
-
-impl std::fmt::Display for CodeId {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            CodeId::PeCodeId(pe) => std::fmt::Display::fmt(pe, f),
-            CodeId::MachoUuid(uuid) => f.write_fmt(format_args!("{:X}", uuid.simple())),
-            CodeId::ElfBuildId(elf) => std::fmt::Display::fmt(elf, f),
-        }
-    }
-}
-
-/// The code ID for a Windows PE file.
-///
-/// When combined with the binary name, the `PeCodeId` lets you obtain binaries from
-/// symbol servers. It is not useful on its own, it has to be paired with the binary name.
-///
-/// A Windows binary's `PeCodeId` is distinct from its debug ID (= pdb GUID + age).
-/// If you have a binary file, you can get both the `PeCodeId` and the debug ID
-/// from it. If you only have a PDB file, you usually *cannot* get the `PeCodeId` of
-/// the corresponding binary from it.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct PeCodeId {
-    pub timestamp: u32,
-    pub image_size: u32,
-}
-
-impl FromStr for PeCodeId {
-    type Err = ();
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        if s.len() < 9 || s.len() > 16 {
-            return Err(());
-        }
-        let timestamp = u32::from_str_radix(&s[..8], 16).map_err(|_| ())?;
-        let image_size = u32::from_str_radix(&s[8..], 16).map_err(|_| ())?;
-        Ok(Self {
-            timestamp,
-            image_size,
-        })
-    }
-}
-
-impl std::fmt::Display for PeCodeId {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_fmt(format_args!("{:08X}{:x}", self.timestamp, self.image_size))
-    }
-}
-
-/// The build ID for an ELF file (also called "GNU build ID").
-///
-/// The build ID can be used to find debug files on the local file system or to download
-/// binaries or debug files from a `debuginfod` symbol server. it does not have to be
-/// paired with the binary name.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct ElfBuildId(pub Vec<u8>);
-
-impl ElfBuildId {
-    /// Create a new `ElfBuildId` from a slice of bytes (commonly a sha1 hash
-    /// generated by the linker, i.e. 20 bytes).
-    pub fn from_bytes(bytes: &[u8]) -> Self {
-        Self(bytes.to_owned())
-    }
-}
-
-impl FromStr for ElfBuildId {
-    type Err = ();
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let byte_count = s.len() / 2;
-        let mut bytes = Vec::with_capacity(byte_count);
-        for i in 0..byte_count {
-            let hex_byte = &s[i * 2..i * 2 + 2];
-            let b = u8::from_str_radix(hex_byte, 16).map_err(|_| ())?;
-            bytes.push(b);
-        }
-        Ok(Self(bytes))
-    }
-}
-
-impl std::fmt::Display for ElfBuildId {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        for byte in &self.0 {
-            f.write_fmt(format_args!("{byte:02x}"))?;
-        }
-        Ok(())
-    }
 }
 
 /// Information about a library ("binary" / "module" / "DSO") which allows finding

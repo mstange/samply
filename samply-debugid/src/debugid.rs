@@ -1,6 +1,5 @@
 use debugid::DebugId;
 use object::{Object, ObjectSection};
-use samply_debugid::{CodeId, ElfBuildId};
 use uuid::Uuid;
 
 pub trait DebugIdExt {
@@ -91,23 +90,6 @@ pub fn debug_id_for_object<'data>(obj: &impl Object<'data>) -> Option<DebugId> {
                 obj.is_little_endian(),
             ));
         }
-    }
-
-    None
-}
-
-/// Tries to obtain a CodeId for an object.
-///
-/// This currently only handles mach-O and ELF.
-pub fn code_id_for_object<'data>(obj: &impl Object<'data>) -> Option<CodeId> {
-    // ELF
-    if let Ok(Some(build_id)) = obj.build_id() {
-        return Some(CodeId::ElfBuildId(ElfBuildId::from_bytes(build_id)));
-    }
-
-    // mach-O
-    if let Ok(Some(uuid)) = obj.mach_uuid() {
-        return Some(CodeId::MachoUuid(Uuid::from_bytes(uuid)));
     }
 
     None
