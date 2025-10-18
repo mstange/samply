@@ -153,8 +153,8 @@ pub use samply_symbols;
 pub use samply_symbols::{
     AddressInfo, CodeId, ElfBuildId, Error, ExternalFileAddressInFileRef, ExternalFileAddressRef,
     ExternalFileRef, ExternalFileSymbolMap, FrameDebugInfo, FramesLookupResult, LibraryInfo,
-    LookupAddress, MappedPath, MultiArchDisambiguator, PeCodeId, SourceFilePath, SymbolInfo,
-    SyncAddressInfo,
+    LookupAddress, MappedPath, MultiArchDisambiguator, PeCodeId, SourceFilePath,
+    SourceFilePathHandle, SourceFilePathIndex, SymbolInfo, SymbolMapGeneration, SyncAddressInfo,
 };
 pub use symbol_manager::{SymbolFileOrigin, SymbolManager, SymbolMap};
 pub use symbol_manager_observer::SymbolManagerObserver;
