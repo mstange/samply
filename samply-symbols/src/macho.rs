@@ -14,7 +14,6 @@ use yoke::Yoke;
 use yoke_derive::Yokeable;
 
 use crate::binary_image::{BinaryImage, BinaryImageInner};
-use crate::debugid_util::debug_id_for_object;
 use crate::dwarf::Addr2lineContextData;
 use crate::error::Error;
 use crate::shared::{
@@ -25,6 +24,7 @@ use crate::symbol_map::SymbolMap;
 use crate::symbol_map_object::{
     ObjectSymbolMap, ObjectSymbolMapInnerWrapper, ObjectSymbolMapOuter,
 };
+use samply_debugid::debug_id_for_object;
 
 /// Converts a cpu type/subtype pair into the architecture name.
 ///

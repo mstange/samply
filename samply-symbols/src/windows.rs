@@ -10,7 +10,6 @@ use pdb_addr2line::pdb;
 use yoke::Yoke;
 use yoke_derive::Yokeable;
 
-use crate::debugid_util::debug_id_for_object;
 use crate::dwarf::Addr2lineContextData;
 use crate::error::{Context, Error};
 use crate::generation::SymbolMapGeneration;
@@ -24,6 +23,7 @@ use crate::symbol_map_object::{
     ObjectSymbolMap, ObjectSymbolMapInnerWrapper, ObjectSymbolMapOuter,
 };
 use crate::{demangle, PathInterner, SourceFilePath, SourceFilePathHandle, SyncAddressInfo};
+use samply_debugid::debug_id_for_object;
 
 pub async fn load_symbol_map_for_pdb_corresponding_to_binary<H: FileAndPathHelper>(
     file_kind: FileKind,

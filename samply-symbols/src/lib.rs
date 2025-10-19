@@ -220,7 +220,6 @@ mod breakpad;
 mod cache;
 mod chunked_read_buffer_manager;
 mod compact_symbol_table;
-mod debugid_util;
 mod demangle;
 mod demangle_ocaml;
 mod dwarf;
@@ -245,7 +244,6 @@ pub use crate::breakpad::{
 };
 pub use crate::cache::{FileByteSource, FileContentsWithChunkedCaching};
 pub use crate::compact_symbol_table::CompactSymbolTable;
-pub use crate::debugid_util::{debug_id_for_object, DebugIdExt};
 pub use crate::demangle::demangle_any;
 pub use crate::error::Error;
 pub use crate::external_file::{load_external_file, ExternalFileSymbolMap};
@@ -263,6 +261,7 @@ pub use crate::shared::{
 };
 pub use crate::source_file_path::{SourceFilePath, SourceFilePathHandle, SourceFilePathIndex};
 pub use crate::symbol_map::{AccessPatternHint, SymbolMap, SymbolMapTrait};
+pub use samply_debugid::{debug_id_for_object, DebugIdExt};
 
 pub struct SymbolManager<H: FileAndPathHelper> {
     helper: Arc<H>,
