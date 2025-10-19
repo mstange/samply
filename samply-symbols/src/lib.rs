@@ -211,7 +211,6 @@ use jitdump::JitDumpIndex;
 use linux_perf_data::jitdump::JitDumpReader;
 use object::read::FileKind;
 pub use pdb_addr2line::pdb;
-pub use samply_debugid::{CodeId, ElfBuildId, PeCodeId};
 use shared::FileContentsCursor;
 pub use {debugid, object};
 
@@ -261,7 +260,6 @@ pub use crate::shared::{
 };
 pub use crate::source_file_path::{SourceFilePath, SourceFilePathHandle, SourceFilePathIndex};
 pub use crate::symbol_map::{AccessPatternHint, SymbolMap, SymbolMapTrait};
-pub use samply_debugid::{debug_id_for_object, DebugIdExt};
 
 pub struct SymbolManager<H: FileAndPathHelper> {
     helper: Arc<H>,

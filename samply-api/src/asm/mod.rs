@@ -1,8 +1,9 @@
 use std::str::FromStr;
 
+use samply_debugid::CodeId;
 use samply_symbols::debugid::DebugId;
 use samply_symbols::{
-    object, CodeByteReadingError, CodeId, FileAndPathHelper, FileAndPathHelperError, LibraryInfo,
+    object, CodeByteReadingError, FileAndPathHelper, FileAndPathHelperError, LibraryInfo,
     LookupAddress, SymbolManager,
 };
 use yaxpeax_arch::{Arch, DecodeError, LengthedInstruction, Reader, U8Reader};

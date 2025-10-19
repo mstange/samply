@@ -25,7 +25,8 @@ use linux_perf_event_reader::{
 };
 use memmap2::Mmap;
 use object::{CompressedFileRange, CompressionFormat, Object, ObjectSection};
-use samply_symbols::{debug_id_for_object, DebugIdExt};
+use samply_debugid::DebugIdExt;
+use samply_object::ObjectExt;
 use wholesym::samply_symbols::demangle_any;
 use wholesym::{samply_symbols, CodeId, ElfBuildId};
 
@@ -1605,7 +1606,7 @@ where
         file: &object::File<'data, R>,
         code_id: Option<CodeId>,
     ) -> Option<LibraryInfo> {
-        let debug_id = debug_id_for_object(file)?;
+        let debug_id = file.debug_id()?;
         Some(LibraryInfo {
             debug_id,
             code_id: code_id.map(|ci| ci.to_string()),

@@ -9,6 +9,7 @@ use object::read::macho::{
 };
 use object::read::{File, Object, ObjectSection};
 use object::{Endianness, FileKind, ReadRef};
+use samply_object::ObjectExt;
 use uuid::Uuid;
 use yoke::Yoke;
 use yoke_derive::Yokeable;
@@ -24,7 +25,6 @@ use crate::symbol_map::SymbolMap;
 use crate::symbol_map_object::{
     ObjectSymbolMap, ObjectSymbolMapInnerWrapper, ObjectSymbolMapOuter,
 };
-use samply_debugid::debug_id_for_object;
 
 /// Converts a cpu type/subtype pair into the architecture name.
 ///
@@ -405,7 +405,8 @@ impl<T: FileContents + 'static> ObjectSymbolMapOuter<T> for FileDataAndObject<T>
             addr2line_context,
         } = self.0.get();
         let (function_starts, function_ends) = compute_function_addresses_macho(macho_data, object);
-        let debug_id = debug_id_for_object(object)
+        let debug_id = object
+            .debug_id()
             .ok_or(Error::InvalidInputError("debug ID cannot be read"))?;
         let symbol_map = ObjectSymbolMapInnerWrapper::new(
             object,

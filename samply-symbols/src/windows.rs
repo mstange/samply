@@ -7,6 +7,7 @@ use debugid::DebugId;
 use object::{File, FileKind};
 use pdb::PDB;
 use pdb_addr2line::pdb;
+use samply_object::ObjectExt;
 use yoke::Yoke;
 use yoke_derive::Yokeable;
 
@@ -23,7 +24,6 @@ use crate::symbol_map_object::{
     ObjectSymbolMap, ObjectSymbolMapInnerWrapper, ObjectSymbolMapOuter,
 };
 use crate::{demangle, PathInterner, SourceFilePath, SourceFilePathHandle, SyncAddressInfo};
-use samply_debugid::debug_id_for_object;
 
 pub async fn load_symbol_map_for_pdb_corresponding_to_binary<H: FileAndPathHelper>(
     file_kind: FileKind,
@@ -39,7 +39,7 @@ pub async fn load_symbol_map_for_pdb_corresponding_to_binary<H: FileAndPathHelpe
         Ok(Some(info)) => info,
         _ => return Err(Error::NoDebugInfoInPeBinary(file_location.to_string())),
     };
-    let binary_debug_id = debug_id_for_object(&pe).expect("we checked pdb_info above");
+    let binary_debug_id = pe.debug_id().expect("we checked pdb_info above");
 
     let pdb_path_str = std::str::from_utf8(info.path())
         .map_err(|_| Error::PdbPathNotUtf8(file_location.to_string()))?;
@@ -119,7 +119,8 @@ impl<T: FileContents + 'static> ObjectSymbolMapOuter<T> for PeSymbolMapDataAndOb
             object,
             addr2line_context,
         } = &self.0.get();
-        let debug_id = debug_id_for_object(object)
+        let debug_id = object
+            .debug_id()
             .ok_or(Error::InvalidInputError("debug ID cannot be read"))?;
         let (function_starts, function_ends) = compute_function_addresses_pe(object);
         let symbol_map = ObjectSymbolMapInnerWrapper::new(

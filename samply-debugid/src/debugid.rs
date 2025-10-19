@@ -1,5 +1,4 @@
 use debugid::DebugId;
-use object::{Object, ObjectSection};
 use uuid::Uuid;
 
 pub trait DebugIdExt {
@@ -59,38 +58,4 @@ impl DebugIdExt for DebugId {
         }
         DebugId::from_identifier(&hash, little_endian)
     }
-}
-
-/// Tries to obtain a DebugId for an object. This uses the build ID, if available,
-/// and falls back to hashing the first page of the text section otherwise.
-/// Returns None on failure.
-pub fn debug_id_for_object<'data>(obj: &impl Object<'data>) -> Option<DebugId> {
-    // Windows
-    if let Ok(Some(pdb_info)) = obj.pdb_info() {
-        return Some(DebugId::from_guid_age(&pdb_info.guid(), pdb_info.age()).unwrap());
-    }
-
-    // ELF
-    if let Ok(Some(build_id)) = obj.build_id() {
-        return Some(DebugId::from_identifier(build_id, obj.is_little_endian()));
-    }
-
-    // mach-O
-    if let Ok(Some(uuid)) = obj.mach_uuid() {
-        return Some(DebugId::from_uuid(Uuid::from_bytes(uuid)));
-    }
-
-    // We were not able to locate a build ID, so fall back to creating a synthetic
-    // identifier from a hash of the first page of the ".text" (program code) section.
-    if let Some(section) = obj.section_by_name(".text") {
-        let data_len = section.size().min(4096);
-        if let Ok(Some(first_page_data)) = section.data_range(section.address(), data_len) {
-            return Some(DebugId::from_text_first_page(
-                first_page_data,
-                obj.is_little_endian(),
-            ));
-        }
-    }
-
-    None
 }

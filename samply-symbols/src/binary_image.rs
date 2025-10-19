@@ -4,6 +4,7 @@ use linux_perf_data::linux_perf_event_reader::RawData;
 use object::read::pe::{ImageNtHeaders, ImageOptionalHeader, PeFile, PeFile32, PeFile64};
 use object::{FileKind, Object, ReadRef};
 use samply_debugid::{CodeId, ElfBuildId, PeCodeId};
+use samply_object::ObjectExt;
 
 use crate::error::Error;
 use crate::jitdump::{debug_id_and_code_id_for_jitdump, JitDumpIndex};
@@ -12,7 +13,6 @@ use crate::shared::{
     relative_address_base, FileAndPathHelperError, FileContents, FileContentsWrapper, LibraryInfo,
     RangeReadRef,
 };
-use samply_debugid::{code_id_for_object, debug_id_for_object};
 
 #[derive(thiserror::Error, Debug)]
 pub enum CodeByteReadingError {
@@ -112,7 +112,7 @@ impl<F: FileContents> BinaryImageInner<F> {
                 let data = file.full_range();
                 let object = object::File::parse(data)
                     .map_err(|e| Error::ObjectParseError(*file_kind, e))?;
-                let debug_id = debug_id_for_object(&object);
+                let debug_id = object.debug_id();
                 match file_kind {
                     FileKind::Pe32 | FileKind::Pe64 => {
                         let (code_id, debug_path, debug_name) =
@@ -129,13 +129,13 @@ impl<F: FileContents> BinaryImageInner<F> {
                     }
                     FileKind::MachO32 | FileKind::MachO64 => {
                         let macho_data = MachOData::new(file, 0, *file_kind == FileKind::MachO64);
-                        let code_id = code_id_for_object(&object);
+                        let code_id = object.code_id();
                         let arch = macho_data.get_arch().map(ToOwned::to_owned);
                         let (debug_path, debug_name) = (path.clone(), name.clone());
                         (debug_id, code_id, debug_path, debug_name, arch)
                     }
                     _ => {
-                        let code_id = code_id_for_object(&object);
+                        let code_id = object.code_id();
                         let (debug_path, debug_name) = (path.clone(), name.clone());
                         let arch =
                             object_arch_to_string(object.architecture()).map(ToOwned::to_owned);
@@ -147,16 +147,16 @@ impl<F: FileContents> BinaryImageInner<F> {
                 let data = member.data();
                 let object = object::File::parse(data)
                     .map_err(|e| Error::ObjectParseError(*file_kind, e))?;
-                let debug_id = debug_id_for_object(&object);
-                let code_id = code_id_for_object(&object);
+                let debug_id = object.debug_id();
+                let code_id = object.code_id();
                 let (debug_path, debug_name) = (path.clone(), name.clone());
                 let arch = member.arch();
                 (debug_id, code_id, debug_path, debug_name, arch)
             }
             BinaryImageInner::MemberOfDyldSharedCache(dyld_cache_file_data) => {
                 let (obj, macho_data) = dyld_cache_file_data.make_object()?.into_parts();
-                let debug_id = debug_id_for_object(&obj);
-                let code_id = code_id_for_object(&obj);
+                let debug_id = obj.debug_id();
+                let code_id = obj.code_id();
                 let (debug_path, debug_name) = (path.clone(), name.clone());
                 let arch = macho_data.get_arch().map(ToOwned::to_owned);
                 (debug_id, code_id, debug_path, debug_name, arch)
