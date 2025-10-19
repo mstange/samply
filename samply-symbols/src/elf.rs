@@ -6,7 +6,7 @@ use elsa::sync::FrozenVec;
 use gimli::{CieOrFde, Dwarf, EhFrame, EndianSlice, RunTimeEndian, UnwindSection};
 use object::{File, FileKind, Object, ObjectSection, ReadRef};
 use samply_debugid::ElfBuildId;
-use samply_object::ObjectExt;
+use samply_object::debug_id_for_object;
 use yoke::Yoke;
 use yoke_derive::Yokeable;
 
@@ -85,7 +85,7 @@ where
     H: FileAndPathHelper,
 {
     let (name, crc) = elf_file.gnu_debuglink().ok().flatten()?;
-    let debug_id = elf_file.debug_id()?;
+    let debug_id = debug_id_for_object(elf_file)?;
     let name = std::str::from_utf8(name).ok()?;
     let candidate_paths = helper
         .get_candidate_paths_for_gnu_debug_link_dest(original_file_location, name)
@@ -327,7 +327,7 @@ impl<'data, T: FileContents + 'static> ElfObjects<'data, T> {
     }
 
     fn debug_id_for_object(&self) -> Option<DebugId> {
-        self.object.debug_id()
+        debug_id_for_object(&self.object)
     }
 
     fn function_addresses(&self) -> (Option<Vec<u32>>, Option<Vec<u32>>) {

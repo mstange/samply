@@ -4,7 +4,7 @@ version = "0.1.0"
 authors = ["Markus Stange <mstange.moz@gmail.com>"]
 license = "MIT OR Apache-2.0"
 edition = "2021"
-description = "Samply object methods."
+description = "Samply object functions."
 repository = "https://github.com/mstange/samply/"
 readme = "README.md"
 

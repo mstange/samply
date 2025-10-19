@@ -9,7 +9,7 @@ use gimli::{EndianSlice, RunTimeEndian};
 use object::{
     ObjectMap, ObjectSection, ObjectSegment, SectionFlags, SectionIndex, SectionKind, SymbolKind,
 };
-use samply_object::ObjectExt;
+use samply_object::relative_address_base;
 use yoke::Yoke;
 use yoke_derive::Yokeable;
 
@@ -676,7 +676,7 @@ impl<'a, FC: FileContents + 'static> ObjectSymbolMapInnerWrapper<'a, FC> {
         Symbol: object::ObjectSymbol<'a> + Send + Sync + 'a,
         DDM: DwoDwarfMaker<FC> + Sync,
     {
-        let base_address = object_file.samply_relative_address_base();
+        let base_address = relative_address_base(object_file);
         let list = SymbolList::new(
             object_file,
             base_address,

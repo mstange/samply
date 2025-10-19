@@ -9,7 +9,7 @@ use object::read::macho::{
 };
 use object::read::{File, Object, ObjectSection};
 use object::{Endianness, FileKind, ReadRef};
-use samply_object::ObjectExt;
+use samply_object::debug_id_for_object;
 use uuid::Uuid;
 use yoke::Yoke;
 use yoke_derive::Yokeable;
@@ -405,8 +405,7 @@ impl<T: FileContents + 'static> ObjectSymbolMapOuter<T> for FileDataAndObject<T>
             addr2line_context,
         } = self.0.get();
         let (function_starts, function_ends) = compute_function_addresses_macho(macho_data, object);
-        let debug_id = object
-            .debug_id()
+        let debug_id = debug_id_for_object(object)
             .ok_or(Error::InvalidInputError("debug ID cannot be read"))?;
         let symbol_map = ObjectSymbolMapInnerWrapper::new(
             object,

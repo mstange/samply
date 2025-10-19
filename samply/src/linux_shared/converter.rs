@@ -26,7 +26,7 @@ use linux_perf_event_reader::{
 use memmap2::Mmap;
 use object::{CompressedFileRange, CompressionFormat, Object, ObjectSection};
 use samply_debugid::DebugIdExt;
-use samply_object::ObjectExt;
+use samply_object::{debug_id_for_object, relative_address_base};
 use wholesym::samply_symbols::demangle_any;
 use wholesym::{CodeId, ElfBuildId};
 
@@ -1606,7 +1606,7 @@ where
         file: &object::File<'data, R>,
         code_id: Option<CodeId>,
     ) -> Option<LibraryInfo> {
-        let debug_id = file.debug_id()?;
+        let debug_id = debug_id_for_object(file)?;
         Some(LibraryInfo {
             debug_id,
             code_id: code_id.map(|ci| ci.to_string()),
@@ -1644,7 +1644,7 @@ where
             }
         }
 
-        let base_svma = file.samply_relative_address_base();
+        let base_svma = relative_address_base(file);
         let text = file.section_by_name(".text");
         let eh_frame = file.section_by_name(".eh_frame");
         let got = file.section_by_name(".got");
@@ -1922,7 +1922,7 @@ impl MappingInfo {
                     self.avma_range.start(),
                     self.avma_range.size(),
                 )?;
-                let base_svma = file.samply_relative_address_base();
+                let base_svma = relative_address_base(file);
                 base_svma.wrapping_add(bias)
             }
         };
