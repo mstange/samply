@@ -28,7 +28,7 @@ use object::{CompressedFileRange, CompressionFormat, Object, ObjectSection};
 use samply_debugid::DebugIdExt;
 use samply_object::ObjectExt;
 use wholesym::samply_symbols::demangle_any;
-use wholesym::{samply_symbols, CodeId, ElfBuildId};
+use wholesym::{CodeId, ElfBuildId};
 
 use super::avma_range::AvmaRange;
 use super::convert_regs::ConvertRegs;
@@ -1644,7 +1644,7 @@ where
             }
         }
 
-        let base_svma = samply_symbols::relative_address_base(file);
+        let base_svma = file.samply_relative_address_base();
         let text = file.section_by_name(".text");
         let eh_frame = file.section_by_name(".eh_frame");
         let got = file.section_by_name(".got");
@@ -1922,7 +1922,7 @@ impl MappingInfo {
                     self.avma_range.start(),
                     self.avma_range.size(),
                 )?;
-                let base_svma = samply_symbols::relative_address_base(file);
+                let base_svma = file.samply_relative_address_base();
                 base_svma.wrapping_add(bias)
             }
         };

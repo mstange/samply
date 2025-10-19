@@ -252,11 +252,11 @@ pub use crate::macho::FatArchiveMember;
 pub use crate::mapped_path::MappedPath;
 pub use crate::path_interner::PathInterner;
 pub use crate::shared::{
-    relative_address_base, AddressInfo, CandidatePathInfo, ExternalFileAddressInFileRef,
-    ExternalFileAddressRef, ExternalFileRef, FileAndPathHelper, FileAndPathHelperError,
-    FileAndPathHelperResult, FileContents, FileContentsWrapper, FileLocation, FrameDebugInfo,
-    FramesLookupResult, LibraryInfo, LookupAddress, MultiArchDisambiguator, OptionallySendFuture,
-    SymbolInfo, SyncAddressInfo,
+    AddressInfo, CandidatePathInfo, ExternalFileAddressInFileRef, ExternalFileAddressRef,
+    ExternalFileRef, FileAndPathHelper, FileAndPathHelperError, FileAndPathHelperResult,
+    FileContents, FileContentsWrapper, FileLocation, FrameDebugInfo, FramesLookupResult,
+    LibraryInfo, LookupAddress, MultiArchDisambiguator, OptionallySendFuture, SymbolInfo,
+    SyncAddressInfo,
 };
 pub use crate::source_file_path::{SourceFilePath, SourceFilePathHandle, SourceFilePathIndex};
 pub use crate::symbol_map::{AccessPatternHint, SymbolMap, SymbolMapTrait};

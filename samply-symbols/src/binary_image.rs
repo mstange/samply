@@ -10,8 +10,7 @@ use crate::error::Error;
 use crate::jitdump::{debug_id_and_code_id_for_jitdump, JitDumpIndex};
 use crate::macho::{DyldCacheFileData, MachOData, MachOFatArchiveMemberData};
 use crate::shared::{
-    relative_address_base, FileAndPathHelperError, FileContents, FileContentsWrapper, LibraryInfo,
-    RangeReadRef,
+    FileAndPathHelperError, FileContents, FileContentsWrapper, LibraryInfo, RangeReadRef,
 };
 
 #[derive(thiserror::Error, Debug)]
@@ -244,7 +243,7 @@ impl<F: FileContents> BinaryImageInner<F> {
 
         // Translate start_address from a "relative address" into an
         // SVMA ("stated virtual memory address").
-        let image_base = relative_address_base(&object);
+        let image_base = object.samply_relative_address_base();
         let start_svma = image_base + u64::from(start_address);
 
         // Find the section and segment which contains our start_svma.

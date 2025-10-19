@@ -9,14 +9,15 @@ use gimli::{EndianSlice, RunTimeEndian};
 use object::{
     ObjectMap, ObjectSection, ObjectSegment, SectionFlags, SectionIndex, SectionKind, SymbolKind,
 };
+use samply_object::ObjectExt;
 use yoke::Yoke;
 use yoke_derive::Yokeable;
 
 use crate::dwarf::convert_frames;
 use crate::generation::SymbolMapGeneration;
 use crate::shared::{
-    relative_address_base, ExternalFileAddressInFileRef, ExternalFileAddressRef, ExternalFileRef,
-    FramesLookupResult, LookupAddress, SymbolInfo,
+    ExternalFileAddressInFileRef, ExternalFileAddressRef, ExternalFileRef, FramesLookupResult,
+    LookupAddress, SymbolInfo,
 };
 use crate::symbol_map::{
     GetInnerSymbolMap, GetInnerSymbolMapWithLookupFramesExt, SymbolMapTrait,
@@ -675,7 +676,7 @@ impl<'a, FC: FileContents + 'static> ObjectSymbolMapInnerWrapper<'a, FC> {
         Symbol: object::ObjectSymbol<'a> + Send + Sync + 'a,
         DDM: DwoDwarfMaker<FC> + Sync,
     {
-        let base_address = relative_address_base(object_file);
+        let base_address = object_file.samply_relative_address_base();
         let list = SymbolList::new(
             object_file,
             base_address,
