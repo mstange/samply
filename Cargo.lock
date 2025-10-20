@@ -2212,6 +2212,8 @@ dependencies = [
  "rangemap",
  "runas",
  "rustc-hash",
+ "samply-debugid",
+ "samply-object",
  "samply-quota-manager",
  "serde",
  "serde_derive",
@@ -2238,6 +2240,7 @@ dependencies = [
  "assert-json-diff",
  "futures",
  "memmap2",
+ "samply-debugid",
  "samply-symbols",
  "serde",
  "serde_derive",
@@ -2253,7 +2256,16 @@ name = "samply-debugid"
 version = "0.1.0"
 dependencies = [
  "debugid",
+ "uuid",
+]
+
+[[package]]
+name = "samply-object"
+version = "0.1.0"
+dependencies = [
+ "debugid",
  "object",
+ "samply-debugid",
  "uuid",
 ]
 
@@ -2299,6 +2311,7 @@ dependencies = [
  "rangemap",
  "rustc-demangle",
  "samply-debugid",
+ "samply-object",
  "scala-native-demangle",
  "srcsrv",
  "thiserror 2.0.17",
@@ -3019,6 +3032,7 @@ dependencies = [
  "memmap2",
  "reqwest",
  "samply-api",
+ "samply-debugid",
  "samply-symbols",
  "scopeguard",
  "serde",

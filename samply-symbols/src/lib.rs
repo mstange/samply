@@ -211,7 +211,8 @@ use jitdump::JitDumpIndex;
 use linux_perf_data::jitdump::JitDumpReader;
 use object::read::FileKind;
 pub use pdb_addr2line::pdb;
-pub use samply_debugid::{CodeId, ElfBuildId, PeCodeId};
+pub use samply_debugid::{CodeId, DebugIdExt, ElfBuildId, PeCodeId};
+pub use samply_object::{debug_id_for_object, relative_address_base};
 use shared::FileContentsCursor;
 pub use {debugid, object};
 
@@ -220,7 +221,6 @@ mod breakpad;
 mod cache;
 mod chunked_read_buffer_manager;
 mod compact_symbol_table;
-mod debugid_util;
 mod demangle;
 mod demangle_ocaml;
 mod dwarf;
@@ -245,7 +245,6 @@ pub use crate::breakpad::{
 };
 pub use crate::cache::{FileByteSource, FileContentsWithChunkedCaching};
 pub use crate::compact_symbol_table::CompactSymbolTable;
-pub use crate::debugid_util::{debug_id_for_object, DebugIdExt};
 pub use crate::demangle::demangle_any;
 pub use crate::error::Error;
 pub use crate::external_file::{load_external_file, ExternalFileSymbolMap};
@@ -255,11 +254,11 @@ pub use crate::macho::FatArchiveMember;
 pub use crate::mapped_path::MappedPath;
 pub use crate::path_interner::PathInterner;
 pub use crate::shared::{
-    relative_address_base, AddressInfo, CandidatePathInfo, ExternalFileAddressInFileRef,
-    ExternalFileAddressRef, ExternalFileRef, FileAndPathHelper, FileAndPathHelperError,
-    FileAndPathHelperResult, FileContents, FileContentsWrapper, FileLocation, FrameDebugInfo,
-    FramesLookupResult, LibraryInfo, LookupAddress, MultiArchDisambiguator, OptionallySendFuture,
-    SymbolInfo, SyncAddressInfo,
+    AddressInfo, CandidatePathInfo, ExternalFileAddressInFileRef, ExternalFileAddressRef,
+    ExternalFileRef, FileAndPathHelper, FileAndPathHelperError, FileAndPathHelperResult,
+    FileContents, FileContentsWrapper, FileLocation, FrameDebugInfo, FramesLookupResult,
+    LibraryInfo, LookupAddress, MultiArchDisambiguator, OptionallySendFuture, SymbolInfo,
+    SyncAddressInfo,
 };
 pub use crate::source_file_path::{SourceFilePath, SourceFilePathHandle, SourceFilePathIndex};
 pub use crate::symbol_map::{AccessPatternHint, SymbolMap, SymbolMapTrait};
