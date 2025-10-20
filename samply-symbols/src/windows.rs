@@ -7,10 +7,10 @@ use debugid::DebugId;
 use object::{File, FileKind};
 use pdb::PDB;
 use pdb_addr2line::pdb;
+use samply_object::debug_id_for_object;
 use yoke::Yoke;
 use yoke_derive::Yokeable;
 
-use crate::debugid_util::debug_id_for_object;
 use crate::dwarf::Addr2lineContextData;
 use crate::error::{Context, Error};
 use crate::generation::SymbolMapGeneration;

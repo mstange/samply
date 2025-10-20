@@ -13,11 +13,11 @@ use nom::error::{Error, ErrorKind, ParseError};
 use nom::sequence::{terminated, tuple};
 use nom::{Err, IResult};
 use object::ReadRef;
+use samply_debugid::CodeId;
 use zerocopy::{IntoBytes, LittleEndian, Ref, U16, U32, U64};
 use zerocopy_derive::*;
 
 use crate::source_file_path::SourceFilePathIndex;
-use crate::CodeId;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BreakpadIndex<'a> {
@@ -431,7 +431,7 @@ impl<'a> StringListRef<'a> {
     pub fn as_slice(&self) -> &'a [StringLocation] {
         self.inner
     }
-    pub fn get<R: ReadRef<'a>>(&self, index: u32, data: R) -> Option<&'a [u8]> {
+    pub fn get<'d, R: ReadRef<'d>>(&self, index: u32, data: R) -> Option<&'d [u8]> {
         let location = *self.inner.get(usize::try_from(index).ok()?)?;
         location.get(data)
     }
@@ -1233,7 +1233,7 @@ mod test {
     use std::str::FromStr;
 
     use super::*;
-    use crate::{ElfBuildId, PeCodeId};
+    use samply_debugid::{ElfBuildId, PeCodeId};
 
     #[test]
     fn test1() {

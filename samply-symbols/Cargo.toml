@@ -49,6 +49,8 @@ srcsrv = "0.2.2"
 lzma-rs = "0.3"
 macho-unwind-info = "0.5.0"
 debugid = "0.8.0"
+samply-debugid = { version = "0.1.0", path = "../samply-debugid" }
+samply-object = { version = "0.1.0", path = "../samply-object" }
 flate2 = "1"
 yoke = "0.8"
 yoke-derive = "0.8"

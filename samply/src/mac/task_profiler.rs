@@ -22,7 +22,8 @@ use mach2::traps::mach_task_self;
 use mach2::vm::mach_vm_deallocate;
 use mach2::vm_types::{mach_vm_address_t, mach_vm_size_t};
 use object::{CompressionFormat, Object, ObjectSection};
-use samply_symbols::{object, DebugIdExt};
+use samply_debugid::DebugIdExt;
+use samply_symbols::object;
 use wholesym::samply_symbols;
 
 use super::error::SamplingError;
