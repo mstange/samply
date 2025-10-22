@@ -79,7 +79,7 @@ os-release = "0.1.0"
 [target.'cfg(windows)'.dependencies]
 
 rangemap = "1.6"
-bitflags = "2.4.2"
+bitflags = "2.10.0"
 memoffset = "0.9"
 num-traits = "0.2"
 num-derive = "0.4"
