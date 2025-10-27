@@ -43,7 +43,8 @@ pub enum MarkerTiming {
     IntervalEnd(Timestamp),
 }
 
-/// The trait for markers with a dynamic schema. You'll likely want to implement [`Marker`] instead.
+/// The trait for markers. Implementing [`Marker`] will give you an implementation
+/// of [`DynamicSchemaMarker`] via a blanket impl.
 ///
 /// Markers have a type, a name, a category, and an arbitrary number of fields.
 /// The fields of a marker type are defined by the marker type's schema, see [`DynamicSchemaMarkerSchema`].
@@ -65,9 +66,18 @@ pub trait DynamicSchemaMarker {
     /// used as `{marker.name}` in the various `label` template strings in the schema.
     fn name(&self, profile: &mut Profile) -> StringHandle;
 
+    /// Feed the values stored in this marker into the consumer,
+    /// by calling its `consume_xyz_field` methods in the right order.
+    ///
+    /// The order has to match the order declared in the schema.
     fn push_field_values(&self, consumer: &mut impl MarkerFieldValueConsumer);
 }
 
+/// The trait that needs to be implemented by the return type of
+/// [`Marker::field_values`].
+///
+/// This trait is implemented for the field value types `f64`, [`StringHandle`]
+/// and [`FlowId`], and for tuples of these types.
 pub trait MarkerFieldsTrait {
     type Schema;
 
@@ -100,7 +110,7 @@ pub trait MarkerFieldsTrait {
 /// }
 ///
 /// impl Marker for TextMarker {
-///     type FieldsType = StringHandle;
+///     type FieldsType = StringHandle; // alternative: `(StringHandle, ...)` tuple
 ///
 ///     const UNIQUE_MARKER_TYPE_NAME: &'static str = "Text";
 ///
@@ -160,6 +170,10 @@ pub trait Marker {
     /// Defaults to `{marker.name}` if set to `None`.
     const TABLE_LABEL: Option<&'static str> = None;
 
+    /// The type returned by `field_values`.
+    ///
+    /// Individual fields are either numbers (`f64`), strings ([`StringHandle`]), or
+    /// flows ([`FlowId`]). You can use one of those types, or a tuple of them.
     type FieldsType: MarkerFieldsTrait;
 
     /// The marker fields. The values are supplied by each marker, in the marker's
@@ -198,10 +212,8 @@ impl<T: Marker> DynamicSchemaMarker for T {
     }
 
     fn push_field_values(&self, consumer: &mut impl MarkerFieldValueConsumer) {
-        <<T as Marker>::FieldsType as MarkerFieldsTrait>::push_field_values(
-            self.field_values(),
-            consumer,
-        );
+        let values = self.field_values();
+        <<T as Marker>::FieldsType as MarkerFieldsTrait>::push_field_values(values, consumer);
     }
 }
 
@@ -330,6 +342,7 @@ bitflags! {
     }
 }
 
+/// The kind of a marker field.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum MarkerFieldKind {
     String,
@@ -337,6 +350,7 @@ pub enum MarkerFieldKind {
     Flow,
 }
 
+/// Used in [`MarkerFieldsTrait::FIELD_KIND_COUNTS`].
 #[derive(Default, Debug, Clone)]
 pub struct MarkerFieldKindCounts {
     pub string_field_count: usize,
@@ -379,6 +393,7 @@ impl MarkerFieldKindCounts {
     }
 }
 
+/// The trait for types that can be used for marker field values.
 pub trait MarkerFieldValueType {
     type FormatEnum: Clone + core::fmt::Debug + Into<DynamicSchemaMarkerFieldFormat>;
     const KIND: MarkerFieldKind;
@@ -401,6 +416,11 @@ impl MarkerFieldValueType for f64 {
     }
 }
 
+/// An 64-bit ID which identifies a "flow".
+///
+/// Markers with shared flows are connected in the UI. A "flow" can represent
+/// any kind of entity, such as an IPC message, a task, a network request,
+/// a generic heap-allocated object, etc.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct FlowId(pub u64);
 
@@ -585,6 +605,7 @@ impl MarkerField<FlowId> {
     }
 }
 
+/// A wrapper type used in [`Marker::FIELDS`], usually wraps a tuple.
 pub struct Schema<FieldsType: MarkerFieldsTrait>(pub FieldsType::Schema);
 
 /// The field definition of a marker field, used in [`DynamicSchemaMarkerSchema::fields`].
@@ -618,7 +639,7 @@ impl<T: MarkerFieldValueType> From<&MarkerField<T>> for DynamicSchemaMarkerField
     }
 }
 
-/// The field format of a marker field.
+/// The field format of a marker field of kind [`MarkerFieldKind::String`]`.
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
 pub enum MarkerStringFieldFormat {
@@ -644,6 +665,7 @@ pub enum MarkerStringFieldFormat {
     String,
 }
 
+/// The field format of a marker field of kind [`MarkerFieldKind::Number`]`.
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
 pub enum MarkerNumberFieldFormat {
@@ -703,6 +725,7 @@ pub enum MarkerNumberFieldFormat {
     Decimal,
 }
 
+/// The field format of a marker field of kind [`MarkerFieldKind::Flow`]`.
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
 pub enum MarkerFlowFieldFormat {
@@ -719,6 +742,7 @@ pub enum MarkerFlowFieldFormat {
     TerminatingFlow,
 }
 
+// A combined enum for the format enums of all field kinds.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DynamicSchemaMarkerFieldFormat {
     String(MarkerStringFieldFormat),
