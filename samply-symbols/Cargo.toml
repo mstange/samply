@@ -61,6 +61,6 @@ linux-perf-data = "0.11.1"
 crc32fast = "1.4.2"
 
 [dev-dependencies]
-memmap2 = "0.9.4"
+memmap2 = "0.9.9"
 anyhow = "1"
 futures = "0.3.5"
