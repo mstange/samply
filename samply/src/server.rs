@@ -70,10 +70,14 @@ pub async fn start_server(
 
     let token = generate_token();
     let path_prefix = format!("/{token}");
-    let server_origin = format!("http://{addr}");
+    let env_server_override = std::env::var("SAMPLY_SERVER_URL").ok();
+    let server_origin = match &env_server_override {
+        Some(s) => s.trim_end_matches('/').to_string(),
+        None => format!("http://{addr}"),
+    };
     let symbol_server_url = format!("{server_origin}{path_prefix}");
     let mut template_values: HashMap<&'static str, String> = HashMap::new();
-    template_values.insert("SERVER_URL", server_origin.clone());
+    template_values.insert("SAMPLY_SERVER_URL", server_origin.clone());
     template_values.insert("PATH_PREFIX", path_prefix.clone());
 
     let profiler_url = if profile_filename.is_some() {
@@ -166,7 +170,7 @@ const TEMPLATE_WITH_PROFILE: &str = r#"
 <title>Profiler Symbol Server</title>
 <body>
 
-<p>This is the profiler symbol server, running at <code>SERVER_URL</code>. You can:</p>
+<p>This is the profiler symbol server, running at <code>SAMPLY_SERVER_URL</code>. You can:</p>
 <ul>
     <li><a href="PROFILER_URL">Open the profile in the profiler UI</a></li>
     <li><a download href="PROFILE_URL">Download the raw profile JSON</a></li>
@@ -182,7 +186,7 @@ const TEMPLATE_WITHOUT_PROFILE: &str = r#"
 <title>Profiler Symbol Server</title>
 <body>
 
-<p>This is the profiler symbol server, running at <code>SERVER_URL</code>. You can:</p>
+<p>This is the profiler symbol server, running at <code>SAMPLY_SERVER_URL</code>. You can:</p>
 <ul>
     <li>Obtain symbols by POSTing to <code>PATH_PREFIX/symbolicate/v5</code>, with the format specified by the <a href="https://tecken.readthedocs.io/en/latest/symbolication.html">Mozilla symbolication API documentation</a>.</li>
     <li>Obtain source code by POSTing to <code>PATH_PREFIX/source/v1</code>, with the format specified in this <a href="https://github.com/mstange/profiler-get-symbols/issues/24#issuecomment-989985588">github comment</a>.</li>
