@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::convert::TryInto;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
@@ -74,6 +75,9 @@ fn process_trace(
     let is_arm64 = context.is_arm64();
     let demand_zero_faults = false; //pargs.contains("--demand-zero-faults");
     let mut pending_image_info: Option<((u32, u64), PendingImageInfo)> = None;
+
+    // Cache for Chrome measure names by (tid, traceId).
+    let mut measure_name_cache: HashMap<(u32, u64), String> = HashMap::new();
 
     open_trace(etl_file, |e| {
         let Ok(s) = schema_locator.event_schema(e) else {
@@ -492,15 +496,61 @@ fn process_trace(
                 };
                 let phase: String = parser.try_parse("Phase").unwrap();
                 let keyword_bitfield = e.EventHeader.EventDescriptor.Keyword; // a bitfield of keywords
+
+                let display_name = if marker_name == "performance.measure" {
+                    // Extract user-provided name from User Timing API measure events.
+                    // The name is in "measureName".
+                    let user_timing_measure_name: Option<String> =
+                        parser.try_parse("measureName").ok();
+                    let trace_id: Option<u64> = parser.try_parse("Id").ok();
+
+                    if let Some(trace_id) = trace_id {
+                        // performance.measure() emits Begin/End pairs with a trace ID.
+                        // The measure name is only present in the Begin event.
+                        if phase == "Begin" {
+                            if let Some(name) = user_timing_measure_name {
+                                measure_name_cache.insert((tid, trace_id), name.clone());
+                                name
+                            } else {
+                                marker_name.to_string()
+                            }
+                        } else if phase == "End" {
+                            // Look up the name we cached from the Begin event
+                            measure_name_cache
+                                .remove(&(tid, trace_id))
+                                .unwrap_or_else(|| marker_name.to_string())
+                        } else {
+                            marker_name.to_string()
+                        }
+                    } else {
+                        user_timing_measure_name.unwrap_or_else(|| marker_name.to_string())
+                    }
+                } else if marker_name == "performance.mark" {
+                    // Extract user-provided name from User Timing API mark events.
+                    // The name is in the "markName" field.
+                    let user_timing_mark_name: Option<String> = parser.try_parse("markName").ok();
+                    user_timing_mark_name.unwrap_or_else(|| marker_name.to_string())
+                } else {
+                    // For all other Chrome events, use the marker name as-is.
+                    marker_name.to_string()
+                };
+
                 let text = event_properties_to_string(
                     &s,
                     &mut parser,
-                    Some(&["Timestamp", "Phase", "Duration"]),
+                    Some(&[
+                        "Timestamp",
+                        "Phase",
+                        "Duration",
+                        "markName",
+                        "measureName",
+                        "Id",
+                    ]),
                 );
                 context.handle_chrome_marker(
                     tid,
                     timestamp_raw,
-                    marker_name,
+                    &display_name,
                     timestamp_us,
                     &phase,
                     keyword_bitfield,

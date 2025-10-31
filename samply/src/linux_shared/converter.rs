@@ -25,9 +25,10 @@ use linux_perf_event_reader::{
 };
 use memmap2::Mmap;
 use object::{CompressedFileRange, CompressionFormat, Object, ObjectSection};
-use samply_symbols::{debug_id_for_object, DebugIdExt};
+use samply_debugid::DebugIdExt;
+use samply_object::{debug_id_for_object, relative_address_base};
 use wholesym::samply_symbols::demangle_any;
-use wholesym::{samply_symbols, CodeId, ElfBuildId};
+use wholesym::{CodeId, ElfBuildId};
 
 use super::avma_range::AvmaRange;
 use super::convert_regs::ConvertRegs;
@@ -878,7 +879,6 @@ where
                 }
                 if let (Some(cpus), Some(cpu_index)) = (&mut self.cpus, common.cpu) {
                     let combined_thread = cpus.combined_thread_handle();
-                    let idle_frame_label = cpus.idle_frame_label();
                     let cpu = cpus.get_mut(cpu_index as usize, &mut self.profile);
                     if let Some(idle_cpu_sample) = self
                         .context_switch_handler
@@ -902,7 +902,7 @@ where
                             UnresolvedStackHandle::EMPTY,
                             cpu_delta,
                             0,
-                            Some(idle_frame_label),
+                            Some(cpu.idle_frame),
                         );
 
                         // Emit a "rest sample" with a CPU delta of zero covering the rest of the paused range.
@@ -916,7 +916,7 @@ where
                             UnresolvedStackHandle::EMPTY,
                             CpuDelta::from_nanos(0),
                             0,
-                            Some(idle_frame_label),
+                            Some(cpu.idle_frame),
                         );
                     }
                     if self.should_emit_cswitch_markers {
@@ -1644,7 +1644,7 @@ where
             }
         }
 
-        let base_svma = samply_symbols::relative_address_base(file);
+        let base_svma = relative_address_base(file);
         let text = file.section_by_name(".text");
         let eh_frame = file.section_by_name(".eh_frame");
         let got = file.section_by_name(".got");
@@ -1922,7 +1922,7 @@ impl MappingInfo {
                     self.avma_range.start(),
                     self.avma_range.size(),
                 )?;
-                let base_svma = samply_symbols::relative_address_base(file);
+                let base_svma = relative_address_base(file);
                 base_svma.wrapping_add(bias)
             }
         };

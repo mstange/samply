@@ -6,9 +6,10 @@ use std::sync::{Arc, Mutex};
 
 use bytes::Bytes;
 use debugid::DebugId;
+use samply_debugid::{CodeId, ElfBuildId, PeCodeId};
 use samply_symbols::{
-    CandidatePathInfo, CodeId, ElfBuildId, FileAndPathHelper, FileAndPathHelperResult,
-    FileLocation, LibraryInfo, OptionallySendFuture, PeCodeId, SymbolMapTrait,
+    CandidatePathInfo, FileAndPathHelper, FileAndPathHelperResult, FileLocation, LibraryInfo,
+    OptionallySendFuture, SymbolMapTrait,
 };
 use symsrv::{SymsrvDownloader, SymsrvObserver};
 use uuid::Uuid;

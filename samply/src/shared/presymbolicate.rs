@@ -8,8 +8,7 @@ use fxprof_processed_profile::symbol_info::{
 };
 use fxprof_processed_profile::LibraryHandle;
 use rustc_hash::FxHashMap;
-use wholesym::samply_symbols::SourceFilePathHandle;
-use wholesym::{SymbolManager, SymbolMap};
+use wholesym::{SourceFilePathHandle, SymbolManager, SymbolMap};
 
 use crate::symbols::create_symbol_manager_and_quota_manager;
 

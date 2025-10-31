@@ -202,18 +202,6 @@ impl<'a> BreakpadSymbolMapSymbolCache<'a> {
     }
 }
 
-// let file_offset = entry.offset.get();
-// let line_length = entry.line_len.get();
-// let line = self
-//     .data
-//     .read_bytes_at(file_offset, line_length.into())
-//     .map_err(|e| {
-//         Error::HelperErrorDuringFileReading(
-//             "Breakpad FILE or INLINE_ORIGIN record".to_string(),
-//             e,
-//         )
-//     })?;
-
 impl<'object, T: FileContents> SymbolMapTrait for BreakpadSymbolMapInner<'object, T> {
     fn debug_id(&self) -> debugid::DebugId {
         self.index.debug_id
