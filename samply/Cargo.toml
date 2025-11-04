@@ -44,7 +44,7 @@ wholesym = { version = "0.8.1", path = "../wholesym", features = ["api"]}
 platform-dirs = "0.3"
 rustc-hash = "2"
 mio = { version = "1", features = ["os-ext", "os-poll"] }
-ctrlc = "3.4.4"
+ctrlc = "3.5.1"
 log = "0.4.21"
 env_logger = "0.11"
 cfg-if = "1.0.0"
