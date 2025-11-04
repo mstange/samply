@@ -34,7 +34,7 @@ tempfile = "3.13"
 uuid = { version = "1.11", features = ["v4"] }
 percent-encoding = "2.1.0"
 libc = "0.2"
-flate2 = "1.0"
+flate2 = "1.1"
 opener = { version = "0.8", default-features = false }
 rand = "0.9"
 nix-base32 = "0.2.0"
@@ -64,7 +64,7 @@ crossbeam-channel = "0.5.15"
 
 mach2 = "0.5"
 lazy_static = "1.5.0"
-flate2 = "1.0"
+flate2 = "1.1"
 sysctl = "0.7.1"
 plist = "1.7.0"
 
