@@ -2285,6 +2285,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "samply-markers"
+version = "0.1.0"
+
+[[package]]
 name = "samply-object"
 version = "0.1.0"
 dependencies = [
