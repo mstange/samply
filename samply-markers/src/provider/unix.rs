@@ -71,11 +71,11 @@ use std::{
 
 use nix::{
     sys::mman::{MapFlags, ProtFlags},
-    time::{clock_gettime, ClockId},
+    time::{ClockId, clock_gettime},
 };
 use smallstr::SmallString;
-use tempfile::{tempdir, TempDir};
-use tracing::{enabled, error, span::EnteredSpan, Level, Span};
+use tempfile::{TempDir, tempdir};
+use tracing::{Level, Span, enabled, error, span::EnteredSpan};
 
 #[derive(Copy, Clone, Debug)]
 struct Timestamp(i64);
