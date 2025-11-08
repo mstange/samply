@@ -1,0 +1,17 @@
+[package]
+name = "samply-markers"
+version = "0.1.0"
+edition = "2024"
+authors = ["Erik Nordin <nordzilla@nordzil.la>"]
+rust-version = "1.85.1"
+license = "MIT OR Apache-2.0"
+description = "Emit markers for samply profiles."
+repository = "https://github.com/mstange/samply/"
+readme = "README.md"
+keywords = ["profiling", "markers", "instrumentation", "tracing", "performance"]
+
+[features]
+default = []
+enabled = []
+
+[dependencies]

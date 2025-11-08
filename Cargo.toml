@@ -6,6 +6,7 @@ members = [
     "gecko_profile",
     "samply-api",
     "samply-debugid",
+    "samply-markers",
     "samply-object",
     "samply-quota-manager",
     "samply-symbols",
