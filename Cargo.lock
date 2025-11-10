@@ -238,9 +238,9 @@ checksum = "d71b6127be86fdcfddb610f7182ac57211d4b18a3e9c82eb2d17662f2227ad6a"
 
 [[package]]
 name = "bytesize"
-version = "2.1.0"
+version = "2.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f5c434ae3cf0089ca203e9019ebe529c47ff45cefe8af7c85ecb734ef541822f"
+checksum = "c99fa31e08a43eaa5913ef68d7e01c37a2bdce6ed648168239ad33b7d30a9cd8"
 
 [[package]]
 name = "bzip2"
