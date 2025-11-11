@@ -13,7 +13,7 @@
 ///
 /// #### Synchronous
 /// ```rust
-/// # use samply_markers::samply_measure;
+/// # use samply_markers::prelude::*;
 /// # struct World { entities: Vec<i32> }
 /// # impl World {
 /// #     fn new(len: usize) -> Self { Self { entities: vec![1; len] } }
@@ -40,7 +40,7 @@
 /// #### Asynchronous
 ///
 /// ```rust
-/// # use samply_markers::samply_measure;
+/// # use samply_markers::prelude::*;
 /// # async fn http_get(url: &str) -> Result<String, ()> { Ok(String::from("data")) }
 /// # fn parse_response(data: &str) -> Result<Vec<String>, ()> { Ok(vec![]) }
 /// // Measure the duration of fetch_user_data every time it is called.
@@ -60,7 +60,7 @@
 /// which allows the `?` operator to return from this block instead of the enclosing function.
 ///
 /// ```rust
-/// # use samply_markers::samply_measure;
+/// # use samply_markers::prelude::*;
 /// # async fn read_file(path: &str) -> Option<String> { Some(String::from("100,200")) }
 /// async fn load_config(path: &str) -> (u32, u32) {
 ///     let config = samply_measure!(async {
@@ -84,7 +84,7 @@
 /// Use `async move` to transfer ownership of captured variables into the async block.
 ///
 /// ```rust
-/// # use samply_markers::samply_measure;
+/// # use samply_markers::prelude::*;
 /// # async fn process_data(data: String) -> usize { data.len() }
 /// async fn measure_owned_data() -> usize {
 ///     let data = String::from("owned data");
