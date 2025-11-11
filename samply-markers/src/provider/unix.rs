@@ -42,6 +42,9 @@ impl TimestampNowProvider for TimestampNowImpl {
     /// Queries `clock_gettime` and converts the result to monotonic nanoseconds.
     fn now() -> SamplyTimestamp {
         let now = clock_gettime(ClockId::CLOCK_MONOTONIC).unwrap();
+
+        // Monotonic nanoseconds should only ever be positive.
+        #[allow(clippy::cast_sign_loss)]
         SamplyTimestamp::from_monotonic_nanos(
             now.tv_sec() as u64 * 1_000_000_000 + now.tv_nsec() as u64,
         )
