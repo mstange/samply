@@ -5,5 +5,7 @@
 //! [samply-markers](crate) provides three primary macros for instrumenting code:
 //!
 //! * [`samply_marker!`](crate::samply_marker) - Emits an instant or interval marker at the current location.
+//! * [`samply_timer!`](crate::samply_timer) - Creates a scoped marker that emits an interval at the end of the frame.
 
 mod samply_marker;
+mod samply_timer;

@@ -5,14 +5,14 @@ use crate::marker::SamplyTimestamp;
 use crate::provider::WriteMarkerImpl;
 use crate::provider::WriteMarkerProvider;
 
-/// A scoped marker that emits an interval when the current scope ends.
+/// A scoped timer that emits an interval marker when the current scope ends.
 ///
-/// * The interval's start time is the moment the marker is created.
-/// * The interval's end time is the moment the marker is dropped.
+/// * The interval marker's start time is the moment the timer is created.
+/// * The interval marker's end time is the moment the timer is dropped.
 ///
-/// The interval can be purposely emitted before the end of the scope by invoking the [`emit()`] function.
+/// The interval marker can be purposely emitted before the end of the scope by invoking the [`emit()`] function.
 ///
-/// * If [`emit()`] is called explicitly, it will not be called again when the marker is dropped.
+/// * If [`emit()`] is called explicitly, it will not be called again when the timer is dropped.
 ///
 /// # Examples
 ///
@@ -35,10 +35,10 @@ use crate::provider::WriteMarkerProvider;
 ///     render_segment.emit();
 ///
 ///     // Create a timer only for the cache portion.
-///     let cache_segment = SamplyTimer::new("update cache");
+///     let _cache_segment = SamplyTimer::new("update cache");
 ///     update_cache();
 ///
-///     // The cache_segment marker will be emitted automatically at the end of the frame.
+///     // The _cache_segment marker will be emitted automatically at the end of the frame.
 ///     // The _timer marker will be emitted automatically at the end of the frame.
 /// }
 ///
@@ -78,7 +78,7 @@ impl<'data> SamplyTimer<'data> {
     ///     for batch_id in 0..10 {
     ///         let _timer = SamplyTimer::new(format!("process batch {batch_id}"));
     ///         process_batch(batch_id);
-    ///         // 10 intervals are emitted, one for each loop iteration.
+    ///         // 10 interval markers are emitted, one for each loop iteration.
     ///     }
     /// }
     /// #
@@ -93,7 +93,7 @@ impl<'data> SamplyTimer<'data> {
         }
     }
 
-    /// Emits the interval immediately, instead of waiting for the end of scope.
+    /// Emits the interval marker immediately, instead of waiting for the end of scope.
     ///
     /// # Examples
     ///
@@ -106,14 +106,14 @@ impl<'data> SamplyTimer<'data> {
     ///     let timer = SamplyTimer::new("core computation");
     ///     expensive_computation();
     ///
-    ///     // Emit the interval explicitly here.
+    ///     // Emit the interval marker explicitly here.
     ///     timer.emit();
     ///
-    ///     // These operations are not included in the interval
+    ///     // These operations are not included in the interval marker
     ///     log_results();
     ///     cleanup_temp_files();
     ///
-    ///     // The interval is not emitted again at the end of scope.
+    ///     // The interval marker is not emitted again at the end of scope.
     /// }
     /// #
     /// # process_data();
@@ -139,15 +139,15 @@ mod test {
 
     #[test]
     fn new_with_str() {
-        let timer = SamplyTimer::new("test interval");
-        assert_eq!(timer.marker.name(), "test interval");
+        let timer = SamplyTimer::new("timer from str");
+        assert_eq!(timer.marker.name(), "timer from str");
     }
 
     #[test]
     fn new_with_string() {
-        let name = String::from("dynamic interval");
+        let name = String::from("timer from String");
         let timer = SamplyTimer::new(name);
-        assert_eq!(timer.marker.name(), "dynamic interval");
+        assert_eq!(timer.marker.name(), "timer from String");
     }
 
     #[test]
