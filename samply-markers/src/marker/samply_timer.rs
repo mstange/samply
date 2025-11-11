@@ -17,7 +17,7 @@ use crate::provider::WriteMarkerProvider;
 /// # Examples
 ///
 /// ```rust
-/// # use samply_markers::marker::SamplyTimer;
+/// # use samply_markers::prelude::*;
 /// # fn update_physics() {}
 /// # fn render_scene() {}
 /// # fn update_cache() {}
@@ -60,7 +60,7 @@ impl<'data> SamplyTimer<'data> {
     /// # Examples
     ///
     /// ```rust
-    /// # use samply_markers::marker::SamplyTimer;
+    /// # use samply_markers::prelude::*;
     /// # fn compute_result() {}
     /// fn expensive_function() {
     ///     let _timer = SamplyTimer::new("expensive computation");
@@ -72,7 +72,7 @@ impl<'data> SamplyTimer<'data> {
     /// ```
     ///
     /// ```rust
-    /// # use samply_markers::marker::SamplyTimer;
+    /// # use samply_markers::prelude::*;
     /// # fn process_batch(batch_id: u32) {}
     /// fn process_batches() {
     ///     for batch_id in 0..10 {
@@ -98,7 +98,7 @@ impl<'data> SamplyTimer<'data> {
     /// # Examples
     ///
     /// ```rust
-    /// # use samply_markers::marker::SamplyTimer;
+    /// # use samply_markers::prelude::*;
     /// # fn expensive_computation() {}
     /// # fn log_results() {}
     /// # fn cleanup_temp_files() {}

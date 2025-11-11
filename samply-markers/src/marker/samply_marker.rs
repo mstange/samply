@@ -14,8 +14,7 @@ use crate::provider::WriteMarkerProvider;
 /// # Examples
 ///
 /// ```rust
-/// # use samply_markers::marker::SamplyMarker;
-/// # use samply_markers::marker::SamplyTimestamp;
+/// # use samply_markers::prelude::*;
 /// # struct Request {}
 /// # impl Request { fn id(&self) -> u32 { 0 } }
 /// # fn receive_request() -> Request { Request {} }
@@ -73,7 +72,7 @@ impl<'data> SamplyMarker<'data> {
     /// # Examples
     ///
     /// ```rust
-    /// # use samply_markers::marker::SamplyMarker;
+    /// # use samply_markers::prelude::*;
     /// SamplyMarker::new("database query").emit_instant();
     ///
     /// let user_id = 123;
@@ -100,7 +99,7 @@ impl<'data> SamplyMarker<'data> {
     /// # Examples
     ///
     /// ```rust
-    /// # use samply_markers::marker::SamplyMarker;
+    /// # use samply_markers::prelude::*;
     /// let marker = SamplyMarker::new("database query");
     /// assert_eq!(marker.name(), "database query");
     /// ```
@@ -115,7 +114,7 @@ impl<'data> SamplyMarker<'data> {
     /// # Examples
     ///
     /// ```rust
-    /// # use samply_markers::marker::SamplyMarker;
+    /// # use samply_markers::prelude::*;
     /// # fn check_cache() -> Option<String> { None }
     /// # fn fetch_from_disk() -> String { String::new() }
     /// if let Some(data) = check_cache() {
@@ -139,8 +138,7 @@ impl<'data> SamplyMarker<'data> {
     /// # Examples
     ///
     /// ```rust
-    /// # use samply_markers::marker::SamplyMarker;
-    /// # use samply_markers::marker::SamplyTimestamp;
+    /// # use samply_markers::prelude::*;
     /// # fn check_cache() -> Option<String> { None }
     /// # fn fetch_from_disk() -> String { String::new() }
     /// let start_time = SamplyTimestamp::now();

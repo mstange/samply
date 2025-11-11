@@ -11,7 +11,7 @@ use crate::provider::TimestampNowProvider;
 /// # Examples
 ///
 /// ```rust
-/// # use samply_markers::marker::SamplyTimestamp;
+/// # use samply_markers::prelude::*;
 /// let start = SamplyTimestamp::now();
 /// ```
 #[derive(Copy, Clone, Debug)]
@@ -24,7 +24,7 @@ impl SamplyTimestamp {
     /// # Examples
     ///
     /// ```rust
-    /// # use samply_markers::marker::SamplyTimestamp;
+    /// # use samply_markers::prelude::*;
     /// let start = SamplyTimestamp::now();
     /// ```
     #[inline]

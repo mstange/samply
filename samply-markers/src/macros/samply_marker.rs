@@ -8,8 +8,7 @@
 /// # Examples
 ///
 /// ```rust
-/// # use samply_markers::samply_marker;
-/// # use samply_markers::marker::SamplyTimestamp;
+/// # use samply_markers::prelude::*;
 /// # struct Request {}
 /// # impl Request { fn id(&self) -> u32 { 0 } }
 /// # fn receive_request() -> Request { Request {} }
