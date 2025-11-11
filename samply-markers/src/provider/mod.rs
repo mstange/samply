@@ -32,3 +32,8 @@ pub trait WriteMarkerProvider {
 pub mod r#default;
 #[cfg(not(feature = "enabled"))]
 pub use r#default as internal_provider;
+
+#[cfg(all(feature = "enabled", target_family = "unix"))]
+pub mod unix;
+#[cfg(all(feature = "enabled", target_family = "unix"))]
+pub use unix as internal_provider;
