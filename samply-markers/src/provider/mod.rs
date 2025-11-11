@@ -5,17 +5,27 @@
 //! When [samply-markers](crate) is enabled, there are platform-specific provider implementations for Unix and Windows systems.
 //!
 //! * An internal provider must provide a type [`TimestampNowImpl`] that implements the [`TimestampNowProvider`] trait.
+//! * An internal provider must provide a type [`WriteMarkerImpl`] that implements the [`WriteMarkerProvider`] trait.
 //!
 //! [`TimestampNowProvider`]: crate::provider::TimestampNowProvider
+//! [`WriteMarkerProvider`]: crate::provider::WriteMarkerProvider
 
+use crate::marker::SamplyMarker;
 use crate::marker::SamplyTimestamp;
 
 pub use internal_provider::TimestampNowImpl;
+pub use internal_provider::WriteMarkerImpl;
 
 /// A trait implemented by context-specific providers to supply monotonic nanosecond timestamp.
 pub trait TimestampNowProvider {
     /// Returns a monotonic timestamp in nanoseconds.
     fn now() -> SamplyTimestamp;
+}
+
+/// A trait implemented by context-specific providers to write markers for ingestion by samply.
+pub trait WriteMarkerProvider {
+    /// Writes a marker span for profiling consumption.
+    fn write_marker(start: SamplyTimestamp, end: SamplyTimestamp, marker: &SamplyMarker);
 }
 
 #[cfg(not(feature = "enabled"))]
