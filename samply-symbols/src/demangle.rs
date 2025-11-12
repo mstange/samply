@@ -29,7 +29,7 @@ pub fn demangle_any(name: &str) -> String {
     if name.starts_with('_') {
         let options = cpp_demangle::DemangleOptions::default().no_return_type();
         if let Ok(symbol) = cpp_demangle::Symbol::new(name) {
-            if let Ok(demangled_string) = symbol.demangle(&options) {
+            if let Ok(demangled_string) = symbol.demangle_with_options(&options) {
                 return demangled_string;
             }
         }
