@@ -67,6 +67,9 @@ impl TimestampNowProvider for TimestampNowImpl {
 
             let nanos_per_tick = NANOS_PER_TICK.get_or_init(|| {
                 let mut info = mach_time::mach_timebase_info::default();
+                // SAFETY: mach_timebase_info is an FFI call on macOS. We pass a valid mutable reference
+                //         to a properly initialized mach_timebase_info struct.
+                // See https://developer.apple.com/documentation/driverkit/3433733-mach_timebase_info
                 let errno = unsafe { mach_time::mach_timebase_info(&raw mut info) };
                 if errno != 0 || info.denom == 0 {
                     info.numer = 1;
@@ -75,6 +78,9 @@ impl TimestampNowProvider for TimestampNowImpl {
                 info
             });
 
+            // SAFETY: mach_absolute_time is an FFI call on macOS that returns the current
+            //         absolute time value in tick units.
+            // See https://developer.apple.com/documentation/kernel/1462446-mach_absolute_time
             let time = unsafe { mach_time::mach_absolute_time() };
             let nanos = time * u64::from(nanos_per_tick.numer) / u64::from(nanos_per_tick.denom);
 
@@ -138,6 +144,9 @@ fn get_thread_id() -> u32 {
     // See https://github.com/mstange/samply/blob/2041b956f650bb92d912990052967d03fef66b75/samply/src/mac/thread_profiler.rs#L209-L229
     let mut tid: u64 = 0;
 
+    // SAFETY: pthread_threadid_np is an FFI call. We pass pthread_self() provided by libc,
+    //         along with a valid mutable reference to our tid variable.
+    // See https://docs.rs/libc/latest/x86_64-apple-darwin/libc/fn.pthread_threadid_np.html
     unsafe {
         libc::pthread_threadid_np(libc::pthread_self(), &raw mut tid);
     }
@@ -183,6 +192,12 @@ fn create_marker_file() -> Option<File> {
     // so it is not necessary to map it with any particular protection or
     // flags, so we use PROT_READ because that offers the fewest ways to
     // screw up.
+    //
+    // SAFETY: This call to mmap is safe because:
+    //   - We're mapping a valid file descriptor that we just opened
+    //   - The size (4096) is a valid, non-zero size
+    //   - The offset is 0 which is valid for any file
+    // See https://docs.rs/nix/latest/nix/sys/mman/fn.mmap.html
     unsafe {
         nix::sys::mman::mmap(
             None,
