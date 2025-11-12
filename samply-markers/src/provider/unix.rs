@@ -93,6 +93,7 @@ fn create_marker_file() -> Option<File> {
 
     let file = File::options()
         .create(true)
+        .truncate(true)
         .write(true)
         .read({
             // We aren't going to read from the file, so we ordinarily
