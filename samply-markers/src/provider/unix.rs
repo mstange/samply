@@ -7,6 +7,8 @@ use std::num::NonZeroUsize;
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::LazyLock;
+#[cfg(target_os = "macos")]
+use std::sync::OnceLock;
 
 use crate::marker::SamplyMarker;
 use crate::marker::SamplyTimestamp;
@@ -15,7 +17,9 @@ use crate::provider::WriteMarkerProvider;
 
 use nix::sys::mman::MapFlags;
 use nix::sys::mman::ProtFlags;
+#[cfg(target_os = "linux")]
 use nix::time::ClockId;
+#[cfg(target_os = "linux")]
 use nix::time::clock_gettime;
 
 use smallstr::SmallString;
@@ -35,19 +39,47 @@ thread_local! {
     static MARKER_FILE: RefCell<Option<File>> = RefCell::new(create_marker_file());
 }
 
-/// A monotonic nanosecond timestamp backed by [`ClockId::CLOCK_MONOTONIC`].
+#[cfg(target_os = "macos")]
+static NANOS_PER_TICK: OnceLock<mach2::mach_time::mach_timebase_info> = OnceLock::new();
+
+/// A monotonic nanosecond timestamp implementation.
 pub struct TimestampNowImpl;
 
 impl TimestampNowProvider for TimestampNowImpl {
-    /// Queries `clock_gettime` and converts the result to monotonic nanoseconds.
+    /// Queries the monotonic clock and converts the result to monotonic nanoseconds.
     fn now() -> SamplyTimestamp {
-        let now = clock_gettime(ClockId::CLOCK_MONOTONIC).unwrap();
+        #[cfg(target_os = "linux")]
+        {
+            let now = clock_gettime(ClockId::CLOCK_MONOTONIC).unwrap();
 
-        // Monotonic nanoseconds should only ever be positive.
-        #[allow(clippy::cast_sign_loss)]
-        SamplyTimestamp::from_monotonic_nanos(
-            now.tv_sec() as u64 * 1_000_000_000 + now.tv_nsec() as u64,
-        )
+            // Monotonic nanoseconds should only ever be positive.
+            #[allow(clippy::cast_sign_loss)]
+            SamplyTimestamp::from_monotonic_nanos(
+                now.tv_sec() as u64 * 1_000_000_000 + now.tv_nsec() as u64,
+            )
+        }
+
+        // Use mach_absolute_time() to match samply's clock source on macOS.
+        // See https://github.com/mstange/samply/blob/2041b956f650bb92d912990052967d03fef66b75/samply/src/mac/time.rs#L8-L20
+        #[cfg(target_os = "macos")]
+        {
+            use mach2::mach_time;
+
+            let nanos_per_tick = NANOS_PER_TICK.get_or_init(|| {
+                let mut info = mach_time::mach_timebase_info::default();
+                let errno = unsafe { mach_time::mach_timebase_info(&raw mut info) };
+                if errno != 0 || info.denom == 0 {
+                    info.numer = 1;
+                    info.denom = 1;
+                }
+                info
+            });
+
+            let time = unsafe { mach_time::mach_absolute_time() };
+            let nanos = time * u64::from(nanos_per_tick.numer) / u64::from(nanos_per_tick.denom);
+
+            SamplyTimestamp::from_monotonic_nanos(nanos)
+        }
     }
 }
 
@@ -83,12 +115,46 @@ where
     MARKER_FILE.with_borrow_mut(|file| file.as_mut().map(f))
 }
 
+/// Returns a unique thread identifier for the current thread.
+#[cfg(target_os = "linux")]
+fn get_thread_id() -> u32 {
+    // Thread IDs on Linux are always positive, so the cast from i32 to u32 is safe.
+    #[allow(clippy::cast_sign_loss)]
+    let tid = nix::unistd::gettid().as_raw() as u32;
+
+    tid
+}
+
+/// Returns a unique thread identifier for the current thread.
+#[cfg(target_os = "macos")]
+fn get_thread_id() -> u32 {
+    // Use pthread_threadid_np() to get the current thread's system thread ID.
+    //
+    // This is the simplest way to get our own thread ID. Samply uses thread_info()
+    // instead because it's extracting thread IDs from other processes via mach ports.
+    //
+    // Both approaches return the same underlying system thread ID value.
+    //
+    // See https://github.com/mstange/samply/blob/2041b956f650bb92d912990052967d03fef66b75/samply/src/mac/thread_profiler.rs#L209-L229
+    let mut tid: u64 = 0;
+
+    unsafe {
+        libc::pthread_threadid_np(libc::pthread_self(), &raw mut tid);
+    }
+
+    // Truncate to u32 to match samply's behavior.
+    #[allow(clippy::cast_possible_truncation)]
+    let tid = tid as u32;
+
+    tid
+}
+
 /// Creates a new mmapped marker file for the current thread.
 fn create_marker_file() -> Option<File> {
     let file_name = markers_dir()?.join(format!(
         "marker-{}-{}.txt",
-        nix::unistd::getpid(),
-        nix::unistd::gettid()
+        nix::unistd::getpid().as_raw(),
+        get_thread_id()
     ));
 
     let file = File::options()
