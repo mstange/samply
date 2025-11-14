@@ -1044,8 +1044,7 @@ impl Profile {
     /// ```
     /// use fxprof_processed_profile::{
     ///     Profile, Category, CategoryColor, Marker, MarkerStringFieldFormat, MarkerTiming,
-    ///     Schema, Marker, MarkerField, StringHandle,
-    ///     ThreadHandle, Timestamp,
+    ///     Schema, MarkerField, StringHandle, ThreadHandle, Timestamp,
     /// };
     ///
     /// # fn fun() {

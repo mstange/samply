@@ -23,7 +23,7 @@ use super::types::{
 /// ```
 /// use fxprof_processed_profile::{
 ///     Profile, Marker, MarkerLocations, MarkerStringFieldFormat, Schema,
-///     MarkerField, Marker, Category, CategoryColor, StringHandle,
+///     MarkerField, Category, CategoryColor, StringHandle,
 /// };
 ///
 /// /// An example marker type with a name and some text content.
