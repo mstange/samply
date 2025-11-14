@@ -8,9 +8,9 @@ use debugid::DebugId;
 use framehop::{ExplicitModuleSectionInfo, FrameAddress, Module, Unwinder};
 use fxprof_processed_profile::{
     Category, CategoryColor, CategoryHandle, CpuDelta, FrameFlags, LibraryHandle, LibraryInfo,
-    MarkerFieldFlags, MarkerFieldFormat, MarkerTiming, PlatformSpecificReferenceTimestamp, Profile,
-    ReferenceTimestamp, SamplingInterval, StaticSchemaMarker, StaticSchemaMarkerField,
-    StringHandle, SubcategoryHandle, SymbolTable, ThreadHandle,
+    Marker, MarkerField, MarkerTiming, PlatformSpecificReferenceTimestamp, Profile,
+    ReferenceTimestamp, SamplingInterval, Schema, StringHandle, SubcategoryHandle, SymbolTable,
+    ThreadHandle,
 };
 use linux_perf_data::linux_perf_event_reader::TaskWasPreempted;
 use linux_perf_data::simpleperf_dso_type::{DSO_DEX_FILE, DSO_KERNEL, DSO_KERNEL_MODULE};
@@ -1963,29 +1963,18 @@ fn path_from_unix_bytes(path_slice: &[u8]) -> Option<&Path> {
 
 struct MmapMarker(StringHandle);
 
-impl StaticSchemaMarker for MmapMarker {
+impl Marker for MmapMarker {
+    type FieldsType = StringHandle;
+
     const UNIQUE_MARKER_TYPE_NAME: &'static str = "mmap";
 
-    const FIELDS: &'static [StaticSchemaMarkerField] = &[StaticSchemaMarkerField {
-        key: "name",
-        label: "Details",
-        format: MarkerFieldFormat::String,
-        flags: MarkerFieldFlags::SEARCHABLE,
-    }];
+    const FIELDS: Schema<Self::FieldsType> = Schema(MarkerField::string("name", "Details"));
 
     fn name(&self, profile: &mut Profile) -> StringHandle {
         profile.handle_for_string("mmap")
     }
 
-    fn string_field_value(&self, _field_index: u32) -> StringHandle {
+    fn field_values(&self) -> StringHandle {
         self.0
-    }
-
-    fn number_field_value(&self, _field_index: u32) -> f64 {
-        unreachable!()
-    }
-
-    fn flow_field_value(&self, _field_index: u32) -> u64 {
-        unreachable!()
     }
 }

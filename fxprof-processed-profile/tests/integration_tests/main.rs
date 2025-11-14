@@ -4,10 +4,10 @@ use std::time::Duration;
 use assert_json_diff::assert_json_eq;
 use debugid::DebugId;
 use fxprof_processed_profile::{
-    Category, CategoryColor, CpuDelta, FrameAddress, FrameFlags, GraphColor, LibraryInfo,
-    MarkerFieldFlags, MarkerFieldFormat, MarkerGraphType, MarkerLocations, MarkerTiming, Profile,
-    ReferenceTimestamp, SamplingInterval, StaticSchemaMarker, StaticSchemaMarkerField,
-    StaticSchemaMarkerGraph, StringHandle, Symbol, SymbolTable, Timestamp, WeightType,
+    Category, CategoryColor, CpuDelta, FlowId, FrameAddress, FrameFlags, GraphColor, LibraryInfo,
+    Marker, MarkerField, MarkerGraph, MarkerGraphType, MarkerLocations, MarkerTiming, Profile,
+    ReferenceTimestamp, SamplingInterval, Schema, StringHandle, Symbol, SymbolTable, Timestamp,
+    WeightType,
 };
 use serde_json::json;
 
@@ -20,31 +20,20 @@ pub struct TextMarker {
     pub text: StringHandle,
 }
 
-impl StaticSchemaMarker for TextMarker {
+impl Marker for TextMarker {
+    type FieldsType = StringHandle;
+
     const UNIQUE_MARKER_TYPE_NAME: &'static str = "Text";
     const CHART_LABEL: Option<&'static str> = Some("{marker.data.name}");
     const TABLE_LABEL: Option<&'static str> = Some("{marker.name} - {marker.data.name}");
-    const FIELDS: &'static [StaticSchemaMarkerField] = &[StaticSchemaMarkerField {
-        key: "name",
-        label: "Details",
-        format: MarkerFieldFormat::String,
-        flags: MarkerFieldFlags::SEARCHABLE,
-    }];
+    const FIELDS: Schema<Self::FieldsType> = Schema(MarkerField::string("name", "Details"));
 
     fn name(&self, _profile: &mut Profile) -> StringHandle {
         self.name
     }
 
-    fn string_field_value(&self, _field_index: u32) -> StringHandle {
+    fn field_values(&self) -> StringHandle {
         self.text
-    }
-
-    fn number_field_value(&self, _field_index: u32) -> f64 {
-        unreachable!()
-    }
-
-    fn flow_field_value(&self, _field_index: u32) -> u64 {
-        unreachable!()
     }
 }
 
@@ -56,41 +45,23 @@ fn profile_without_js() {
         url: StringHandle,
         latency: Duration,
     }
-    impl StaticSchemaMarker for CustomMarker {
+    impl Marker for CustomMarker {
+        type FieldsType = (StringHandle, f64, StringHandle, f64);
+
         const UNIQUE_MARKER_TYPE_NAME: &'static str = "custom";
         const TOOLTIP_LABEL: Option<&'static str> = Some("Custom tooltip label");
 
-        const FIELDS: &'static [StaticSchemaMarkerField] = &[
-            StaticSchemaMarkerField {
-                key: "eventName",
-                label: "Event name",
-                format: MarkerFieldFormat::String,
-                flags: MarkerFieldFlags::SEARCHABLE,
-            },
-            StaticSchemaMarkerField {
-                key: "allocationSize",
-                label: "Allocation size",
-                format: MarkerFieldFormat::Bytes,
-                flags: MarkerFieldFlags::SEARCHABLE,
-            },
-            StaticSchemaMarkerField {
-                key: "url",
-                label: "URL",
-                format: MarkerFieldFormat::Url,
-                flags: MarkerFieldFlags::SEARCHABLE,
-            },
-            StaticSchemaMarkerField {
-                key: "latency",
-                label: "Latency",
-                format: MarkerFieldFormat::Duration,
-                flags: MarkerFieldFlags::SEARCHABLE,
-            },
-        ];
+        const FIELDS: Schema<Self::FieldsType> = Schema((
+            MarkerField::string("eventName", "Event name"),
+            MarkerField::bytes("allocationSize", "Allocation size"),
+            MarkerField::url("url", "URL"),
+            MarkerField::duration("latency", "Latency"),
+        ));
 
         const DESCRIPTION: Option<&'static str> =
             Some("This is a test marker with a custom schema.");
 
-        const GRAPHS: &'static [StaticSchemaMarkerGraph] = &[StaticSchemaMarkerGraph {
+        const GRAPHS: &'static [MarkerGraph] = &[MarkerGraph {
             key: "latency",
             graph_type: MarkerGraphType::Line,
             color: Some(GraphColor::Green),
@@ -100,24 +71,13 @@ fn profile_without_js() {
             profile.handle_for_string("CustomName")
         }
 
-        fn string_field_value(&self, field_index: u32) -> StringHandle {
-            match field_index {
-                0 => self.event_name,
-                2 => self.url,
-                _ => unreachable!(),
-            }
-        }
-
-        fn number_field_value(&self, field_index: u32) -> f64 {
-            match field_index {
-                1 => self.allocation_size.into(),
-                3 => self.latency.as_secs_f64() * 1000.0,
-                _ => unreachable!(),
-            }
-        }
-
-        fn flow_field_value(&self, _field_index: u32) -> u64 {
-            unreachable!()
+        fn field_values(&self) -> (StringHandle, f64, StringHandle, f64) {
+            (
+                self.event_name,
+                self.allocation_size.into(),
+                self.url,
+                self.latency.as_secs_f64() * 1000.0,
+            )
         }
     }
 
@@ -374,7 +334,7 @@ fn profile_without_js() {
                 "name": []
               },
               "interval": 1.0,
-              "preprocessedProfileVersion": 56,
+              "preprocessedProfileVersion": 57,
               "processType": 0,
               "product": "test",
               "oscpu": "macOS 14.4",
@@ -402,8 +362,7 @@ fn profile_without_js() {
                     {
                       "key": "name",
                       "label": "Details",
-                      "format": "unique-string",
-                      "searchable": true
+                      "format": "unique-string"
                     }
                   ]
                 },
@@ -419,26 +378,22 @@ fn profile_without_js() {
                     {
                       "key": "eventName",
                       "label": "Event name",
-                      "format": "unique-string",
-                      "searchable": true
+                      "format": "unique-string"
                     },
                     {
                       "key": "allocationSize",
                       "label": "Allocation size",
-                      "format": "bytes",
-                      "searchable": true
+                      "format": "bytes"
                     },
                     {
                       "key": "url",
                       "label": "URL",
-                      "format": "url",
-                      "searchable": true
+                      "format": "url"
                     },
                     {
                       "key": "latency",
                       "label": "Latency",
-                      "format": "duration",
-                      "searchable": true
+                      "format": "duration"
                     }
                   ],
                   "graphs": [
@@ -1056,7 +1011,7 @@ fn profile_with_js() {
                 "name": []
               },
               "interval": 1.0,
-              "preprocessedProfileVersion": 56,
+              "preprocessedProfileVersion": 57,
               "processType": 0,
               "product": "test with js",
               "sampleUnits": {
@@ -1313,7 +1268,7 @@ fn profile_counters_with_sorted_processes() {
               "initialSelectedThreads": [0],
               "initialVisibleThreads": [0],
               "interval": 1.0,
-              "preprocessedProfileVersion": 56,
+              "preprocessedProfileVersion": 57,
               "processType": 0,
               "product": "test",
               "sampleUnits": {
@@ -1552,7 +1507,8 @@ fn test_flow_marker_fields() {
         pub terminating_flow_id: u64,
     }
 
-    impl StaticSchemaMarker for FlowMarker {
+    impl Marker for FlowMarker {
+        type FieldsType = (FlowId, FlowId);
         const UNIQUE_MARKER_TYPE_NAME: &'static str = "FlowTest";
         const LOCATIONS: MarkerLocations =
             MarkerLocations::MARKER_CHART.union(MarkerLocations::MARKER_TABLE);
@@ -1560,39 +1516,17 @@ fn test_flow_marker_fields() {
         const TABLE_LABEL: Option<&'static str> =
             Some("{marker.name} - flow:{marker.data.flowId} term:{marker.data.termFlowId}");
 
-        const FIELDS: &'static [StaticSchemaMarkerField] = &[
-            StaticSchemaMarkerField {
-                key: "flowId",
-                label: "Flow ID",
-                format: MarkerFieldFormat::Flow,
-                flags: MarkerFieldFlags::SEARCHABLE,
-            },
-            StaticSchemaMarkerField {
-                key: "termFlowId",
-                label: "Terminating Flow ID",
-                format: MarkerFieldFormat::TerminatingFlow,
-                flags: MarkerFieldFlags::SEARCHABLE,
-            },
-        ];
+        const FIELDS: Schema<Self::FieldsType> = Schema((
+            MarkerField::flow("flowId", "Flow ID"),
+            MarkerField::terminating_flow("termFlowId", "Terminating Flow ID"),
+        ));
 
         fn name(&self, _profile: &mut Profile) -> StringHandle {
             self.name
         }
 
-        fn string_field_value(&self, _field_index: u32) -> StringHandle {
-            unreachable!()
-        }
-
-        fn number_field_value(&self, _field_index: u32) -> f64 {
-            unreachable!()
-        }
-
-        fn flow_field_value(&self, field_index: u32) -> u64 {
-            match field_index {
-                0 => self.flow_id,
-                1 => self.terminating_flow_id,
-                _ => unreachable!(),
-            }
+        fn field_values(&self) -> Self::FieldsType {
+            (FlowId(self.flow_id), FlowId(self.terminating_flow_id))
         }
     }
 
@@ -1647,7 +1581,7 @@ fn test_flow_marker_fields() {
                 "name": []
               },
               "interval": 1.0,
-              "preprocessedProfileVersion": 56,
+              "preprocessedProfileVersion": 57,
               "processType": 0,
               "product": "test",
               "sampleUnits": {
@@ -1674,14 +1608,12 @@ fn test_flow_marker_fields() {
                     {
                       "key": "flowId",
                       "label": "Flow ID",
-                      "format": "flow-id",
-                      "searchable": true
+                      "format": "flow-id"
                     },
                     {
                       "key": "termFlowId",
                       "label": "Terminating Flow ID",
-                      "format": "terminating-flow-id",
-                      "searchable": true
+                      "format": "terminating-flow-id"
                     }
                   ]
                 }

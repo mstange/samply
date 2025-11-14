@@ -1,7 +1,6 @@
 use fxprof_processed_profile::{
-    CategoryHandle, FrameFlags, FrameHandle, MarkerFieldFlags, MarkerFieldFormat, MarkerTiming,
-    ProcessHandle, Profile, StaticSchemaMarker, StaticSchemaMarkerField, StringHandle,
-    ThreadHandle, Timestamp,
+    CategoryHandle, FrameFlags, FrameHandle, Marker, MarkerField, MarkerTiming, ProcessHandle,
+    Profile, Schema, StringHandle, ThreadHandle, Timestamp,
 };
 
 use crate::shared::context_switch::ThreadContextSwitchData;
@@ -153,34 +152,23 @@ impl Cpus {
 #[derive(Debug, Clone)]
 pub struct ThreadNameMarkerForCpuTrack(pub StringHandle, pub StringHandle);
 
-impl StaticSchemaMarker for ThreadNameMarkerForCpuTrack {
+impl Marker for ThreadNameMarkerForCpuTrack {
+    type FieldsType = StringHandle;
+
     const UNIQUE_MARKER_TYPE_NAME: &'static str = "ContextSwitch";
 
     const CHART_LABEL: Option<&'static str> = Some("{marker.data.thread}");
     const TOOLTIP_LABEL: Option<&'static str> = Some("{marker.data.thread}");
     const TABLE_LABEL: Option<&'static str> = Some("{marker.name} - {marker.data.thread}");
 
-    const FIELDS: &'static [StaticSchemaMarkerField] = &[StaticSchemaMarkerField {
-        key: "thread",
-        label: "Thread",
-        format: MarkerFieldFormat::String,
-        flags: MarkerFieldFlags::SEARCHABLE,
-    }];
+    const FIELDS: Schema<Self::FieldsType> = Schema(MarkerField::string("thread", "Thread"));
 
     fn name(&self, _profile: &mut Profile) -> StringHandle {
         self.0
     }
 
-    fn string_field_value(&self, _field_index: u32) -> StringHandle {
+    fn field_values(&self) -> StringHandle {
         self.1
-    }
-
-    fn number_field_value(&self, _field_index: u32) -> f64 {
-        unreachable!()
-    }
-
-    fn flow_field_value(&self, _field_index: u32) -> u64 {
-        unreachable!()
     }
 }
 
@@ -191,7 +179,9 @@ pub struct OnCpuMarkerForThreadTrack {
     switch_out_reason: StringHandle,
 }
 
-impl StaticSchemaMarker for OnCpuMarkerForThreadTrack {
+impl Marker for OnCpuMarkerForThreadTrack {
+    type FieldsType = (StringHandle, StringHandle);
+
     const UNIQUE_MARKER_TYPE_NAME: &'static str = "OnCpu";
 
     const CHART_LABEL: Option<&'static str> = Some("{marker.data.cpu}");
@@ -199,38 +189,16 @@ impl StaticSchemaMarker for OnCpuMarkerForThreadTrack {
     const TABLE_LABEL: Option<&'static str> =
         Some("{marker.name} - {marker.data.cpu}, switch-out reason: {marker.data.outwhy}");
 
-    const FIELDS: &'static [StaticSchemaMarkerField] = &[
-        StaticSchemaMarkerField {
-            key: "cpu",
-            label: "CPU",
-            format: MarkerFieldFormat::String,
-            flags: MarkerFieldFlags::SEARCHABLE,
-        },
-        StaticSchemaMarkerField {
-            key: "outwhy",
-            label: "Switch-out reason",
-            format: MarkerFieldFormat::String,
-            flags: MarkerFieldFlags::SEARCHABLE,
-        },
-    ];
+    const FIELDS: Schema<Self::FieldsType> = Schema((
+        MarkerField::string("cpu", "CPU"),
+        MarkerField::string("outwhy", "Switch-out reason"),
+    ));
 
     fn name(&self, profile: &mut Profile) -> StringHandle {
         profile.handle_for_string("Running on CPU")
     }
 
-    fn string_field_value(&self, field_index: u32) -> StringHandle {
-        match field_index {
-            0 => self.cpu_name,
-            1 => self.switch_out_reason,
-            _ => unreachable!(),
-        }
-    }
-
-    fn number_field_value(&self, _field_index: u32) -> f64 {
-        unreachable!()
-    }
-
-    fn flow_field_value(&self, _field_index: u32) -> u64 {
-        unreachable!()
+    fn field_values(&self) -> (StringHandle, StringHandle) {
+        (self.cpu_name, self.switch_out_reason)
     }
 }
