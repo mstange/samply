@@ -228,16 +228,8 @@ impl Marker for CoreClrGcAllocMarker {
         Some("GC Alloc: {marker.data.clrtype} ({marker.data.size} bytes)");
 
     const FIELDS: &'static [MarkerField] = &[
-        MarkerField {
-            key: "clrtype",
-            label: "CLR Type",
-            format: MarkerFieldFormat::String,
-        },
-        MarkerField {
-            key: "size",
-            label: "Size",
-            format: MarkerFieldFormat::Bytes,
-        },
+        MarkerField::string("clrtype", "CLR Type"),
+        MarkerField::bytes("size", "Size"),
     ];
 
     fn name(&self, profile: &mut Profile) -> StringHandle {
@@ -274,11 +266,7 @@ impl Marker for CoreClrGcEventMarker {
     const TOOLTIP_LABEL: Option<&'static str> = Some("{marker.data.event}");
     const TABLE_LABEL: Option<&'static str> = Some("{marker.name} - {marker.data.event}");
 
-    const FIELDS: &'static [MarkerField] = &[MarkerField {
-        key: "event",
-        label: "Event",
-        format: MarkerFieldFormat::String,
-    }];
+    const FIELDS: &'static [MarkerField] = &[MarkerField::string("event", "Event")];
 
     fn name(&self, _profile: &mut Profile) -> StringHandle {
         self.0
@@ -743,11 +731,7 @@ impl Marker for OtherClrMarker {
     const TOOLTIP_LABEL: Option<&'static str> = Some("{marker.data.name}");
     const TABLE_LABEL: Option<&'static str> = Some("{marker.name} - {marker.data.name}");
 
-    const FIELDS: &'static [MarkerField] = &[MarkerField {
-        key: "name",
-        label: "Name",
-        format: MarkerFieldFormat::String,
-    }];
+    const FIELDS: &'static [MarkerField] = &[MarkerField::string("name", "Name")];
 
     fn name(&self, _profile: &mut Profile) -> StringHandle {
         self.0

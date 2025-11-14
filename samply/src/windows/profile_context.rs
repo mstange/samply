@@ -2204,11 +2204,7 @@ impl Marker for FreeformMarker {
     const TOOLTIP_LABEL: Option<&'static str> = Some("{marker.name} - {marker.data.values}");
     const TABLE_LABEL: Option<&'static str> = Some("{marker.name} - {marker.data.values}");
 
-    const FIELDS: &'static [MarkerField] = &[MarkerField {
-        key: "values",
-        label: "Values",
-        format: MarkerFieldFormat::String,
-    }];
+    const FIELDS: &'static [MarkerField] = &[MarkerField::string("values", "Values")];
 
     fn name(&self, _profile: &mut Profile) -> StringHandle {
         self.0
