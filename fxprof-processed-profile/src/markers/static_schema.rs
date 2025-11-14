@@ -100,8 +100,8 @@ pub trait Marker {
     /// flows ([`FlowId`]). You can use one of those types, or a tuple of them.
     type FieldsType: MarkerFieldsTrait;
 
-    /// The marker fields. The values are supplied by each marker, in the marker's
-    /// implementations of the `string_field_value` and `number_field_value` trait methods.
+    /// The marker fields. The values for the marker fields are returned by the
+    /// marker's implementation of the `field_values` method.
     const FIELDS: Schema<Self::FieldsType>;
 
     /// Any graph lines / segments created from markers of this type.

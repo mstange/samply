@@ -145,7 +145,7 @@ pub struct DynamicSchemaMarkerSchema {
     pub table_label: Option<String>,
 
     /// The marker fields. The values are supplied by each marker, in the marker's
-    /// implementations of the `string_field_value` and `number_field_value` trait methods.
+    /// implementations of `push_field_values`.
     pub fields: Vec<DynamicSchemaMarkerField>,
 
     /// Any graph lines / segments created from markers of this type.

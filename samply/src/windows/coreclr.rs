@@ -212,6 +212,8 @@ impl Display for GcType {
 pub struct CoreClrGcAllocMarker(StringHandle, f64);
 
 impl Marker for CoreClrGcAllocMarker {
+    type FieldsType = (StringHandle, f64);
+
     const UNIQUE_MARKER_TYPE_NAME: &'static str = "GC Alloc";
 
     const CATEGORY: Category<'static> = CORE_CLR_GC_CATEGORY;
@@ -227,25 +229,17 @@ impl Marker for CoreClrGcAllocMarker {
     const TABLE_LABEL: Option<&'static str> =
         Some("GC Alloc: {marker.data.clrtype} ({marker.data.size} bytes)");
 
-    const FIELDS: &'static [MarkerField] = &[
+    const FIELDS: Schema<Self::FieldsType> = Schema((
         MarkerField::string("clrtype", "CLR Type"),
         MarkerField::bytes("size", "Size"),
-    ];
+    ));
 
     fn name(&self, profile: &mut Profile) -> StringHandle {
         profile.handle_for_string("GC Alloc")
     }
 
-    fn string_field_value(&self, _field_index: u32) -> StringHandle {
-        self.0
-    }
-
-    fn number_field_value(&self, _field_index: u32) -> f64 {
-        self.1
-    }
-
-    fn flow_field_value(&self, _field_index: u32) -> u64 {
-        unreachable!()
+    fn field_values(&self) -> (StringHandle, f64) {
+        (self.0, self.1)
     }
 }
 
@@ -253,6 +247,8 @@ impl Marker for CoreClrGcAllocMarker {
 pub struct CoreClrGcEventMarker(StringHandle, StringHandle);
 
 impl Marker for CoreClrGcEventMarker {
+    type FieldsType = StringHandle;
+
     const UNIQUE_MARKER_TYPE_NAME: &'static str = "GC Event";
 
     const CATEGORY: Category<'static> = CORE_CLR_GC_CATEGORY;
@@ -266,22 +262,14 @@ impl Marker for CoreClrGcEventMarker {
     const TOOLTIP_LABEL: Option<&'static str> = Some("{marker.data.event}");
     const TABLE_LABEL: Option<&'static str> = Some("{marker.name} - {marker.data.event}");
 
-    const FIELDS: &'static [MarkerField] = &[MarkerField::string("event", "Event")];
+    const FIELDS: Schema<Self::FieldsType> = Schema(MarkerField::string("event", "Event"));
 
     fn name(&self, _profile: &mut Profile) -> StringHandle {
         self.0
     }
 
-    fn string_field_value(&self, _field_index: u32) -> StringHandle {
+    fn field_values(&self) -> StringHandle {
         self.1
-    }
-
-    fn number_field_value(&self, _field_index: u32) -> f64 {
-        unreachable!()
-    }
-
-    fn flow_field_value(&self, _field_index: u32) -> u64 {
-        unreachable!()
     }
 }
 
@@ -722,6 +710,8 @@ pub fn handle_coreclr_event(
 pub struct OtherClrMarker(StringHandle, StringHandle);
 
 impl Marker for OtherClrMarker {
+    type FieldsType = StringHandle;
+
     const UNIQUE_MARKER_TYPE_NAME: &'static str = "OtherClrMarker";
 
     const CATEGORY: Category<'static> = Category("CLR", CategoryColor::Blue);
@@ -731,21 +721,13 @@ impl Marker for OtherClrMarker {
     const TOOLTIP_LABEL: Option<&'static str> = Some("{marker.data.name}");
     const TABLE_LABEL: Option<&'static str> = Some("{marker.name} - {marker.data.name}");
 
-    const FIELDS: &'static [MarkerField] = &[MarkerField::string("name", "Name")];
+    const FIELDS: Schema<Self::FieldsType> = Schema(MarkerField::string("name", "Name"));
 
     fn name(&self, _profile: &mut Profile) -> StringHandle {
         self.0
     }
 
-    fn string_field_value(&self, _field_index: u32) -> StringHandle {
+    fn field_values(&self) -> StringHandle {
         self.1
-    }
-
-    fn number_field_value(&self, _field_index: u32) -> f64 {
-        unreachable!()
-    }
-
-    fn flow_field_value(&self, _field_index: u32) -> u64 {
-        unreachable!()
     }
 }
