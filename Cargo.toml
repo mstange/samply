@@ -23,3 +23,8 @@ exclude = ["etw-reader"] # Should not be compiled on non-Windows
 [profile.dist]
 inherits = "release"
 lto = "thin"
+
+# Profile for profiling with samply
+[profile.profiling]
+inherits = "release"
+debug = true

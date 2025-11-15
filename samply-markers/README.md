@@ -273,6 +273,9 @@ async fn load_config(path: &str) -> (u32, u32) {
 
 Here's a complete example demonstrating everything in context:
 
+> [!NOTE]
+> See the [examples directory] to build, run, and profile the examples in this README yourself.
+
 
 **[macOS] | [Ubuntu] | Windows (not yet supported)**
 

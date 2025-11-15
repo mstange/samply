@@ -34,3 +34,8 @@ regex = "1.12.2"
 serial_test = "3.2.0"
 tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "time"] }
 futures = "0.3"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros"] }
+reqwest = "0.12"
+futures = "0.3"
