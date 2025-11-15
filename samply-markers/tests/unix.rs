@@ -1,4 +1,41 @@
 //! This module contains integration tests for [`samply-markers`](crate) on Unix systems.
+//!
+//! # Test Design:
+//!
+//! These tests verify that markers are correctly written to files by inspecting the marker file
+//! contents after emission. To ensure deterministic testing, most tests wrap marker emission in
+//! `thread::spawn` and join the thread before reading marker files.
+//!
+//! ## The FlushOnDrop Mechanism
+//!
+//! Marker files use buffered writes for performance. The buffer is wrapped in a `FlushOnDrop`
+//! type that lives in thread-local storage. When a thread exits, the thread-local storage is
+//! dropped, triggering an automatic flush of the buffer to disk.
+//!
+//! ## Why Thread Spawning is Required
+//!
+//! Without spawning a new thread, markers emitted in the test would be buffered in the main test
+//! thread's thread-local storage. The buffer would only flush when the test thread exits, which
+//! may happen after the test's assertions run. This creates a race condition where the test might
+//! read the marker file before the buffer is flushed, causing spurious failures.
+//!
+//! ## When Writing New Tests
+//!
+//! If your test needs to verify marker file contents after emission, wrap the marker-emitting
+//! code in `thread::spawn` and join the thread before reading the marker file.
+//!
+//! Example pattern:
+//! ```rust
+//! let tid = thread::spawn(move || {
+//!     samply_marker!({ name: "MyMarker" });
+//!     get_thread_id()
+//! })
+//! .join()
+//! .expect("thread panicked");
+//!
+//! // Now it's safe to read and verify the marker file
+//! assert_marker_file!(pid, tid, regex: { r"^\d+ \d+ MyMarker$" });
+//! ```
 
 #![cfg(all(feature = "enabled", target_family = "unix"))]
 
@@ -184,12 +221,17 @@ fn cleanup_marker_files(pid: u32) {
 #[serial]
 fn instant_writes_marker_to_file() {
     with_marker_file_cleanup!({
-        samply_marker!({ name: "InstantMarker1" });
-        samply_marker!({ name: "InstantMarker2" });
-        samply_marker!({ name: "InstantMarker3" });
-
         let pid = nix::unistd::getpid().as_raw() as u32;
-        let tid = get_thread_id();
+
+        let tid = thread::spawn(move || {
+            samply_marker!({ name: "InstantMarker1" });
+            samply_marker!({ name: "InstantMarker2" });
+            samply_marker!({ name: "InstantMarker3" });
+
+            get_thread_id()
+        })
+        .join()
+        .expect("thread panicked");
 
         assert_single_marker_file!(pid, tid);
 
@@ -222,12 +264,17 @@ fn instant_writes_marker_to_file() {
 )]
 fn assert_marker_file_panics_on_wrong_line_count() {
     with_marker_file_cleanup!({
-        // Emit exactly 2 markers.
-        SamplyMarker::new("test marker").emit_instant();
-        SamplyMarker::new("test marker").emit_instant();
-
         let pid = nix::unistd::getpid().as_raw() as u32;
-        let tid = get_thread_id();
+
+        let tid = thread::spawn(move || {
+            // Emit exactly 2 markers.
+            SamplyMarker::new("test marker").emit_instant();
+            SamplyMarker::new("test marker").emit_instant();
+
+            get_thread_id()
+        })
+        .join()
+        .expect("thread panicked");
 
         assert_single_marker_file!(pid, tid);
 
@@ -246,11 +293,16 @@ fn assert_marker_file_panics_on_wrong_line_count() {
 #[serial]
 fn empty_name_defaults_to_unnamed_marker() {
     with_marker_file_cleanup!({
-        SamplyMarker::new("").emit_instant();
-        SamplyMarker::new(format!("")).emit_instant();
-
         let pid = nix::unistd::getpid().as_raw() as u32;
-        let tid = get_thread_id();
+
+        let tid = thread::spawn(move || {
+            SamplyMarker::new("").emit_instant();
+            SamplyMarker::new(format!("")).emit_instant();
+
+            get_thread_id()
+        })
+        .join()
+        .expect("thread panicked");
 
         assert_single_marker_file!(pid, tid);
 
@@ -269,21 +321,26 @@ fn empty_name_defaults_to_unnamed_marker() {
 #[serial]
 fn timer_writes_marker_to_file() {
     with_marker_file_cleanup!({
-        {
-            let _timer1 = samply_timer!({ name: "TimerMarker1" });
-            thread::sleep(std::time::Duration::from_millis(2));
-        }
-        {
-            let _timer2 = samply_timer!({ name: "TimerMarker2" });
-            thread::sleep(std::time::Duration::from_millis(3));
-        }
-        {
-            let _timer3 = samply_timer!({ name: "TimerMarker3" });
-            thread::sleep(std::time::Duration::from_millis(4));
-        }
-
         let pid = nix::unistd::getpid().as_raw() as u32;
-        let tid = get_thread_id();
+
+        let tid = thread::spawn(move || {
+            {
+                let _timer1 = samply_timer!({ name: "TimerMarker1" });
+                thread::sleep(std::time::Duration::from_millis(2));
+            }
+            {
+                let _timer2 = samply_timer!({ name: "TimerMarker2" });
+                thread::sleep(std::time::Duration::from_millis(3));
+            }
+            {
+                let _timer3 = samply_timer!({ name: "TimerMarker3" });
+                thread::sleep(std::time::Duration::from_millis(4));
+            }
+
+            get_thread_id()
+        })
+        .join()
+        .expect("thread panicked");
 
         assert_single_marker_file!(pid, tid);
 
@@ -303,40 +360,45 @@ fn timer_writes_marker_to_file() {
 #[serial]
 fn measure_writes_marker_to_file() {
     with_marker_file_cleanup!({
-        let result1 = samply_measure!({
-            thread::sleep(std::time::Duration::from_millis(2));
-            42
-        } marker: {
-            name: "MeasureMarker1",
-        });
-
-        let result2 = samply_measure!({
-            thread::sleep(std::time::Duration::from_millis(3));
-            "hello"
-        } marker: {
-            name: "MeasureMarker2",
-        });
-
-        let result3 = samply_measure!({
-            thread::sleep(std::time::Duration::from_millis(4));
-            vec![1, 2, 3]
-        } marker: {
-            name: "MeasureMarker3",
-        });
-
-        assert_eq!(result1, 42, "Expected measure to preserve return value.");
-        assert_eq!(
-            result2, "hello",
-            "Expected measure to preserve return value."
-        );
-        assert_eq!(
-            result3,
-            vec![1, 2, 3],
-            "Expected measure to preserve return value."
-        );
-
         let pid = nix::unistd::getpid().as_raw() as u32;
-        let tid = get_thread_id();
+
+        let tid = thread::spawn(move || {
+            let result1 = samply_measure!({
+                thread::sleep(std::time::Duration::from_millis(2));
+                42
+            } marker: {
+                name: "MeasureMarker1",
+            });
+
+            let result2 = samply_measure!({
+                thread::sleep(std::time::Duration::from_millis(3));
+                "hello"
+            } marker: {
+                name: "MeasureMarker2",
+            });
+
+            let result3 = samply_measure!({
+                thread::sleep(std::time::Duration::from_millis(4));
+                vec![1, 2, 3]
+            } marker: {
+                name: "MeasureMarker3",
+            });
+
+            assert_eq!(result1, 42, "Expected measure to preserve return value.");
+            assert_eq!(
+                result2, "hello",
+                "Expected measure to preserve return value."
+            );
+            assert_eq!(
+                result3,
+                vec![1, 2, 3],
+                "Expected measure to preserve return value."
+            );
+
+            get_thread_id()
+        })
+        .join()
+        .expect("thread panicked");
 
         assert_single_marker_file!(pid, tid);
 
@@ -405,18 +467,27 @@ async fn measure_async_writes_marker_to_file() {
     use tokio::time::{Duration, sleep};
 
     with_marker_file_cleanup!({
-        let result = samply_measure!(async {
-            sleep(Duration::from_millis(5)).await;
-            42
-        }, marker: {
-            name: "AsyncMeasure",
-        })
-        .await;
-
-        assert_eq!(result, 42, "Expected measure to preserve return value.");
-
         let pid = nix::unistd::getpid().as_raw() as u32;
-        let tid = get_thread_id();
+
+        let tid = thread::spawn(move || {
+            let runtime = tokio::runtime::Runtime::new().unwrap();
+
+            runtime.block_on(async {
+                let result = samply_measure!(async {
+                    sleep(Duration::from_millis(5)).await;
+                    42
+                }, marker: {
+                    name: "AsyncMeasure",
+                })
+                .await;
+
+                assert_eq!(result, 42, "Expected measure to preserve return value.");
+            });
+
+            get_thread_id()
+        })
+        .join()
+        .expect("thread panicked");
 
         assert_single_marker_file!(pid, tid);
 
@@ -434,15 +505,20 @@ async fn measure_async_writes_marker_to_file() {
 #[serial]
 fn timer_emit_prevents_double_emit_on_drop() {
     with_marker_file_cleanup!({
-        {
-            let timer = samply_timer!({ name: "ExplicitEmit" });
-            thread::sleep(std::time::Duration::from_millis(2));
-            timer.emit(); // Explicitly emit the timer.
-            // The timer drops here, but should not emit a second time.
-        }
-
         let pid = nix::unistd::getpid().as_raw() as u32;
-        let tid = get_thread_id();
+
+        let tid = thread::spawn(move || {
+            {
+                let timer = samply_timer!({ name: "ExplicitEmit" });
+                thread::sleep(std::time::Duration::from_millis(2));
+                timer.emit(); // Explicitly emit the timer.
+                // The timer drops here, but should not emit a second time.
+            }
+
+            get_thread_id()
+        })
+        .join()
+        .expect("thread panicked");
 
         assert_single_marker_file!(pid, tid);
 
@@ -462,30 +538,39 @@ async fn measure_async_with_early_return_writes_marker() {
     use tokio::time::{Duration, sleep};
 
     with_marker_file_cleanup!({
-        async fn fallible_operation(should_fail: bool) -> Result<String, &'static str> {
-            samply_measure!(async {
-                sleep(Duration::from_millis(2)).await;
+        let pid = nix::unistd::getpid().as_raw() as u32;
 
-                if should_fail {
-                    return Err("operation failed");
+        let tid = thread::spawn(move || {
+            let runtime = tokio::runtime::Runtime::new().unwrap();
+
+            runtime.block_on(async {
+                async fn fallible_operation(should_fail: bool) -> Result<String, &'static str> {
+                    samply_measure!(async {
+                        sleep(Duration::from_millis(2)).await;
+
+                        if should_fail {
+                            return Err("operation failed");
+                        }
+
+                        sleep(Duration::from_millis(2)).await;
+                        Ok(String::from("success"))
+                    }, marker: {
+                        name: "FallibleAsync",
+                    })
+                    .await
                 }
 
-                sleep(Duration::from_millis(2)).await;
-                Ok(String::from("success"))
-            }, marker: {
-                name: "FallibleAsync",
-            })
-            .await
-        }
+                let success_result = fallible_operation(false).await;
+                assert!(success_result.is_ok());
 
-        let success_result = fallible_operation(false).await;
-        assert!(success_result.is_ok());
+                let failure_result = fallible_operation(true).await;
+                assert!(failure_result.is_err());
+            });
 
-        let failure_result = fallible_operation(true).await;
-        assert!(failure_result.is_err());
-
-        let pid = nix::unistd::getpid().as_raw() as u32;
-        let tid = get_thread_id();
+            get_thread_id()
+        })
+        .join()
+        .expect("thread panicked");
 
         assert_single_marker_file!(pid, tid);
 
@@ -500,66 +585,65 @@ async fn measure_async_with_early_return_writes_marker() {
     });
 }
 
+#[test]
 #[serial]
-#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
-async fn tokio_spawn_writes_markers_across_threads() {
+fn tokio_spawn_writes_markers_across_threads() {
     use tokio::time::{Duration, sleep};
 
     with_marker_file_cleanup!({
         let handles = (0..3)
             .map(|i| {
-                tokio::spawn(async move {
-                    // Each spawned task may run on different threads.
-                    // Emit multiple markers with awaits in between to allow potential thread migration.
-                    samply_measure!(async {
-                        sleep(Duration::from_millis(2)).await;
-                    }, marker: {
-                        name: format!("async task {i} marker A"),
-                    })
-                    .await;
+                thread::spawn(move || {
+                    // Create a tokio runtime on this thread to test async markers
+                    let runtime = tokio::runtime::Runtime::new().unwrap();
 
-                    samply_measure!(async {
-                        sleep(Duration::from_millis(3)).await;
-                    }, marker: {
-                        name: format!("async task {i} marker B"),
-                    })
-                    .await;
+                    runtime.block_on(async move {
+                        // Emit async markers with awaits
+                        samply_measure!(async {
+                            sleep(Duration::from_millis(2)).await;
+                        }, marker: {
+                            name: format!("async task {i} marker A"),
+                        })
+                        .await;
 
-                    samply_measure!(async {
-                        sleep(Duration::from_millis(4)).await;
-                    }, marker: {
-                        name: format!("async task {i} marker C"),
-                    })
-                    .await;
+                        samply_measure!(async {
+                            sleep(Duration::from_millis(3)).await;
+                        }, marker: {
+                            name: format!("async task {i} marker B"),
+                        })
+                        .await;
 
-                    // Return the thread ID where this task's final marker was emitted.
+                        samply_measure!(async {
+                            sleep(Duration::from_millis(4)).await;
+                        }, marker: {
+                            name: format!("async task {i} marker C"),
+                        })
+                        .await;
+                    });
+
+                    // Return the thread ID where markers were emitted.
+                    // Buffer will auto-flush when this thread exits (FlushOnDrop)
                     get_thread_id()
                 })
             })
             .collect::<Vec<_>>();
 
-        let _tids = futures::future::join_all(handles)
-            .await
+        let _tids = handles
             .into_iter()
-            .map(|result| result.expect("task panicked"))
+            .map(|h| h.join().expect("thread panicked"))
             .collect::<Vec<_>>();
 
         let pid = nix::unistd::getpid().as_raw() as u32;
 
-        // Verify that markers were written. We can't predict which thread each task ran on
-        // since tokio may schedule tasks on any worker thread, and tasks may migrate between
-        // threads during execution. We collect all marker files for this PID to ensure we
-        // find all markers regardless of which thread's file they were written to.
+        // Verify that markers were written across multiple threads.
+        // Each thread gets its own marker file.
         let marker_files = find_all_marker_files(pid);
 
-        // With 3 worker threads, we should have at least 1 file and at most 3 files.
-        assert!(
-            !marker_files.is_empty(),
-            "Expected at least one marker file to exist"
-        );
-        assert!(
-            marker_files.len() <= 3,
-            "Expected at most 3 marker files are found {}",
+        // With 3 threads, we should have exactly 3 marker files.
+        assert_eq!(
+            marker_files.len(),
+            3,
+            "Expected exactly 3 marker files (one per thread), found {}",
             marker_files.len()
         );
 
@@ -576,6 +660,109 @@ async fn tokio_spawn_writes_markers_across_threads() {
                 assert!(
                     all_contents.contains(&expected),
                     "Expected to find '{expected}' in marker files but didn't.\nAll contents:\n{all_contents}"
+                );
+            }
+        }
+    });
+}
+
+#[test]
+#[serial]
+fn tokio_task_migration_writes_markers_correctly() {
+    use tokio::time::{Duration, sleep};
+
+    with_marker_file_cleanup!({
+        // Create a shared multi-threaded runtime that allows task migration between threads.
+        let runtime = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(8)
+            .enable_time()
+            .build()
+            .unwrap();
+
+        runtime.block_on(async {
+            // Spawn tasks using tokio::spawn, which allows migration between worker threads.
+            let handles = (0..8)
+                .map(|i| {
+                    tokio::spawn(async move {
+                        for marker_num in 0..10 {
+                            samply_measure!(async {
+                                sleep(Duration::from_millis(2)).await;
+                            }, marker: {
+                                name: format!("migrating task {i} marker {marker_num}"),
+                            })
+                            .await;
+
+                            // Yield to encourage task migration.
+                            tokio::task::yield_now().await;
+                        }
+
+                        get_thread_id()
+                    })
+                })
+                .collect::<Vec<_>>();
+
+            // Wait for all tasks to complete.
+            let _tids = futures::future::join_all(handles)
+                .await
+                .into_iter()
+                .map(|result| result.expect("task panicked"))
+                .collect::<Vec<_>>();
+        });
+
+        // Drop the runtime, which causes worker threads to exit and flush their buffers.
+        drop(runtime);
+
+        let pid = nix::unistd::getpid().as_raw() as u32;
+        let marker_files = find_all_marker_files(pid);
+
+        // With 8 worker threads, we should have 1-8 marker files depending on task migration.
+        // The total number of markers across the 1-8 files should always be exactly 80.
+        //
+        // Run the following command to see this output:
+        // ❯ cargo test -p samply-markers --features enabled tokio_task_migration_writes_markers_correctly -- --nocapture
+        println!("\n=== Marker File Distribution ===\n");
+        println!("Total marker files created: {}\n", marker_files.len());
+
+        assert!(
+            !marker_files.is_empty() && marker_files.len() <= 8,
+            "Expected 1-8 marker files, found {}",
+            marker_files.len()
+        );
+
+        let all_contents = marker_files
+            .iter()
+            .filter_map(|path| {
+                fs::read_to_string(path).ok().map(|contents| {
+                    let line_count = contents.lines().count();
+                    println!(
+                        " - {} has {} markers",
+                        path.file_name().unwrap().to_string_lossy(),
+                        line_count
+                    );
+                    contents
+                })
+            })
+            .collect::<Vec<_>>()
+            .join("");
+
+        let total_marker_count = all_contents.lines().count();
+        println!("\nTotal markers across all files: {}\n", total_marker_count);
+
+        assert_eq!(
+            total_marker_count, 80,
+            "Expected exactly 80 markers (8 tasks x 10 markers each), but found {}",
+            total_marker_count
+        );
+
+        // Verify all 80 markers appear with the correct names.
+        for task_num in 0..8 {
+            for marker_num in 0..10 {
+                let expected = format!("migrating task {task_num} marker {marker_num}");
+                assert!(
+                    all_contents.contains(&expected),
+                    "Expected to find '{expected}' in marker files but didn't.\n\
+                     This proves FlushOnDrop successfully flushed when tokio runtime shut down.\n\
+                     All contents:\n{all_contents}"
                 );
             }
         }

@@ -38,16 +38,14 @@ impl SamplyTimestamp {
         Self(nanos)
     }
 
-    /// Formats a [`SamplyTimestamp`] without implementing [`std::fmt::Display`].
+    /// Returns the inner nanosecond value.
     ///
-    /// Having a dedicated formatter keeps [`SamplyTimestamp`] opaque, ensuring that it
-    /// cannot be stringified via [`ToString`] and compared.
+    /// This is only exposed within the crate for formatting and testing purposes,
+    /// keeping [`SamplyTimestamp`] opaque to external consumers.
+    #[inline]
     #[cfg(feature = "enabled")]
-    pub(crate) fn fmt<W>(self, writer: &mut W) -> std::fmt::Result
-    where
-        W: std::fmt::Write + ?Sized,
-    {
-        std::fmt::Write::write_fmt(writer, format_args!("{}", self.0))
+    pub(crate) const fn as_nanos(self) -> u64 {
+        self.0
     }
 }
 
@@ -83,16 +81,12 @@ mod test {
 
     #[test]
     #[cfg(feature = "enabled")]
-    fn fmt_writes_correctly() {
+    fn as_nanos_returns_correct_value() {
         let time = SamplyTimestamp::from_monotonic_nanos(9876543210);
-        let mut buffer = String::new();
-
-        let result = time.fmt(&mut buffer);
-        assert!(result.is_ok(), "Expected the fmt operation to succeed.");
-
         assert_eq!(
-            buffer, "9876543210",
-            "Expected the buffer to contain the formatted timestamp."
+            time.as_nanos(),
+            9876543210,
+            "Expected as_nanos to return the underlying nanosecond value."
         );
     }
 
