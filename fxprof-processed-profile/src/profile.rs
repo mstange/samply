@@ -1425,6 +1425,22 @@ impl Profile {
         }
     }
 
+    fn compute_profiling_time_range(&self) -> Option<(Timestamp, Timestamp)> {
+        self.threads
+            .iter()
+            .flat_map(|thread| {
+                thread
+                    .sample_timestamps()
+                    .chain(thread.marker_start_times())
+                    .chain(thread.marker_end_times())
+            })
+            .fold(None, |acc, timestamp| {
+                acc.map_or(Some((timestamp, timestamp)), |(min, max)| {
+                    Some((min.min(timestamp), max.max(timestamp)))
+                })
+            })
+    }
+
     fn contains_js_frame(&self) -> bool {
         self.threads.iter().any(|t| t.contains_js_frame())
     }
@@ -1497,6 +1513,12 @@ impl Serialize for SerializableProfileMeta<'_> {
             }
             None => {}
         }
+
+        if let Some((start, end)) = self.0.compute_profiling_time_range() {
+            map.serialize_entry("profilingStartTime", &start)?;
+            map.serialize_entry("profilingEndTime", &end)?;
+        }
+
         map.serialize_entry("symbolicated", &self.0.symbolicated)?;
         map.serialize_entry("pausedRanges", &[] as &[()])?;
         map.serialize_entry("version", &24)?; // this version is ignored, only "preprocessedProfileVersion" is used

@@ -344,6 +344,8 @@ fn profile_without_js() {
                 "time": "ms"
               },
               "startTime": 1636162232627.0,
+              "profilingStartTime": 0.0,
+              "profilingEndTime": 3.0,
               "symbolicated": false,
               "pausedRanges": [],
               "version": 24,
@@ -1020,6 +1022,8 @@ fn profile_with_js() {
                 "time": "ms"
               },
               "startTime": 1636162232627.0,
+              "profilingStartTime": 1.0,
+              "profilingEndTime": 1.0,
               "symbolicated": false,
               "pausedRanges": [],
               "version": 24,
@@ -1277,6 +1281,8 @@ fn profile_counters_with_sorted_processes() {
                 "time": "ms"
               },
               "startTime": 1636162232627.0,
+              "profilingStartTime": 0.0,
+              "profilingEndTime": 1.0,
               "symbolicated": true,
               "pausedRanges": [],
               "version": 24,
@@ -1590,6 +1596,8 @@ fn test_flow_marker_fields() {
                 "time": "ms"
               },
               "startTime": 1636162232627.0,
+              "profilingStartTime": 10.0,
+              "profilingEndTime": 10.0,
               "symbolicated": false,
               "pausedRanges": [],
               "version": 24,
