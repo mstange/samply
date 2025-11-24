@@ -923,6 +923,9 @@ impl ProfileContext {
             .insert((tid, timestamp_raw), thread_handle);
     }
 
+
+
+
     pub fn handle_thread_start(
         &mut self,
         timestamp_raw: u64,
@@ -1093,6 +1096,62 @@ impl ProfileContext {
         // in between regular interval samples. In the future, maybe we can support fractional samples
         // somehow (fractional weight), but for now, we just attach them to the marker.
         let (thread_handle, marker_handle) = thread_marker_handle;
+        let timestamp = self.timestamp_converter.convert_time(timestamp_raw);
+        process.unresolved_samples.attach_stack_to_marker(
+            thread_handle,
+            timestamp,
+            timestamp_raw,
+            stack_index,
+            marker_handle,
+        );
+    }
+
+    pub fn handle_allocation_sample(
+        &mut self,
+        timestamp_raw: u64,
+        pid: u32,
+        tid: u32,
+        size: i64,
+        address: u64,
+        stack_address_iter: impl Iterator<Item = u64>,
+    ) {
+        let Some(process) = self.processes.get_by_pid_and_timestamp(pid, timestamp_raw) else {
+            return;
+        };
+
+        let Some(thread) = self.threads.get_by_tid(tid) else {
+            return;
+        };
+
+        let timestamp = self.timestamp_converter.convert_time(timestamp_raw);
+        let stack: Vec<StackFrame> = to_stack_frames(stack_address_iter, self.address_classifier);
+
+        let stack_index = self.unresolved_stacks.convert(stack.into_iter().rev());
+
+
+        process.unresolved_samples.add_allocation_sample(process.main_thread_handle, timestamp, timestamp_raw, stack_index, address, size, None);
+    }
+
+
+    pub fn handle_marker_stack(
+        &mut self,
+        timestamp_raw: u64,
+        pid: u32,
+        tid: u32,
+        stack_address_iter: impl Iterator<Item = u64>,
+        marker_handle: MarkerHandle,
+    ) {
+        let Some(process) = self.processes.get_by_pid_and_timestamp(pid, timestamp_raw) else {
+            return;
+        };
+
+        let Some(thread) = self.threads.get_by_tid(tid) else {
+            return;
+        };
+
+        let stack: Vec<StackFrame> = to_stack_frames(stack_address_iter, self.address_classifier);
+        let stack_index = self.unresolved_stacks.convert(stack.into_iter().rev());
+        let thread_handle = thread.handle;
         let timestamp = self.timestamp_converter.convert_time(timestamp_raw);
         process.unresolved_samples.attach_stack_to_marker(
             thread_handle,
@@ -1971,24 +2030,24 @@ impl ProfileContext {
         tid: u32,
         task_and_op: &str,
         stringified_properties: String,
-    ) {
+    ) -> Option<MarkerHandle> {
         if !self.profile_creation_props.unknown_event_markers {
-            return;
+            return None;
         }
 
         let Some(thread_handle) = self.thread_handle_at_time(tid, timestamp_raw) else {
-            return;
+            return None;
         };
 
         let timestamp = self.timestamp_converter.convert_time(timestamp_raw);
         let timing = MarkerTiming::Instant(timestamp);
         let marker_name = self.profile.handle_for_string(task_and_op);
         let description = self.profile.handle_for_string(&stringified_properties);
-        self.profile.add_marker(
+        Some(self.profile.add_marker(
             thread_handle,
             timing,
             FreeformMarker(marker_name, description),
-        );
+        ))
         //println!("unhandled {}", s.name())
     }
 

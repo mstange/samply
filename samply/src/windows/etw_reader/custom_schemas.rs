@@ -698,7 +698,7 @@ const D3DUmdLogging_PROPS: [PropDesc; 6] = [
     },
     PropDesc {
         name: "Size",
-        in_type: TdhInType::InTypeUInt32,
+        in_type: TdhInType::InTypeUInt64,
         out_type: TdhOutType::OutTypeUInt64,
     },
     // XXX: use an enum for these
