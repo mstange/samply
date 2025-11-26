@@ -116,12 +116,26 @@ impl ProcessSampleData {
         }
 
         for marker in marker_spans {
-            let marker_name_string_index = profile.handle_for_string(&marker.name);
-            profile.add_marker(
-                marker.thread_handle,
-                MarkerTiming::Interval(marker.start_time, marker.end_time),
-                SimpleMarker(marker_name_string_index),
-            );
+            let MarkerSpanOnThread {
+                thread_handle,
+                start_time,
+                end_time,
+                name,
+            } = marker;
+
+            let marker_name_string_index = profile.handle_for_string(&name);
+            let timing = Self::marker_timing_for_span(start_time, end_time);
+            let marker = SimpleMarker(marker_name_string_index);
+
+            profile.add_marker(thread_handle, timing, marker);
+        }
+    }
+
+    fn marker_timing_for_span(start_time: Timestamp, end_time: Timestamp) -> MarkerTiming {
+        if start_time == end_time {
+            MarkerTiming::Instant(start_time)
+        } else {
+            MarkerTiming::Interval(start_time, end_time)
         }
     }
 }
@@ -283,5 +297,37 @@ impl Marker for SimpleMarker {
 
     fn field_values(&self) -> StringHandle {
         self.0
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_marker_timing_for_span() {
+        let same_time = Timestamp::from_millis_since_reference(5.0);
+        let different_start = Timestamp::from_millis_since_reference(10.0);
+        let different_end = Timestamp::from_millis_since_reference(15.0);
+
+        let zero_duration_timing = ProcessSampleData::marker_timing_for_span(same_time, same_time);
+        assert!(
+            matches!(zero_duration_timing, MarkerTiming::Instant(_)),
+            "Zero duration span should return Instant timing"
+        );
+        if let MarkerTiming::Instant(t) = zero_duration_timing {
+            assert_eq!(t, same_time);
+        }
+
+        let non_zero_duration_timing =
+            ProcessSampleData::marker_timing_for_span(different_start, different_end);
+        assert!(
+            matches!(non_zero_duration_timing, MarkerTiming::Interval(_, _)),
+            "Non-zero duration span should return Interval timing"
+        );
+        if let MarkerTiming::Interval(start, end) = non_zero_duration_timing {
+            assert_eq!(start, different_start);
+            assert_eq!(end, different_end);
+        }
     }
 }
