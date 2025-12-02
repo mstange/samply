@@ -4,6 +4,7 @@
 use libc::{c_char, c_int, mode_t, FILE};
 
 use core::ffi::CStr;
+use core::ffi::c_uint;
 
 mod mach_ipc;
 mod mach_sys;
@@ -13,6 +14,7 @@ use mach_ipc::{channel, mach_task_self, OsIpcChannel, OsIpcSender};
 extern "C" {
     fn open(path: *const c_char, flags: c_int, mode: mode_t) -> c_int;
     fn fopen(filename: *const c_char, mode: *const c_char) -> *mut FILE;
+    fn mkostemps(template: *mut c_char, suffix_len: c_int, flags: c_int) -> c_int;
 }
 
 static CHANNEL_SENDER: spin::Mutex<Option<OsIpcSender>> = spin::Mutex::new(None);
@@ -97,7 +99,7 @@ extern "C" fn samply_hooked_open(path: *const c_char, flags: c_int, mode: mode_t
 #[no_mangle]
 extern "C" fn samply_hooked_fopen(path: *const c_char, mode: *const c_char) -> *mut FILE {
     // unsafe {
-    //     libc::printf(b"fopen(%s, %s\n\0".as_ptr() as *const i8, path, mode);
+    //     libc::printf(b"fopen(%s, %s)\n\0".as_ptr() as *const i8, path, mode);
     // }
 
     if let Ok(path) = unsafe { CStr::from_ptr(path) }.to_str() {
@@ -107,6 +109,25 @@ extern "C" fn samply_hooked_fopen(path: *const c_char, mode: *const c_char) -> *
 
     // Call the original.
     unsafe { fopen(path, mode) }
+}
+
+// Same
+#[no_mangle]
+extern "C" fn samply_hooked_mkostemps(template: *mut c_char, suffixlen: c_int, flags: c_int) -> c_int {
+    // unsafe {
+    //     libc::printf(b"mkostemps(%s, %d, %d)\n\0".as_ptr() as *const i8, template, suffixlen, flags);
+    // }
+
+    let mut result = 0 as c_int;
+    unsafe { result = mkostemps(template, suffixlen, flags) }
+
+    //template was mutated
+    if let Ok(path) = unsafe { CStr::from_ptr(template) }.to_str() {
+        detect_and_send_jitdump_path(path);
+        detect_and_send_marker_file_path(path);
+    }
+
+    result
 }
 
 fn filename_starts_with(path: &str, filename_prefix: &str) -> bool {
@@ -175,4 +196,13 @@ pub static mut _interpose_open: InterposeEntry = InterposeEntry {
 pub static mut _interpose_fopen: InterposeEntry = InterposeEntry {
     _new: samply_hooked_fopen as *const (),
     _old: fopen as *const (),
+};
+
+#[used]
+#[allow(dead_code)]
+#[allow(non_upper_case_globals)]
+#[link_section = "__DATA,__interpose"]
+pub static mut _interpose_mkostemps: InterposeEntry = InterposeEntry {
+    _new: samply_hooked_mkostemps as *const (),
+    _old: mkostemps as *const (),
 };
