@@ -190,7 +190,7 @@ fn convert_file_to_profile(
     let file_meta = input_file.metadata().ok();
     let file_mod_time = file_meta.and_then(|metadata| metadata.modified().ok());
     let mut binary_lookup_dirs = import_props.symbol_props.symbol_dir;
-    let mut aux_file_lookup_dirs = import_props.aux_file_dir;
+    let mut aux_file_lookup_dirs = import_props.aux_file_dir.clone();
     if let Some(parent_dir) = path.parent() {
         binary_lookup_dirs.push(parent_dir.into());
         aux_file_lookup_dirs.push(parent_dir.into());
@@ -202,6 +202,7 @@ fn convert_file_to_profile(
         binary_lookup_dirs,
         aux_file_lookup_dirs,
         import_props.profile_creation_props,
+        import_props.marker_files,
     ) {
         Ok(profile) => profile,
         Err(error) => {

@@ -30,6 +30,7 @@ pub fn convert<C: Read + Seek>(
     binary_lookup_dirs: Vec<PathBuf>,
     aux_file_lookup_dirs: Vec<PathBuf>,
     profile_creation_props: ProfileCreationProps,
+    marker_files: Vec<PathBuf>,
 ) -> Result<Profile, Error> {
     let perf_file = PerfFileReader::parse_file(cursor)?;
 
@@ -45,6 +46,7 @@ pub fn convert<C: Read + Seek>(
                 aux_file_lookup_dirs,
                 cache,
                 profile_creation_props,
+                marker_files,
             )
         }
         _ => {
@@ -62,6 +64,7 @@ pub fn convert<C: Read + Seek>(
                 aux_file_lookup_dirs,
                 cache,
                 profile_creation_props,
+                marker_files,
             )
         }
     };
@@ -75,6 +78,7 @@ fn convert_impl<U, C, R>(
     aux_file_lookup_dirs: Vec<PathBuf>,
     cache: U::Cache,
     profile_creation_props: ProfileCreationProps,
+    marker_files: Vec<PathBuf>,
 ) -> Profile
 where
     U: Unwinder<Module = Module<MmapRangeOrVec>> + Default,
@@ -174,7 +178,7 @@ where
         endian,
         cache,
         binary_lookup_dirs,
-        aux_file_lookup_dirs,
+        aux_file_lookup_dirs.clone(),
         interpretation.clone(),
         simpleperf_symbol_tables,
         call_chain_return_addresses_are_preadjusted,
@@ -185,6 +189,10 @@ where
         .and_then(|mi| mi.get("android_version"))
     {
         converter.set_os_name(&format!("Android {android_version}"));
+    }
+
+    for marker_file_path in marker_files {
+        converter.add_marker_file(marker_file_path);
     }
 
     let mut last_timestamp = 0;

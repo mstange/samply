@@ -109,6 +109,10 @@ pub struct ImportArgs {
     #[arg(long)]
     pub aux_file_dir: Vec<PathBuf>,
 
+    /// Path to a marker file to import, as if it was opened by the recorded process (can be specified multiple times).
+    #[arg(long)]
+    pub marker_file: Vec<PathBuf>,
+
     /// Only include processes with this name substring (can be specified multiple times).
     #[arg(long)]
     pub name: Option<Vec<String>>,
@@ -399,6 +403,7 @@ impl ImportArgs {
             included_processes: self.included_processes(),
             user_etl: self.user_etl.clone(),
             aux_file_dir: self.aux_file_dir.clone(),
+            marker_files: self.marker_file.clone(),
             time_range: self.time_range,
         }
     }

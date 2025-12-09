@@ -126,6 +126,7 @@ pub struct ImportProps {
     pub profile_creation_props: ProfileCreationProps,
     pub symbol_props: SymbolProps,
     pub aux_file_dir: Vec<PathBuf>,
+    pub marker_files: Vec<PathBuf>,
     #[allow(unused)] // todo: respect when converting perf.data
     pub included_processes: Option<IncludedProcesses>,
     #[allow(unused)] // Windows-only

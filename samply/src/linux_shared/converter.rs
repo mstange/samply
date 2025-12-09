@@ -108,6 +108,19 @@ where
 
     /// Whether to emit context switch markers.
     should_emit_cswitch_markers: bool,
+
+    /// Marker files to add to processes.
+    marker_files: Vec<MarkerFileToAdd>,
+}
+
+struct MarkerFileToAdd {
+    /// Path to the marker file.
+    path: PathBuf,
+    /// Process ID extracted from the marker file name (e.g., "marker-12345.txt" -> 12345).
+    pid: Option<i32>,
+    /// Thread ID extracted from the marker file name (e.g., "marker-12345-67890.txt" -> 67890).
+    /// If None, the marker file will be attached to the main thread (tid == pid).
+    tid: Option<i32>,
 }
 
 struct SimpleperfConverterData {
@@ -217,7 +230,35 @@ where
             call_chain_return_addresses_are_preadjusted,
             should_emit_jit_markers: profile_creation_props.should_emit_jit_markers,
             should_emit_cswitch_markers: profile_creation_props.should_emit_cswitch_markers,
+            marker_files: Vec::new(),
         }
+    }
+
+    pub fn add_marker_file(&mut self, path: PathBuf) {
+        // Parse the marker file name to extract pid and optional tid
+        let (pid, tid) = if let Some(filename) = path.file_name().and_then(|n| n.to_str()) {
+            // Expected format: marker-{pid}.txt or marker-{pid}-{tid}.txt
+            if let Some(name_without_ext) = filename.strip_suffix(".txt") {
+                let mut parts = name_without_ext.splitn(3, '-');
+                if parts.next() == Some("marker") {
+                    if let Some(pid_str) = parts.next() {
+                        let pid = pid_str.parse::<i32>().ok();
+                        let tid = parts.next().and_then(|tid_str| tid_str.parse::<i32>().ok());
+                        (pid, tid)
+                    } else {
+                        (None, None)
+                    }
+                } else {
+                    (None, None)
+                }
+            } else {
+                (None, None)
+            }
+        } else {
+            (None, None)
+        };
+
+        self.marker_files.push(MarkerFileToAdd { path, pid, tid });
     }
 
     pub fn finish(mut self) -> Profile {
@@ -260,6 +301,25 @@ where
         let profile_timestamp = self.timestamp_converter.convert_time(timestamp);
 
         let process = self.processes.get_by_pid(pid, &mut self.profile);
+
+        // Add any marker files that match this process
+        self.marker_files.retain(|marker_file| {
+            if marker_file.pid == Some(pid) {
+                // Determine which thread to attach the marker file to
+                let target_tid = marker_file.tid.unwrap_or(pid);
+                let thread = process
+                    .threads
+                    .get_thread_by_tid(target_tid, &mut self.profile);
+                let profile_thread = thread.profile_thread;
+                process.add_marker_file_path(profile_thread, &marker_file.path, Vec::new());
+                // Remove this marker file from the list
+                false
+            } else {
+                // Keep this marker file for future checks
+                true
+            }
+        });
+
         process.check_jitdump(
             &mut self.jit_category_manager,
             &mut self.profile,
