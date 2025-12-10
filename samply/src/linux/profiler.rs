@@ -394,25 +394,6 @@ fn init_profiler(
         attach_mode,
     );
 
-    if let Err(error) = &perf {
-        if error.kind() == std::io::ErrorKind::PermissionDenied {
-            if let Some(level) = paranoia_level() {
-                if level > 1 {
-                    eprintln!();
-                    eprintln!(
-                        "'/proc/sys/kernel/perf_event_paranoid' is currently set to {level}."
-                    );
-                    eprintln!("In order for samply to work with a non-root user, this level needs");
-                    eprintln!("to be set to 1 or lower.");
-                    eprintln!("You can execute the following command and then try again:");
-                    eprintln!("    echo '-1' | sudo tee /proc/sys/kernel/perf_event_paranoid");
-                    eprintln!();
-                    std::process::exit(1);
-                }
-            }
-        }
-    }
-
     let mut perf = match perf {
         Ok(perf) => perf,
         Err(_) => {
@@ -434,6 +415,25 @@ fn init_profiler(
                 Ok(perf) => perf, // Success!
                 Err(error) => {
                     eprintln!("Failed to start profiling: {error}");
+                    if error.kind() == std::io::ErrorKind::PermissionDenied {
+                        if let Some(level) = paranoia_level() {
+                            if level > 1 {
+                                eprintln!();
+                                eprintln!(
+                                        "'/proc/sys/kernel/perf_event_paranoid' is currently set to {level}."
+                                    );
+                                eprintln!("In order for samply to work with a non-root user, this level needs");
+                                eprintln!("to be set to 1 or lower.");
+                                eprintln!(
+                                    "You can execute the following command and then try again:"
+                                );
+                                eprintln!(
+                                    "    echo '-1' | sudo tee /proc/sys/kernel/perf_event_paranoid"
+                                );
+                                eprintln!();
+                            }
+                        }
+                    }
                     std::process::exit(1);
                 }
             }
