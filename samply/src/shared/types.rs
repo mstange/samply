@@ -46,6 +46,15 @@ pub enum StackFrame {
 }
 
 impl StackFrame {
+    pub fn address(&self) -> u64 {
+        match self {
+            StackFrame::InstructionPointer(addr, _) => *addr,
+            StackFrame::ReturnAddress(addr, _) => *addr,
+            StackFrame::AdjustedReturnAddress(addr, _) => *addr,
+            StackFrame::TruncatedStackMarker => 0,
+        }
+    }
+
     pub fn stack_mode(&self) -> Option<StackMode> {
         match self {
             StackFrame::InstructionPointer(_, stack_mode) => Some(*stack_mode),
@@ -53,5 +62,13 @@ impl StackFrame {
             StackFrame::AdjustedReturnAddress(_, stack_mode) => Some(*stack_mode),
             StackFrame::TruncatedStackMarker => None,
         }
+    }
+
+    pub fn is_kernel(&self) -> bool {
+        self.stack_mode() == Some(StackMode::Kernel)
+    }
+
+    pub fn is_user(&self) -> bool {
+        self.stack_mode() == Some(StackMode::User)
     }
 }

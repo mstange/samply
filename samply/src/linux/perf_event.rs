@@ -311,6 +311,10 @@ impl PerfBuilder {
             attr.sample_type |= PERF_SAMPLE_STACK_USER;
         }
 
+        if !exclude_kernel {
+            attr.sample_type |= PERF_SAMPLE_CALLCHAIN;
+        }
+
         attr.sample_regs_user = reg_mask;
         attr.sample_stack_user = stack_size;
         attr.sample_period_or_freq = frequency;
