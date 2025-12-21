@@ -59,7 +59,8 @@ use crate::shared::unresolved_samples::{
 };
 use crate::shared::utils::open_file_with_fallback;
 
-const PROT_EXEC: u32 = libc::PROT_EXEC as u32;
+const PROT_READ: u32 = 1;
+const PROT_EXEC: u32 = 4;
 
 pub struct Converter<U>
 where
@@ -837,7 +838,7 @@ where
                     // perf sets pgoff to the ref_reloc_sym address (_text)
                     page_offset: text_start,
                     file_id: Mmap2FileId::BuildId(build_id),
-                    protection: libc::PROT_READ as u32 | libc::PROT_EXEC as u32,
+                    protection: PROT_READ | PROT_EXEC,
                     flags: 0,
                     path: linux_perf_event_reader::RawData::Single(path),
                     cpu_mode: linux_perf_event_reader::CpuMode::Kernel,
@@ -859,7 +860,7 @@ where
                     length: module.size,
                     page_offset: 0,
                     file_id: Mmap2FileId::BuildId(Vec::new()),
-                    protection: libc::PROT_READ as u32 | libc::PROT_EXEC as u32,
+                    protection: PROT_READ | PROT_EXEC,
                     flags: 0,
                     path: linux_perf_event_reader::RawData::Single(&path_bytes),
                     cpu_mode: linux_perf_event_reader::CpuMode::Kernel,
