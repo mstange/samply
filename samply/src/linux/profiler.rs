@@ -462,6 +462,8 @@ fn init_profiler(
         }
     }
 
+    converter.emit_kernel_module_mappings();
+
     let maps = read_string_lossy(format!("/proc/{pid}/maps")).expect("couldn't read proc maps");
     let maps = proc_maps::parse(&maps);
 

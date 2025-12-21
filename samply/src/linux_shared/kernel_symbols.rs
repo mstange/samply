@@ -30,6 +30,7 @@ pub enum KernelSymbolsError {
 pub struct KernelSymbols {
     pub build_id: Vec<u8>,
     pub base_avma: u64,
+    pub end_avma: u64,
     pub symbol_table: Arc<SymbolTable>,
 }
 
@@ -42,11 +43,12 @@ impl KernelSymbols {
             .to_owned();
         let kallsyms = std::fs::read("/proc/kallsyms")
             .map_err(KernelSymbolsError::CouldNotReadProcKallsyms)?;
-        let (base_avma, symbol_table) = parse_kallsyms(&kallsyms)?;
+        let (base_avma, end_avma, symbol_table) = parse_kallsyms(&kallsyms)?;
         let symbol_table = Arc::new(symbol_table);
         Ok(KernelSymbols {
             build_id,
             base_avma,
+            end_avma,
             symbol_table,
         })
     }
@@ -99,10 +101,11 @@ impl<'a> Iterator for KallSymIter<'a> {
     }
 }
 
-pub fn parse_kallsyms(data: &[u8]) -> Result<(u64, SymbolTable), KernelSymbolsError> {
+pub fn parse_kallsyms(data: &[u8]) -> Result<(u64, u64, SymbolTable), KernelSymbolsError> {
     let mut symbols = Vec::new();
 
     let mut text_addr = None;
+    let mut etext_addr = None;
     for (absolute_addr, symbol_name) in KallSymIter::new(data) {
         match (text_addr, symbol_name) {
             (None, b"_text") => {
@@ -114,13 +117,16 @@ pub fn parse_kallsyms(data: &[u8]) -> Result<(u64, SymbolTable), KernelSymbolsEr
                 });
             }
             (Some(text_addr), _) if absolute_addr >= text_addr => {
+                if symbol_name == b"_etext" && etext_addr.is_none() {
+                    etext_addr = Some(absolute_addr);
+                }
                 let relative_address = absolute_addr - text_addr;
                 let relative_address = u32::try_from(relative_address)
                     .map_err(|_| KernelSymbolsError::RelativeAddressTooLarge(relative_address))?;
                 symbols.push(Symbol {
                     address: relative_address,
                     size: None,
-                    name: String::from_utf8_lossy(symbol_name).to_string(),
+                    name: String::from_utf8_lossy(symbol_name).into_owned(),
                 });
             }
             _ => {
@@ -129,7 +135,14 @@ pub fn parse_kallsyms(data: &[u8]) -> Result<(u64, SymbolTable), KernelSymbolsEr
         }
     }
     let text_addr = text_addr.ok_or(KernelSymbolsError::NoTextSymbol)?;
-    Ok((text_addr, SymbolTable::new(symbols)))
+    // If _etext not found, use a reasonable default (text_addr + max symbol offset)
+    let etext_addr = etext_addr.unwrap_or_else(|| {
+        symbols
+            .last()
+            .map(|s| text_addr + u64::from(s.address))
+            .unwrap_or(text_addr)
+    });
+    Ok((text_addr, etext_addr, SymbolTable::new(symbols)))
 }
 
 /// Match a hex string, parse it to a u32 or a u64.
@@ -168,22 +181,68 @@ pub fn kernel_module_build_id(path: &Path, binary_lookup_dirs: &[PathBuf]) -> Op
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct KernelModuleInfo {
+    pub name: String,
+    pub size: u64,
+    pub base_address: u64,
+}
+
+pub fn parse_proc_modules() -> Vec<KernelModuleInfo> {
+    let Ok(data) = std::fs::read_to_string("/proc/modules") else {
+        return Vec::new();
+    };
+    parse_proc_modules_from_str(&data)
+}
+
+fn parse_proc_modules_from_str(data: &str) -> Vec<KernelModuleInfo> {
+    let mut modules = Vec::new();
+    for line in data.lines() {
+        let mut parts = line.splitn(6, ' ');
+        let (Some(name), Some(size_str), Some(_refcount), Some(_deps), Some(_state), Some(rest)) = (
+            parts.next(),
+            parts.next(),
+            parts.next(),
+            parts.next(),
+            parts.next(),
+            parts.next(),
+        ) else {
+            continue;
+        };
+
+        let Ok(size) = size_str.parse::<u64>() else {
+            continue;
+        };
+
+        let addr_str = rest.split_whitespace().next().unwrap_or("");
+        let addr_str = addr_str.trim_start_matches("0x");
+        let Ok(base_address) = u64::from_str_radix(addr_str, 16) else {
+            continue;
+        };
+
+        modules.push(KernelModuleInfo {
+            name: name.to_string(),
+            size,
+            base_address,
+        });
+    }
+    modules
+}
+
 #[cfg(test)]
 mod test {
+    use super::*;
     use debugid::CodeId;
 
-    use super::build_id_from_notes_section_data;
-    use crate::linux_shared::kernel_symbols::parse_kallsyms;
-
     #[test]
-    fn test() {
+    fn parse_build_id_from_notes() {
         let build_id = build_id_from_notes_section_data(b"\x04\0\0\0\x14\0\0\0\x03\0\0\0GNU\0\x98Kvo\x1c\xb5i\x9c;\x1bw\xb5\x92\x98<\"\xe9\xd1\x97\xad\x06\0\0\0\x04\0\0\0\x01\x01\0\0Linux\0\0\0\0\0\0\0\x06\0\0\0\x01\0\0\0\0\x01\0\0Linux\0\0\0\0\0\0\0");
         let code_id = CodeId::from_binary(build_id.unwrap());
         assert_eq!(code_id.as_str(), "984b766f1cb5699c3b1b77b592983c22e9d197ad");
     }
 
     #[test]
-    fn test2() {
+    fn parse_kallsyms_basic() {
         let kallsyms = br#"ffff8000081e0000 T _text
 ffff8000081f0000 t bcm2835_handle_irq
 ffff8000081f0000 T _stext
@@ -191,7 +250,7 @@ ffff8000081f0000 T __irqentry_text_start
 ffff8000081f0060 t bcm2836_arm_irqchip_handle_irq
 ffff8000081f00e0 t dw_apb_ictl_handle_irq
 ffff8000081f0190 t sun4i_handle_irq"#;
-        let (base_avma, symbol_table) = parse_kallsyms(kallsyms).unwrap();
+        let (base_avma, _end_avma, symbol_table) = parse_kallsyms(kallsyms).unwrap();
         assert_eq!(base_avma, 0xffff8000081e0000);
         assert_eq!(
             &symbol_table.lookup(0x10061).unwrap().name,
@@ -204,7 +263,7 @@ ffff8000081f0190 t sun4i_handle_irq"#;
     }
 
     #[test]
-    fn test3() {
+    fn parse_kallsyms_skips_symbols_before_text() {
         let kallsyms = br#"0000000000000000 A fixed_percpu_data
 0000000000000000 A __per_cpu_start
 0000000000001000 A cpu_debug_store
@@ -220,7 +279,7 @@ ffffffffa7e00040 T secondary_startup_64
 ffffffffa7e00045 T secondary_startup_64_no_verify
 ffffffffa7e00110 t verify_cpu
 ffffffffa7e00210 T sev_verify_cbit"#;
-        let (base_avma, symbol_table) = parse_kallsyms(kallsyms).unwrap();
+        let (base_avma, _end_avma, symbol_table) = parse_kallsyms(kallsyms).unwrap();
         assert_eq!(base_avma, 0xffffffffa7e00000);
         assert_eq!(
             &symbol_table.lookup(0x61).unwrap().name,
@@ -229,7 +288,7 @@ ffffffffa7e00210 T sev_verify_cbit"#;
     }
 
     #[test]
-    fn test4() {
+    fn parse_kallsyms_with_kernel_modules() {
         // In this example, there are spots where the address goes backwards.
         // The kernel modules seem to be loaded before the regular vmlinux image.
         // For example, [tls] starts at ffff800001717000, which is before _text at ffff8000081e0000.
@@ -336,11 +395,35 @@ ffff80000141f058 d $d  [raid10]
 ffff800001411050 t __raid10_find_phys  [raid10]
 ffff80000b543a4c t bpf_prog_6deef7357e7b4530   [bpf]
 ffff80000b5c5744 t bpf_prog_654d7024997e7811   [bpf]"#;
-        let (base_avma, symbol_table) = parse_kallsyms(kallsyms).unwrap();
+        let (base_avma, _end_avma, symbol_table) = parse_kallsyms(kallsyms).unwrap();
         assert_eq!(base_avma, 0xffff8000081e0000);
         assert_eq!(
             &symbol_table.lookup(0x998b20).unwrap().name,
             "tegra_clk_periph_fixed_is_enabled"
         );
+    }
+
+    #[test]
+    fn parse_proc_modules_basic() {
+        let modules_data = r#"rfcomm 102400 4 - Live 0xffffffffc9347000
+snd_seq_dummy 12288 0 - Live 0xffffffffc931c000
+snd_hrtimer 12288 1 - Live 0xffffffffc7bae000
+snd_seq 135168 7 snd_seq_dummy, Live 0xffffffffc933a000
+wireguard 118784 0 - Live 0xffffffffc932c000"#;
+
+        let modules = parse_proc_modules_from_str(modules_data);
+        assert_eq!(modules.len(), 5);
+
+        assert_eq!(modules[0].name, "rfcomm");
+        assert_eq!(modules[0].size, 102400);
+        assert_eq!(modules[0].base_address, 0xffffffffc9347000);
+
+        assert_eq!(modules[2].name, "snd_hrtimer");
+        assert_eq!(modules[2].size, 12288);
+        assert_eq!(modules[2].base_address, 0xffffffffc7bae000);
+
+        assert_eq!(modules[4].name, "wireguard");
+        assert_eq!(modules[4].size, 118784);
+        assert_eq!(modules[4].base_address, 0xffffffffc932c000);
     }
 }

@@ -34,7 +34,7 @@ use super::avma_range::AvmaRange;
 use super::convert_regs::ConvertRegs;
 use super::event_interpretation::{EventInterpretation, OffCpuIndicator};
 use super::injected_jit_object::{correct_bad_perf_jit_so_file, jit_function_name};
-use super::kernel_symbols::{kernel_module_build_id, KernelSymbols};
+use super::kernel_symbols::{kernel_module_build_id, parse_proc_modules, KernelSymbols};
 use super::mmap_range_or_vec::MmapRangeOrVec;
 use super::pe_mappings::{PeMappings, SuspectedPeMapping};
 use super::processes::Processes;
@@ -59,7 +59,7 @@ use crate::shared::unresolved_samples::{
 };
 use crate::shared::utils::open_file_with_fallback;
 
-const PROT_EXEC: u32 = 0b100;
+const PROT_EXEC: u32 = libc::PROT_EXEC as u32;
 
 pub struct Converter<U>
 where
@@ -811,6 +811,60 @@ where
                 e.length,
                 build_id.as_deref(),
                 timestamp,
+            );
+        }
+    }
+
+    /// Emit synthetic Mmap2 events for the kernel and kernel modules.
+    /// This matches how `perf record` synthesizes kernel mmap events.
+    pub fn emit_kernel_module_mappings(&mut self) {
+        let Some(kernel_symbols) = &self.kernel_symbols else {
+            return;
+        };
+
+        // Emit synthetic Mmap2 event for the main kernel image.
+        let text_start = kernel_symbols.base_avma;
+        let text_end = kernel_symbols.end_avma;
+        if text_start != 0 && text_end > text_start {
+            let path = b"[kernel.kallsyms]_text";
+            let build_id = kernel_symbols.build_id.clone();
+            self.handle_mmap2(
+                Mmap2Record {
+                    pid: -1,
+                    tid: 0,
+                    address: text_start,
+                    length: text_end - text_start,
+                    // perf sets pgoff to the ref_reloc_sym address (_text)
+                    page_offset: text_start,
+                    file_id: Mmap2FileId::BuildId(build_id),
+                    protection: libc::PROT_READ as u32 | libc::PROT_EXEC as u32,
+                    flags: 0,
+                    path: linux_perf_event_reader::RawData::Single(path),
+                    cpu_mode: linux_perf_event_reader::CpuMode::Kernel,
+                },
+                0,
+            );
+        }
+
+        // Emit synthetic Mmap2 events for each kernel module.
+        // perf uses the format "[module_name]" for kernel module paths.
+        for module in parse_proc_modules() {
+            let path = format!("[{}]", module.name);
+            let path_bytes = path.into_bytes();
+            self.handle_mmap2(
+                Mmap2Record {
+                    pid: -1,
+                    tid: 0,
+                    address: module.base_address,
+                    length: module.size,
+                    page_offset: 0,
+                    file_id: Mmap2FileId::BuildId(Vec::new()),
+                    protection: libc::PROT_READ as u32 | libc::PROT_EXEC as u32,
+                    flags: 0,
+                    path: linux_perf_event_reader::RawData::Single(&path_bytes),
+                    cpu_mode: linux_perf_event_reader::CpuMode::Kernel,
+                },
+                0,
             );
         }
     }
