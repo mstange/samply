@@ -105,6 +105,10 @@ impl SampleTable {
         self.sample_weight_type = t;
     }
 
+    pub fn timestamps(&self) -> impl Iterator<Item = Timestamp> + use<'_> {
+        self.sample_timestamps.iter().copied()
+    }
+
     pub fn modify_last_sample(&mut self, timestamp: Timestamp, weight: i32) {
         *self.sample_weights.last_mut().unwrap() += weight;
         *self.sample_timestamps.last_mut().unwrap() = timestamp;

@@ -106,6 +106,14 @@ impl MarkerTable {
         self
     }
 
+    pub fn start_times(&self) -> impl Iterator<Item = Timestamp> + use<'_> {
+        self.marker_starts.iter().copied().flatten()
+    }
+
+    pub fn end_times(&self) -> impl Iterator<Item = Timestamp> + use<'_> {
+        self.marker_ends.iter().copied().flatten()
+    }
+
     pub fn as_serializable<'a>(
         &'a self,
         schemas: &'a [InternalMarkerSchema],

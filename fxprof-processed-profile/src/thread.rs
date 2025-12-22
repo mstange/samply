@@ -194,6 +194,18 @@ impl Thread {
         self.frame_interner.gather_used_rvas(collector);
     }
 
+    pub fn sample_timestamps(&self) -> impl Iterator<Item = Timestamp> + use<'_> {
+        self.samples.timestamps()
+    }
+
+    pub fn marker_start_times(&self) -> impl Iterator<Item = Timestamp> + use<'_> {
+        self.markers.start_times()
+    }
+
+    pub fn marker_end_times(&self) -> impl Iterator<Item = Timestamp> + use<'_> {
+        self.markers.end_times()
+    }
+
     pub fn cmp_for_json_order(&self, other: &Thread) -> Ordering {
         let ordering = (!self.is_main).cmp(&(!other.is_main));
         if ordering != Ordering::Equal {
