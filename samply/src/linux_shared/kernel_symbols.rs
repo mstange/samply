@@ -22,9 +22,6 @@ pub enum KernelSymbolsError {
 
     #[error("Did not find a _text symbol in the kernel symbol list")]
     NoTextSymbol,
-
-    #[error("Relative address {0:#x} does not fit into u32")]
-    RelativeAddressTooLarge(u64),
 }
 
 #[derive(Debug, Clone)]
