@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::fmt::Debug;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -32,6 +33,8 @@ pub struct KernelSymbols {
     pub base_avma: u64,
     pub end_avma: u64,
     pub symbol_table: Arc<SymbolTable>,
+    /// Symbol tables for kernel modules, keyed by module name.
+    pub module_symbol_tables: HashMap<String, Arc<SymbolTable>>,
 }
 
 impl KernelSymbols {
@@ -43,13 +46,27 @@ impl KernelSymbols {
             .to_owned();
         let kallsyms = std::fs::read("/proc/kallsyms")
             .map_err(KernelSymbolsError::CouldNotReadProcKallsyms)?;
-        let (base_avma, end_avma, symbol_table) = parse_kallsyms(&kallsyms)?;
+
+        // Get module base addresses from /proc/modules
+        let module_bases: HashMap<String, u64> = parse_proc_modules()
+            .into_iter()
+            .map(|m| (m.name, m.base_address))
+            .collect();
+
+        let (base_avma, end_avma, symbol_table, module_symbol_tables) =
+            parse_kallsyms(&kallsyms, &module_bases)?;
         let symbol_table = Arc::new(symbol_table);
+        let module_symbol_tables = module_symbol_tables
+            .into_iter()
+            .map(|(k, v)| (k, Arc::new(v)))
+            .collect();
+
         Ok(KernelSymbols {
             build_id,
             base_avma,
             end_avma,
             symbol_table,
+            module_symbol_tables,
         })
     }
 }
@@ -101,16 +118,55 @@ impl<'a> Iterator for KallSymIter<'a> {
     }
 }
 
-pub fn parse_kallsyms(data: &[u8]) -> Result<(u64, u64, SymbolTable), KernelSymbolsError> {
-    let mut symbols = Vec::new();
+/// Parses "symbol_name [module_name]" format, returning (symbol_name, module_name).
+fn parse_module_symbol(symbol_name: &[u8]) -> Option<(&[u8], &[u8])> {
+    let bracket_start = symbol_name.iter().rposition(|&b| b == b'[')?;
+    if symbol_name.last() != Some(&b']') {
+        return None;
+    }
+    let module_name = &symbol_name[bracket_start + 1..symbol_name.len() - 1];
+    let name_end = symbol_name[..bracket_start]
+        .iter()
+        .rposition(|&b| b != b' ' && b != b'\t')
+        .map(|i| i + 1)
+        .unwrap_or(0);
+    Some((&symbol_name[..name_end], module_name))
+}
+
+/// Parse kallsyms data into kernel and module symbol tables.
+///
+/// `module_bases` provides the base addresses from `/proc/modules`.
+/// Modules not present in `module_bases` are skipped.
+///
+/// Returns: (kernel_base, kernel_end, kernel_symbols, module_symbol_tables)
+pub fn parse_kallsyms(
+    data: &[u8],
+    module_bases: &HashMap<String, u64>,
+) -> Result<(u64, u64, SymbolTable, HashMap<String, SymbolTable>), KernelSymbolsError> {
+    let mut kernel_symbols = Vec::new();
+    let mut module_symbols_raw: HashMap<String, Vec<(u64, String)>> = HashMap::new();
 
     let mut text_addr = None;
     let mut etext_addr = None;
+
     for (absolute_addr, symbol_name) in KallSymIter::new(data) {
+        // Check if this is a module symbol
+        if let Some((sym_name, module_name)) = parse_module_symbol(symbol_name) {
+            if let Ok(module_name) = std::str::from_utf8(module_name) {
+                let name = String::from_utf8_lossy(sym_name).to_string();
+                module_symbols_raw
+                    .entry(module_name.to_string())
+                    .or_default()
+                    .push((absolute_addr, name));
+            }
+            continue;
+        }
+
+        // Kernel symbol
         match (text_addr, symbol_name) {
             (None, b"_text") => {
                 text_addr = Some(absolute_addr);
-                symbols.push(Symbol {
+                kernel_symbols.push(Symbol {
                     address: 0,
                     size: None,
                     name: "_text".to_string(),
@@ -121,28 +177,62 @@ pub fn parse_kallsyms(data: &[u8]) -> Result<(u64, u64, SymbolTable), KernelSymb
                     etext_addr = Some(absolute_addr);
                 }
                 let relative_address = absolute_addr - text_addr;
-                let relative_address = u32::try_from(relative_address)
-                    .map_err(|_| KernelSymbolsError::RelativeAddressTooLarge(relative_address))?;
-                symbols.push(Symbol {
-                    address: relative_address,
-                    size: None,
-                    name: String::from_utf8_lossy(symbol_name).into_owned(),
-                });
+                if let Ok(relative_address) = u32::try_from(relative_address) {
+                    kernel_symbols.push(Symbol {
+                        address: relative_address,
+                        size: None,
+                        name: String::from_utf8_lossy(symbol_name).into_owned(),
+                    });
+                }
             }
             _ => {
                 // Ignore symbols before the _text symbol.
             }
         }
     }
+
+    // Build module symbol tables
+    let mut module_symbol_tables = HashMap::new();
+
+    for (module_name, symbols) in module_symbols_raw {
+        // Skip modules not in /proc/modules
+        let Some(&base_addr) = module_bases.get(&module_name) else {
+            continue;
+        };
+
+        let symbols: Vec<Symbol> = symbols
+            .into_iter()
+            .filter_map(|(addr, name)| {
+                let relative_addr = addr.checked_sub(base_addr)?;
+                let relative_addr = u32::try_from(relative_addr).ok()?;
+                Some(Symbol {
+                    address: relative_addr,
+                    size: None,
+                    name,
+                })
+            })
+            .collect();
+
+        if !symbols.is_empty() {
+            module_symbol_tables.insert(module_name, SymbolTable::new(symbols));
+        }
+    }
+
     let text_addr = text_addr.ok_or(KernelSymbolsError::NoTextSymbol)?;
     // If _etext not found, use a reasonable default (text_addr + max symbol offset)
     let etext_addr = etext_addr.unwrap_or_else(|| {
-        symbols
+        kernel_symbols
             .last()
             .map(|s| text_addr + u64::from(s.address))
             .unwrap_or(text_addr)
     });
-    Ok((text_addr, etext_addr, SymbolTable::new(symbols)))
+
+    Ok((
+        text_addr,
+        etext_addr,
+        SymbolTable::new(kernel_symbols),
+        module_symbol_tables,
+    ))
 }
 
 /// Match a hex string, parse it to a u32 or a u64.
@@ -265,7 +355,9 @@ ffff8000081f0000 T __irqentry_text_start
 ffff8000081f0060 t bcm2836_arm_irqchip_handle_irq
 ffff8000081f00e0 t dw_apb_ictl_handle_irq
 ffff8000081f0190 t sun4i_handle_irq"#;
-        let (base_avma, _end_avma, symbol_table) = parse_kallsyms(kallsyms).unwrap();
+        let module_bases = HashMap::new();
+        let (base_avma, _end_avma, symbol_table, module_tables) =
+            parse_kallsyms(kallsyms, &module_bases).unwrap();
         assert_eq!(base_avma, 0xffff8000081e0000);
         assert_eq!(
             &symbol_table.lookup(0x10061).unwrap().name,
@@ -275,6 +367,7 @@ ffff8000081f0190 t sun4i_handle_irq"#;
             &symbol_table.lookup(0x10054).unwrap().name,
             "__irqentry_text_start"
         );
+        assert!(module_tables.is_empty());
     }
 
     #[test]
@@ -294,7 +387,9 @@ ffffffffa7e00040 T secondary_startup_64
 ffffffffa7e00045 T secondary_startup_64_no_verify
 ffffffffa7e00110 t verify_cpu
 ffffffffa7e00210 T sev_verify_cbit"#;
-        let (base_avma, _end_avma, symbol_table) = parse_kallsyms(kallsyms).unwrap();
+        let module_bases = HashMap::new();
+        let (base_avma, _end_avma, symbol_table, _) =
+            parse_kallsyms(kallsyms, &module_bases).unwrap();
         assert_eq!(base_avma, 0xffffffffa7e00000);
         assert_eq!(
             &symbol_table.lookup(0x61).unwrap().name,
@@ -410,11 +505,37 @@ ffff80000141f058 d $d  [raid10]
 ffff800001411050 t __raid10_find_phys  [raid10]
 ffff80000b543a4c t bpf_prog_6deef7357e7b4530   [bpf]
 ffff80000b5c5744 t bpf_prog_654d7024997e7811   [bpf]"#;
-        let (base_avma, _end_avma, symbol_table) = parse_kallsyms(kallsyms).unwrap();
+        // Provide module bases from /proc/modules
+        let mut module_bases = HashMap::new();
+        module_bases.insert("tls".to_string(), 0xffff800001717000u64);
+        module_bases.insert("raid10".to_string(), 0xffff800001411010u64);
+        module_bases.insert("bpf".to_string(), 0xffff80000b543a4cu64);
+
+        let (base_avma, _end_avma, symbol_table, module_tables) =
+            parse_kallsyms(kallsyms, &module_bases).unwrap();
         assert_eq!(base_avma, 0xffff8000081e0000);
         assert_eq!(
             &symbol_table.lookup(0x998b20).unwrap().name,
             "tegra_clk_periph_fixed_is_enabled"
+        );
+
+        // Check module symbol tables were created
+        assert_eq!(module_tables.len(), 3); // tls, raid10, bpf
+        assert!(module_tables.contains_key("tls"));
+        assert!(module_tables.contains_key("raid10"));
+        assert!(module_tables.contains_key("bpf"));
+
+        // Check tls module symbols
+        let tls_symbols = module_tables.get("tls").unwrap();
+        // tls_update is at 0xffff800001717020, base is 0xffff800001717000, relative = 0x20
+        assert_eq!(&tls_symbols.lookup(0x20).unwrap().name, "tls_update");
+
+        // Check raid10 module symbols
+        let raid10_symbols = module_tables.get("raid10").unwrap();
+        // __raid10_find_phys is at 0xffff800001411050, base is 0xffff800001411010, relative = 0x40
+        assert_eq!(
+            &raid10_symbols.lookup(0x40).unwrap().name,
+            "__raid10_find_phys"
         );
     }
 

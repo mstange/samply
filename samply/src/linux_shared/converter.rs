@@ -848,6 +848,7 @@ where
         }
 
         // Emit synthetic Mmap2 events for each kernel module.
+        // Use /proc/modules for base address and size.
         // perf uses the format "[module_name]" for kernel module paths.
         for module in parse_proc_modules() {
             let path = format!("[{}]", module.name);
@@ -1277,11 +1278,22 @@ where
                 }
             }
         } else {
-            self.simpleperf
-                .symbol_tables
-                .kernel_modules
-                .get(path_slice)
-                .map(|s| s.symbol_table.clone())
+            // First try kallsyms module symbols, then fall back to simpleperf
+            let kallsyms_symbols = if let DsoKey::KernelModule { name } = &dso_key {
+                let module_name = name.trim_start_matches('[').trim_end_matches(']');
+                self.kernel_symbols
+                    .as_ref()
+                    .and_then(|ks| ks.module_symbol_tables.get(module_name).cloned())
+            } else {
+                None
+            };
+            kallsyms_symbols.or_else(|| {
+                self.simpleperf
+                    .symbol_tables
+                    .kernel_modules
+                    .get(path_slice)
+                    .map(|s| s.symbol_table.clone())
+            })
         };
 
         let lib_handle = self.profile.add_lib(LibraryInfo {
