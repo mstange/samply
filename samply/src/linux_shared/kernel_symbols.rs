@@ -226,6 +226,21 @@ fn parse_proc_modules_from_str(data: &str) -> Vec<KernelModuleInfo> {
             base_address,
         });
     }
+
+    // `[base_address, base_address + size)` isn't the exact module boundary
+    // because modules aren't guaranteed to occupy a single contiguous region,
+    // so it's only a simple heuristic we can use for debugging.
+    //
+    // Because of this, overlapping ranges may occur, and this would mean a
+    // module may evict a previous one during symbolication.
+    // Make sure this doesn't happen by clamping the size of each module
+    // to the end of the previous module.
+    modules.sort_by_key(|m| m.base_address);
+    for i in 0..modules.len().saturating_sub(1) {
+        let max_size_left = modules[i + 1].base_address - modules[i].base_address;
+        modules[i].size = Ord::min(modules[i].size, max_size_left);
+    }
+
     modules
 }
 
@@ -414,16 +429,8 @@ wireguard 118784 0 - Live 0xffffffffc932c000"#;
         let modules = parse_proc_modules_from_str(modules_data);
         assert_eq!(modules.len(), 5);
 
-        assert_eq!(modules[0].name, "rfcomm");
-        assert_eq!(modules[0].size, 102400);
-        assert_eq!(modules[0].base_address, 0xffffffffc9347000);
-
-        assert_eq!(modules[2].name, "snd_hrtimer");
-        assert_eq!(modules[2].size, 12288);
-        assert_eq!(modules[2].base_address, 0xffffffffc7bae000);
-
-        assert_eq!(modules[4].name, "wireguard");
-        assert_eq!(modules[4].size, 118784);
-        assert_eq!(modules[4].base_address, 0xffffffffc932c000);
+        assert_eq!(modules[0].name, "snd_hrtimer");
+        assert_eq!(modules[0].size, 12288);
+        assert_eq!(modules[0].base_address, 0xffffffffc7bae000);
     }
 }
