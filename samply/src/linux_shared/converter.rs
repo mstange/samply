@@ -2092,7 +2092,7 @@ impl SampleStack {
 
         // DWARF never has kernel frames, since it's extracted from user stack.
         let dwarf_stack = &self.dwarf[..];
-        debug_assert!(dwarf_stack.iter().all(|f| f.is_user()));
+        debug_assert!(dwarf_stack.iter().all(|f| !f.is_kernel()));
 
         self.merged.extend_from_slice(dwarf_stack);
     }
