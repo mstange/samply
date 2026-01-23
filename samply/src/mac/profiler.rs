@@ -47,7 +47,6 @@ pub fn run(
                 // knows what they're doing and will specify the arg as needed.
                 if !env_vars.iter().any(|p| p.0 == "DOTNET_PerfMapEnabled") {
                     env_vars.push(("DOTNET_PerfMapEnabled".into(), "3".into()));
-                    profile_creation_props.unlink_aux_files = true;
                 }
 
                 // To be filled in with new launching code in future PR

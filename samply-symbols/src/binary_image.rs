@@ -225,7 +225,7 @@ impl<F: FileContents> BinaryImageInner<F> {
             None => {
                 // No object. This must be JITDUMP.
                 if let BinaryImageInner::JitDump(data, index) = self {
-                    let (entry_index, _symbol_address, offset_from_symbol) = index
+                    let (entry_index, _symbol_address, offset_from_symbol, _avma) = index
                         .lookup_relative_address(start_address)
                         .ok_or(CodeByteReadingError::AddressNotFound)?;
                     let entry = &index.entries[entry_index];
