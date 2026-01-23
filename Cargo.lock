@@ -2402,6 +2402,7 @@ dependencies = [
  "anyhow",
  "bitflags",
  "bitvec",
+ "byteorder",
  "bytesize",
  "cpp_demangle",
  "crc32fast",

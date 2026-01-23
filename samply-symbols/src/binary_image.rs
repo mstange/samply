@@ -229,6 +229,7 @@ impl<F: FileContents> BinaryImageInner<F> {
                         .lookup_relative_address(start_address)
                         .ok_or(CodeByteReadingError::AddressNotFound)?;
                     let entry = &index.entries[entry_index];
+                    let offset_from_symbol = u64::from(offset_from_symbol);
                     let symbol_code_bytes_len = entry.code_bytes_len;
                     let remaining_bytes_after_start_address =
                         symbol_code_bytes_len - offset_from_symbol;
