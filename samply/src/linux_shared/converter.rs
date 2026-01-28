@@ -161,7 +161,9 @@ where
                 Some(interval_ns) => (*interval_ns, 1),
                 None => (DEFAULT_OFF_CPU_SAMPLING_INTERVAL_NS, 0),
             };
-        let kernel_symbols = KernelSymbols::new_for_running_kernel().ok();
+        let kernel_symbols = KernelSymbols::new_for_running_kernel()
+            .inspect_err(|err| log::warn!("Failed to load kernel symbols: {err}"))
+            .ok();
 
         let timestamp_converter = TimestampConverter {
             reference_raw: first_sample_time,
