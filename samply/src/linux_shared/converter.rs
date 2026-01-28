@@ -784,7 +784,8 @@ where
             }
         } else {
             None
-        };
+        }
+        .filter(|x| !x.is_empty());
 
         // Get build_id and potentially override path from build_ids map.
         // These paths are usually the same, but in some cases the path from the build
