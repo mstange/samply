@@ -37,6 +37,7 @@ use profile_json_preparse::parse_libinfo_map_from_profile_file;
 use server::{start_server, RunningServerInfo, ServerProps};
 use shared::prop_types::{ImportProps, SymbolProps};
 use shared::save_profile::save_profile_to_file;
+use shared::share::upload_profile;
 use symbols::create_symbol_manager_and_quota_manager;
 
 fn main() {
@@ -67,6 +68,23 @@ fn main() {
 }
 
 fn do_load_action(load_args: cli::LoadArgs) {
+    if load_args.share {
+        match upload_profile(&load_args.file) {
+            Ok(url) => {
+                eprintln!("Profile shared successfully!");
+                eprintln!("View it at: {url}");
+                if !load_args.server_args.no_open {
+                    let _ = opener::open_browser(&url);
+                }
+                return;
+            }
+            Err(err) => {
+                eprintln!("Failed to share profile: {err}");
+                std::process::exit(1);
+            }
+        }
+    }
+
     run_server_serving_profile(
         &load_args.file,
         load_args.server_props(),
@@ -102,6 +120,23 @@ fn do_import_action(import_args: cli::ImportArgs) {
 
     // Drop the profile so that it doesn't take up memory while the server is running.
     drop(profile);
+
+    if import_args.share {
+        match upload_profile(&import_args.output) {
+            Ok(url) => {
+                eprintln!("Profile shared successfully!");
+                eprintln!("View it at: {url}");
+                if !import_args.server_args.no_open {
+                    let _ = opener::open_browser(&url);
+                }
+                return;
+            }
+            Err(err) => {
+                eprintln!("Failed to share profile: {err}");
+                std::process::exit(1);
+            }
+        }
+    }
 
     if let Some(server_props) = import_args.server_props() {
         run_server_serving_profile(
@@ -147,6 +182,23 @@ fn do_record_action(record_args: cli::RecordArgs) {
 
     // Drop the profile so that it doesn't take up memory while the server is running.
     drop(profile);
+
+    if record_args.share {
+        match upload_profile(&record_args.output) {
+            Ok(url) => {
+                eprintln!("Profile shared successfully!");
+                eprintln!("View it at: {url}");
+                if !record_args.server_args.no_open {
+                    let _ = opener::open_browser(&url);
+                }
+                std::process::exit(exit_status.code().unwrap_or(0));
+            }
+            Err(err) => {
+                eprintln!("Failed to share profile: {err}");
+                std::process::exit(1);
+            }
+        }
+    }
 
     // then fire up the server for the profiler front end, if not save-only
     if let Some(server_props) = record_args.server_props() {
