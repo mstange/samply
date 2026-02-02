@@ -56,6 +56,8 @@ samply-debugid = { version = "0.1.0", path = "../samply-debugid" }
 samply-quota-manager = { version = "0.1.0", path = "../samply-quota-manager" }
 samply-object = { version = "0.1.0", path = "../samply-object" }
 indexmap = "2.9.0"
+reqwest = { version = "0.12", features = ["blocking"] }
+base64 = "0.22"
 
 [target.'cfg(any(target_os = "android", target_os = "macos", target_os = "linux"))'.dependencies]
 

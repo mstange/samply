@@ -73,6 +73,10 @@ pub struct LoadArgs {
     /// Path to the file that should be loaded.
     pub file: PathBuf,
 
+    /// Upload the profile to profiler.firefox.com and print a shareable URL.
+    #[arg(long)]
+    pub share: bool,
+
     #[command(flatten)]
     pub server_args: ServerArgs,
 
@@ -94,6 +98,10 @@ pub struct ImportArgs {
     /// Do not run a local server after recording.
     #[arg(short, long)]
     pub save_only: bool,
+
+    /// Upload the profile to profiler.firefox.com and print a shareable URL.
+    #[arg(long)]
+    pub share: bool,
 
     /// Output filename.
     #[arg(short, long, default_value = "profile.json.gz")]
@@ -151,6 +159,10 @@ pub struct RecordArgs {
     /// Do not run a local server after recording.
     #[arg(short, long)]
     pub save_only: bool,
+
+    /// Upload the profile to profiler.firefox.com and print a shareable URL.
+    #[arg(long)]
+    pub share: bool,
 
     /// Output filename.
     #[arg(short, long, default_value = "profile.json.gz")]
