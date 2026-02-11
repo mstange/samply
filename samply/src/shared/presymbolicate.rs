@@ -1,3 +1,4 @@
+use std::path::Path;
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 
@@ -9,7 +10,8 @@ use fxprof_processed_profile::symbol_info::{
 use fxprof_processed_profile::LibraryHandle;
 use rustc_hash::FxHashMap;
 use wholesym::{
-    FunctionNameHandle, SourceFilePathHandle, SymbolManager, SymbolMap, SymbolNameHandle,
+    FunctionNameHandle, MultiArchDisambiguator, SourceFilePathHandle, SymbolManager, SymbolMap,
+    SymbolNameHandle,
 };
 
 use crate::symbols::create_symbol_manager_and_quota_manager;
@@ -109,7 +111,11 @@ pub fn get_presymbolicate_info(
                     name: Some(lib.debug_name.clone()),
                     path: Some(lib.path.clone()),
                     debug_path: Some(lib.debug_path.clone()),
-                    debug_id: Some(lib.debug_id),
+                    debug_id: if lib.debug_id.is_nil() {
+                        None
+                    } else {
+                        Some(lib.debug_id)
+                    },
                     arch: lib.arch.clone(),
                     debug_name: Some(lib.debug_name.clone()),
                     code_id: lib
@@ -174,15 +180,57 @@ async fn get_lib_symbols(
     symbol_manager: &SymbolManager,
     string_table: Arc<Mutex<SymbolStringTable>>,
 ) -> Option<LibSymbolInfo> {
-    //eprintln!("Library {} ({}) has {} rvas", lib.debug_name, lib.debug_id, rvas.len());
-    let Ok(symbol_map) = symbol_manager
-        .load_symbol_map(lib.debug_name.as_deref().unwrap(), lib.debug_id.unwrap())
-        .await
-    else {
-        //eprintln!("Couldn't load symbol map for {} at {} {} ({})", lib.debug_name, lib.path, lib.debug_path, lib.debug_id);
+    // eprintln!(
+    //     "Library {:?} ({:?}) has {} rvas",
+    //     lib.debug_name,
+    //     lib.debug_id,
+    //     rvas.len()
+    // );
+    let Ok(symbol_map) = get_lib_symbol_map(&lib, symbol_manager).await else {
+        // eprintln!(
+        //     "Couldn't load symbol map for {} at {} {} ({:?})",
+        //     lib.debug_name.as_deref().unwrap(),
+        //     lib.path.as_deref().unwrap(),
+        //     lib.debug_path.as_deref().unwrap(),
+        //     lib.debug_id
+        // );
         return None;
     };
+    get_lib_symbols_with_symbol_map(lib_handle, symbol_map, rvas, string_table).await
+}
 
+async fn get_lib_symbol_map(
+    lib: &wholesym::LibraryInfo,
+    symbol_manager: &SymbolManager,
+) -> Result<SymbolMap, String> {
+    if let (Some(debug_name), Some(debug_id)) = (lib.debug_name.as_deref(), lib.debug_id) {
+        if let Ok(symbol_map) = symbol_manager.load_symbol_map(debug_name, debug_id).await {
+            return Ok(symbol_map);
+        }
+    }
+    if let Some(path) = lib.path.as_deref() {
+        if let Ok(symbol_map) = symbol_manager
+            .load_symbol_map_for_binary_at_path(
+                Path::new(path),
+                lib.arch.clone().map(MultiArchDisambiguator::Arch),
+            )
+            .await
+        {
+            return Ok(symbol_map);
+        }
+    }
+    Err(format!(
+        "Not enough information to look up symbol map for library {}",
+        lib.name.as_deref().unwrap()
+    ))
+}
+
+async fn get_lib_symbols_with_symbol_map(
+    lib_handle: LibraryHandle,
+    symbol_map: SymbolMap,
+    rvas: &[u32],
+    string_table: Arc<Mutex<SymbolStringTable>>,
+) -> Option<LibSymbolInfo> {
     let mut sorted_addresses = Vec::new();
     let mut address_infos = Vec::new();
     for rva in rvas.iter().cloned() {
