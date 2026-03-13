@@ -451,3 +451,20 @@ fn asm_x86_64() {
         "output-asm_x86_64.txt",
     )
 }
+
+#[test]
+fn asm_arm64() {
+    compare_snapshot(
+        "/asm/v1",
+        r#"{
+            "name": "libmozglue.dylib",
+            "debugName": "libmozglue.dylib",
+            "debugId": "4C4C44F955553144A1E167ACCB9D173C0",
+            "startAddress": "0x973c",
+            "size": "0xe8"
+        }"#,
+        fixtures_dir().join("macos-arm64-local"),
+        "asm_arm64.txt",
+        "output-asm_arm64.txt",
+    )
+}
