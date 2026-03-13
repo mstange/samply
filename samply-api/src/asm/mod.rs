@@ -7,7 +7,6 @@ use samply_symbols::{
     LookupAddress, SymbolManager,
 };
 use yaxpeax_arch::{Arch, DecodeError, LengthedInstruction, Reader, U8Reader};
-use yaxpeax_x86::amd64::{Opcode, Operand};
 
 use self::response_json::Response;
 use crate::asm::response_json::DecodedInstruction;
@@ -203,6 +202,8 @@ impl InstructionDecoding for yaxpeax_x86::amd64::Arch {
         offset: u32,
         inst: Self::Instruction,
     ) -> DecodedInstruction {
+        use yaxpeax_x86::amd64::{Opcode, Operand};
+
         let (mut intel_insn, mut c_insn) = (
             inst.display_with(yaxpeax_x86::amd64::DisplayStyle::Intel)
                 .to_string(),
@@ -210,35 +211,33 @@ impl InstructionDecoding for yaxpeax_x86::amd64::Arch {
                 .to_string(),
         );
 
-        fn is_relative_branch(opcode: Opcode) -> bool {
-            matches!(
-                opcode,
-                Opcode::JMP
-                    | Opcode::JRCXZ
-                    | Opcode::LOOP
-                    | Opcode::LOOPZ
-                    | Opcode::LOOPNZ
-                    | Opcode::JO
-                    | Opcode::JNO
-                    | Opcode::JB
-                    | Opcode::JNB
-                    | Opcode::JZ
-                    | Opcode::JNZ
-                    | Opcode::JNA
-                    | Opcode::JA
-                    | Opcode::JS
-                    | Opcode::JNS
-                    | Opcode::JP
-                    | Opcode::JNP
-                    | Opcode::JL
-                    | Opcode::JGE
-                    | Opcode::JLE
-                    | Opcode::JG
-                    | Opcode::CALL
-            )
-        }
+        let is_relative_branch = matches!(
+            inst.opcode(),
+            Opcode::JMP
+                | Opcode::JRCXZ
+                | Opcode::LOOP
+                | Opcode::LOOPZ
+                | Opcode::LOOPNZ
+                | Opcode::JO
+                | Opcode::JNO
+                | Opcode::JB
+                | Opcode::JNB
+                | Opcode::JZ
+                | Opcode::JNZ
+                | Opcode::JNA
+                | Opcode::JA
+                | Opcode::JS
+                | Opcode::JNS
+                | Opcode::JP
+                | Opcode::JNP
+                | Opcode::JL
+                | Opcode::JGE
+                | Opcode::JLE
+                | Opcode::JG
+                | Opcode::CALL
+        );
 
-        if is_relative_branch(inst.opcode()) {
+        if is_relative_branch {
             match inst.operand(0) {
                 Operand::ImmediateI8 { imm } => {
                     let rel = imm;
@@ -300,13 +299,65 @@ impl InstructionDecoding for yaxpeax_arm::armv8::a64::ARMv8 {
     }
 
     fn stringify_inst(
-        _rel_address: u32,
+        rel_address: u32,
         offset: u32,
         inst: Self::Instruction,
     ) -> DecodedInstruction {
+        use yaxpeax_arm::armv8::a64::{Opcode, Operand};
+
+        let mut inst_str = inst.to_string();
+
+        let is_relative_branch = matches!(
+            inst.opcode,
+            Opcode::B
+                | Opcode::BL
+                | Opcode::Bcc(_)
+                | Opcode::BCcc(_)
+                | Opcode::CBZ
+                | Opcode::CBNZ
+                | Opcode::TBZ
+                | Opcode::TBNZ
+        );
+
+        if is_relative_branch {
+            // Extract the branch target from the instruction operands.
+            // Different branch types have the target in different operand positions:
+            // - B, BL, Bcc: operand 0 is the offset.
+            // - CBZ, CBNZ: operand 1 is the offset (operand 0 is the register).
+            // - TBZ, TBNZ: operand 2 is the offset (operands 0-1 are register and bit).
+            let operand_index = match inst.opcode {
+                Opcode::TBZ | Opcode::TBNZ => 2,
+                Opcode::CBZ | Opcode::CBNZ => 1,
+                _ => 0,
+            };
+
+            if let Operand::PCOffset(imm) = inst.operands[operand_index] {
+                // PC-relative offset in bytes.
+                // Unlike ARM32 BranchOffset/BranchThumbOffset, yaxpeax-arm returns ARM64
+                // PCOffset values already shifted, not as instruction units.
+                let dest = rel_address as i64 + offset as i64 + imm;
+
+                // Format the instruction with the absolute address.
+                inst_str = match inst.opcode {
+                    Opcode::TBZ | Opcode::TBNZ => {
+                        format!(
+                            "{} {}, {}, 0x{:x}",
+                            inst.opcode, inst.operands[0], inst.operands[1], dest
+                        )
+                    }
+                    Opcode::CBZ | Opcode::CBNZ => {
+                        format!("{} {}, 0x{:x}", inst.opcode, inst.operands[0], dest)
+                    }
+                    _ => {
+                        format!("{} 0x{:x}", inst.opcode, dest)
+                    }
+                };
+            }
+        }
+
         DecodedInstruction {
             offset,
-            decoded_string_per_syntax: vec![inst.to_string()],
+            decoded_string_per_syntax: vec![inst_str],
         }
     }
 }
@@ -332,13 +383,42 @@ impl InstructionDecoding for yaxpeax_arm::armv7::ARMv7 {
     }
 
     fn stringify_inst(
-        _rel_address: u32,
+        rel_address: u32,
         offset: u32,
         inst: Self::Instruction,
     ) -> DecodedInstruction {
+        use yaxpeax_arm::armv7::{ConditionedOpcode, Opcode, Operand};
+        let mut inst_str = inst.to_string();
+
+        let is_relative_branch = matches!(inst.opcode, Opcode::B | Opcode::BL | Opcode::BLX);
+
+        if is_relative_branch {
+            match inst.operands[0] {
+                Operand::BranchThumbOffset(imm) => {
+                    // For Thumb mode, the immediate is left-shifted by 1.
+                    // Thumb instructions are 2-byte aligned.
+                    let byte_offset = imm << 1;
+                    let dest = rel_address as i64 + offset as i64 + byte_offset as i64;
+                    let opcode =
+                        ConditionedOpcode(inst.opcode, inst.s, inst.thumb_w, inst.condition);
+                    inst_str = format!("{} 0x{:x}", opcode, dest);
+                }
+                Operand::BranchOffset(imm) => {
+                    // For ARM mode (non-Thumb), the immediate is left-shifted by 2.
+                    // ARM instructions are 4-byte aligned.
+                    let byte_offset = imm << 2;
+                    let dest = rel_address as i64 + offset as i64 + byte_offset as i64;
+                    let opcode =
+                        ConditionedOpcode(inst.opcode, inst.s, inst.thumb_w, inst.condition);
+                    inst_str = format!("{} 0x{:x}", opcode, dest);
+                }
+                _ => {}
+            }
+        }
+
         DecodedInstruction {
             offset,
-            decoded_string_per_syntax: vec![inst.to_string()],
+            decoded_string_per_syntax: vec![inst_str],
         }
     }
 }
