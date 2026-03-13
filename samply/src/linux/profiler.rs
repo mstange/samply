@@ -397,10 +397,6 @@ fn init_profiler(
     let mut perf = match perf {
         Ok(perf) => perf,
         Err(_) => {
-            // We've already checked for permission denied due to paranoia
-            // level, and exited with a warning in that case.
-
-            // Another reason for the error could be the type of perf event:
             // The "Hardware CPU cycles" event is not supported in some contexts, for example in VMs.
             // Try a different event type.
             let perf = PerfGroup::open(
