@@ -402,7 +402,8 @@ fn init_profiler(
 
             // Another reason for the error could be the type of perf event:
             // The "Hardware CPU cycles" event is not supported in some contexts, for example in VMs.
-            // Try a different event type.
+// The "Hardware CPU cycles" event is not supported in some contexts, for example in VMs.
+// Try a different event type.
             let perf = PerfGroup::open(
                 pid,
                 frequency,
