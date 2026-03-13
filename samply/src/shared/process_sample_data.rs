@@ -1,5 +1,5 @@
 use fxprof_processed_profile::{
-    LibMappings, Marker, MarkerField, MarkerTiming, Profile, Schema, StringHandle,
+    LibMappings, Marker, MarkerField, MarkerTiming, ProcessHandle, Profile, Schema, StringHandle,
     SubcategoryHandle, ThreadHandle, Timestamp,
 };
 
@@ -29,6 +29,7 @@ pub enum RssStatMember {
 
 #[derive(Debug, Clone)]
 pub struct ProcessSampleData {
+    process_handle: ProcessHandle,
     unresolved_samples: UnresolvedSamples,
     regular_lib_mapping_op_queue: LibMappingOpQueue,
     jitdump_lib_mapping_op_queues: Vec<LibMappingOpQueue>,
@@ -38,6 +39,7 @@ pub struct ProcessSampleData {
 
 impl ProcessSampleData {
     pub fn new(
+        process_handle: ProcessHandle,
         unresolved_samples: UnresolvedSamples,
         regular_lib_mapping_op_queue: LibMappingOpQueue,
         jitdump_lib_mapping_op_queues: Vec<LibMappingOpQueue>,
@@ -45,6 +47,7 @@ impl ProcessSampleData {
         marker_spans: Vec<MarkerSpanOnThread>,
     ) -> Self {
         Self {
+            process_handle,
             unresolved_samples,
             regular_lib_mapping_op_queue,
             jitdump_lib_mapping_op_queues,
@@ -67,6 +70,7 @@ impl ProcessSampleData {
         stacks: &UnresolvedStacks,
     ) {
         let ProcessSampleData {
+            process_handle,
             unresolved_samples,
             regular_lib_mapping_op_queue,
             jitdump_lib_mapping_op_queues,
@@ -96,15 +100,13 @@ impl ProcessSampleData {
             stack_frame_scratch_buf.clear();
             stacks.convert_back(stack, stack_frame_scratch_buf);
             let frames = stack_converter.convert_stack(
-                thread_handle,
+                process_handle,
                 stack_frame_scratch_buf,
                 &lib_mappings_hierarchy,
                 extra_label_frame,
             );
-            let mut frames =
-                StackDepthLimitingFrameIter::new(profile, frames, thread_handle, user_category);
-            let stack_handle =
-                profile.handle_for_stack_frames(thread_handle, move |p| frames.next(p));
+            let mut frames = StackDepthLimitingFrameIter::new(profile, frames, user_category);
+            let stack_handle = profile.handle_for_stack_frames(move |p| frames.next(p));
             match sample_or_marker {
                 SampleOrMarker::Sample(SampleData { cpu_delta, weight }) => {
                     profile.add_sample(thread_handle, timestamp, stack_handle, cpu_delta, weight);

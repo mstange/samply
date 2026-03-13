@@ -5,7 +5,7 @@ use crate::serialization_helpers::SerializableOptionalTimestampColumn;
 use crate::string_table::{ProfileStringTable, StringHandle};
 use crate::{
     CategoryHandle, DynamicSchemaMarker, DynamicSchemaMarkerFieldFormat, MarkerHandle,
-    MarkerStringFieldFormat, MarkerTiming, MarkerTypeHandle, Timestamp,
+    MarkerStringFieldFormat, MarkerTiming, MarkerTypeHandle, StackHandle, Timestamp,
 };
 
 #[derive(Debug, Clone, Default)]
@@ -16,7 +16,7 @@ pub struct MarkerTable {
     marker_ends: Vec<Option<Timestamp>>,
     marker_phases: Vec<Phase>,
     marker_type_handles: Vec<MarkerTypeHandle>,
-    marker_stacks: Vec<Option<usize>>,
+    marker_stacks: Vec<Option<StackHandle>>,
     /// The field values for any marker fields of [kind](`MarkerFieldFormat::kind`) [`MarkerFieldFormatKind::Number`].
     ///
     /// This Vec can contain zero or more values per marker, depending on the marker's
@@ -93,15 +93,18 @@ impl MarkerTable {
         MarkerHandle(self.marker_categories.len() - 1)
     }
 
-    pub fn set_marker_stack(&mut self, marker: MarkerHandle, stack_index: Option<usize>) {
+    pub fn set_marker_stack(&mut self, marker: MarkerHandle, stack_index: Option<StackHandle>) {
         self.marker_stacks[marker.0] = stack_index;
     }
 
-    pub fn with_remapped_stacks(mut self, old_stack_to_new_stack: &[Option<usize>]) -> Self {
+    pub fn with_remapped_stacks(mut self, old_stack_to_new_stack: &[Option<StackHandle>]) -> Self {
         self.marker_stacks = self
             .marker_stacks
             .into_iter()
-            .map(|stack| stack.and_then(|s| old_stack_to_new_stack[s]))
+            .map(|stack| match stack {
+                Some(s) => old_stack_to_new_stack[s.0],
+                None => None,
+            })
             .collect();
         self
     }
@@ -211,7 +214,7 @@ impl Serialize for SerializableMarkerTableDataColumn<'_> {
 
 struct SerializableMarkerDataElement<'a> {
     string_table: &'a ProfileStringTable,
-    stack_index: Option<usize>,
+    stack_index: Option<StackHandle>,
     schema: &'a InternalMarkerSchema,
     string_fields: &'a [StringHandle],
     number_fields: &'a [f64],
@@ -262,7 +265,7 @@ impl Serialize for SerializableMarkerDataElement<'_> {
     }
 }
 
-struct SerializableMarkerCause(usize);
+struct SerializableMarkerCause(StackHandle);
 impl Serialize for SerializableMarkerCause {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         let mut map = serializer.serialize_map(Some(1))?;
