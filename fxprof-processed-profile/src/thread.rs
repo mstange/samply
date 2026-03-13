@@ -1,22 +1,16 @@
 use std::borrow::Cow;
 use std::cmp::Ordering;
-use std::collections::BTreeMap;
 
 use serde::ser::{SerializeMap, Serializer};
 
 use crate::cpu_delta::CpuDelta;
-use crate::fast_hash_map::FastHashSet;
-use crate::frame_table::{FrameInterner, InternalFrame};
-use crate::global_lib_table::{GlobalLibIndex, UsedLibraryAddressesCollector};
 use crate::marker_table::MarkerTable;
 use crate::markers::InternalMarkerSchema;
-use crate::native_symbols::{NativeSymbolIndex, NativeSymbols};
-use crate::profile_symbol_info::LibSymbolInfo;
 use crate::sample_table::{NativeAllocationsTable, SampleTable, WeightType};
-use crate::stack_table::StackTable;
 use crate::string_table::{ProfileStringTable, StringHandle};
-use crate::symbolication::{apply_symbol_information, StringTableAdapter};
-use crate::{DynamicSchemaMarker, MarkerHandle, MarkerTiming, MarkerTypeHandle, Symbol, Timestamp};
+use crate::{
+    DynamicSchemaMarker, MarkerHandle, MarkerTiming, MarkerTypeHandle, StackHandle, Timestamp,
+};
 
 /// A process. Can be created with [`Profile::add_process`](crate::Profile::add_process).
 #[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash)]
@@ -30,13 +24,10 @@ pub struct Thread {
     start_time: Timestamp,
     end_time: Option<Timestamp>,
     is_main: bool,
-    stack_table: StackTable,
-    frame_interner: FrameInterner,
     samples: SampleTable,
     native_allocations: Option<NativeAllocationsTable>,
     markers: MarkerTable,
-    native_symbols: NativeSymbols,
-    last_sample_stack: Option<usize>,
+    last_sample_stack: Option<StackHandle>,
     last_sample_was_zero_cpu: bool,
     show_markers_in_timeline: bool,
 }
@@ -50,12 +41,9 @@ impl Thread {
             start_time,
             end_time: None,
             is_main,
-            stack_table: StackTable::new(),
-            frame_interner: FrameInterner::new(),
             samples: SampleTable::new(),
             native_allocations: None,
             markers: MarkerTable::new(),
-            native_symbols: NativeSymbols::new(),
             last_sample_stack: None,
             last_sample_was_zero_cpu: false,
             show_markers_in_timeline: false,
@@ -86,44 +74,10 @@ impl Thread {
         self.process
     }
 
-    pub fn native_symbol_index_and_string_index_for_symbol(
-        &mut self,
-        lib_index: GlobalLibIndex,
-        symbol: &Symbol,
-        string_table: &mut ProfileStringTable,
-    ) -> (NativeSymbolIndex, StringHandle) {
-        self.native_symbols
-            .symbol_index_and_string_index_for_symbol(lib_index, symbol, string_table)
-    }
-
-    pub fn native_symbol_index_for_native_symbol(
-        &mut self,
-        lib_index: GlobalLibIndex,
-        symbol: &Symbol,
-        string_table: &mut ProfileStringTable,
-    ) -> NativeSymbolIndex {
-        let (symbol_index, _) =
-            self.native_symbol_index_and_string_index_for_symbol(lib_index, symbol, string_table);
-        symbol_index
-    }
-
-    pub fn get_native_symbol_name(&self, native_symbol_index: NativeSymbolIndex) -> StringHandle {
-        self.native_symbols
-            .get_native_symbol_name(native_symbol_index)
-    }
-
-    pub fn frame_index_for_frame(&mut self, frame: InternalFrame) -> usize {
-        self.frame_interner.index_for_frame(frame)
-    }
-
-    pub fn stack_index_for_stack(&mut self, prefix: Option<usize>, frame: usize) -> usize {
-        self.stack_table.index_for_stack(prefix, frame)
-    }
-
     pub fn add_sample(
         &mut self,
         timestamp: Timestamp,
-        stack_index: Option<usize>,
+        stack_index: Option<StackHandle>,
         cpu_delta: CpuDelta,
         weight: i32,
     ) {
@@ -136,7 +90,7 @@ impl Thread {
     pub fn add_allocation_sample(
         &mut self,
         timestamp: Timestamp,
-        stack_index: Option<usize>,
+        stack_index: Option<StackHandle>,
         allocation_address: u64,
         allocation_size: i64,
     ) {
@@ -182,16 +136,8 @@ impl Thread {
         )
     }
 
-    pub fn set_marker_stack(&mut self, marker: MarkerHandle, stack_index: Option<usize>) {
+    pub fn set_marker_stack(&mut self, marker: MarkerHandle, stack_index: Option<StackHandle>) {
         self.markers.set_marker_stack(marker, stack_index);
-    }
-
-    pub fn contains_js_frame(&self) -> bool {
-        self.frame_interner.contains_js_frame()
-    }
-
-    pub fn gather_used_rvas(&self, collector: &mut UsedLibraryAddressesCollector) {
-        self.frame_interner.gather_used_rvas(collector);
     }
 
     pub fn cmp_for_json_order(&self, other: &Thread) -> Ordering {
@@ -213,9 +159,7 @@ impl Thread {
 
     pub fn make_symbolicated_thread(
         self,
-        libs: &FastHashSet<GlobalLibIndex>,
-        lib_symbols: &BTreeMap<GlobalLibIndex, &LibSymbolInfo>,
-        strings: &mut StringTableAdapter,
+        old_stack_to_new_stack: &[Option<StackHandle>],
     ) -> Thread {
         let Thread {
             process,
@@ -224,34 +168,21 @@ impl Thread {
             start_time,
             end_time,
             is_main,
-            stack_table,
-            frame_interner,
             samples,
             native_allocations,
             markers,
-            native_symbols,
             last_sample_stack,
             last_sample_was_zero_cpu,
             show_markers_in_timeline,
         } = self;
 
-        let (frame_interner, native_symbols, stack_table, old_stack_to_new_stack) =
-            apply_symbol_information(
-                frame_interner,
-                native_symbols,
-                stack_table,
-                libs,
-                lib_symbols,
-                strings,
-            );
-
-        let samples = samples.with_remapped_stacks(&old_stack_to_new_stack);
+        let samples = samples.with_remapped_stacks(old_stack_to_new_stack);
         let native_allocations = native_allocations.map(|native_allocations| {
-            native_allocations.with_remapped_stacks(&old_stack_to_new_stack)
+            native_allocations.with_remapped_stacks(old_stack_to_new_stack)
         });
-        let markers = markers.with_remapped_stacks(&old_stack_to_new_stack);
+        let markers = markers.with_remapped_stacks(old_stack_to_new_stack);
         let last_sample_stack = last_sample_stack
-            .and_then(|last_sample_stack| old_stack_to_new_stack[last_sample_stack]);
+            .and_then(|last_sample_stack| old_stack_to_new_stack[last_sample_stack.0]);
 
         Thread {
             process,
@@ -260,12 +191,9 @@ impl Thread {
             start_time,
             end_time,
             is_main,
-            stack_table,
-            frame_interner,
             samples,
             native_allocations,
             markers,
-            native_symbols,
             last_sample_stack,
             last_sample_was_zero_cpu,
             show_markers_in_timeline,
@@ -292,18 +220,9 @@ impl Thread {
         let thread_register_time = self.start_time;
         let thread_unregister_time = self.end_time;
 
-        let (frame_table, func_table, resource_table) = self.frame_interner.create_tables();
-
         let mut map = serializer.serialize_map(None)?;
-        map.serialize_entry("frameTable", &frame_table)?;
-        map.serialize_entry("funcTable", &func_table)?;
-        map.serialize_entry(
-            "markers",
-            &self.markers.as_serializable(marker_schemas, string_table),
-        )?;
         map.serialize_entry("name", &thread_name)?;
         map.serialize_entry("isMainThread", &self.is_main)?;
-        map.serialize_entry("nativeSymbols", &self.native_symbols)?;
         map.serialize_entry("pausedRanges", &[] as &[()])?;
         map.serialize_entry("pid", &pid)?;
         map.serialize_entry("processName", process_name)?;
@@ -311,15 +230,17 @@ impl Thread {
         map.serialize_entry("processStartupTime", &process_start_time)?;
         map.serialize_entry("processType", &"default")?;
         map.serialize_entry("registerTime", &thread_register_time)?;
-        map.serialize_entry("resourceTable", &resource_table)?;
+        map.serialize_entry("tid", &self.tid)?;
+        map.serialize_entry("unregisterTime", &thread_unregister_time)?;
+        map.serialize_entry("showMarkersInTimeline", &self.show_markers_in_timeline)?;
         map.serialize_entry("samples", &self.samples)?;
         if let Some(allocations) = &self.native_allocations {
             map.serialize_entry("nativeAllocations", &allocations)?;
         }
-        map.serialize_entry("stackTable", &self.stack_table)?;
-        map.serialize_entry("tid", &self.tid)?;
-        map.serialize_entry("unregisterTime", &thread_unregister_time)?;
-        map.serialize_entry("showMarkersInTimeline", &self.show_markers_in_timeline)?;
+        map.serialize_entry(
+            "markers",
+            &self.markers.as_serializable(marker_schemas, string_table),
+        )?;
         map.end()
     }
 }

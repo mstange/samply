@@ -234,6 +234,7 @@ where
         }
 
         let process_sample_data = ProcessSampleData::new(
+            self.profile_process,
             std::mem::take(&mut self.unresolved_samples),
             std::mem::take(&mut self.lib_mapping_ops),
             jitdump_ops,

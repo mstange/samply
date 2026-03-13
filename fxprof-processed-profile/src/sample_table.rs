@@ -8,6 +8,7 @@ use crate::timestamp::{
     SerializableTimestampSliceAsDeltas, SerializableTimestampSliceAsDeltasWithPermutation,
     Timestamp,
 };
+use crate::StackHandle;
 
 /// The sample table contains stacks with timestamps and some extra information.
 ///
@@ -20,7 +21,7 @@ pub struct SampleTable {
     sample_weights: Vec<i32>,
     sample_timestamps: Vec<Timestamp>,
     /// An index into the thread's stack table for each sample. `None` means the empty stack.
-    sample_stack_indexes: Vec<Option<usize>>,
+    sample_stack_indexes: Vec<Option<StackHandle>>,
     /// CPU usage delta since the previous sample for this thread, for each sample.
     sample_cpu_deltas: Vec<CpuDelta>,
     is_sorted_by_time: bool,
@@ -87,7 +88,7 @@ impl SampleTable {
     pub fn add_sample(
         &mut self,
         timestamp: Timestamp,
-        stack_index: Option<usize>,
+        stack_index: Option<StackHandle>,
         cpu_delta: CpuDelta,
         weight: i32,
     ) {
@@ -110,11 +111,14 @@ impl SampleTable {
         *self.sample_timestamps.last_mut().unwrap() = timestamp;
     }
 
-    pub fn with_remapped_stacks(mut self, old_stack_to_new_stack: &[Option<usize>]) -> Self {
+    pub fn with_remapped_stacks(mut self, old_stack_to_new_stack: &[Option<StackHandle>]) -> Self {
         self.sample_stack_indexes = self
             .sample_stack_indexes
             .into_iter()
-            .map(|stack| stack.and_then(|s| old_stack_to_new_stack[s]))
+            .map(|stack| match stack {
+                Some(s) => old_stack_to_new_stack[s.0],
+                None => None,
+            })
             .collect();
         self
     }
@@ -196,7 +200,7 @@ pub struct NativeAllocationsTable {
     /// The timstamps for each sample
     time: Vec<Timestamp>,
     /// The stack index for each sample
-    stack: Vec<Option<usize>>,
+    stack: Vec<Option<StackHandle>>,
     /// The size in bytes (positive for allocations, negative for deallocations) for each sample
     allocation_size: Vec<i64>,
     /// The memory address of the allocation for each sample
@@ -208,7 +212,7 @@ impl NativeAllocationsTable {
     pub fn add_sample(
         &mut self,
         timestamp: Timestamp,
-        stack_index: Option<usize>,
+        stack_index: Option<StackHandle>,
         allocation_address: u64,
         allocation_size: i64,
     ) {
@@ -218,11 +222,14 @@ impl NativeAllocationsTable {
         self.allocation_size.push(allocation_size);
     }
 
-    pub fn with_remapped_stacks(mut self, old_stack_to_new_stack: &[Option<usize>]) -> Self {
+    pub fn with_remapped_stacks(mut self, old_stack_to_new_stack: &[Option<StackHandle>]) -> Self {
         self.stack = self
             .stack
             .into_iter()
-            .map(|stack| stack.and_then(|s| old_stack_to_new_stack[s]))
+            .map(|stack| match stack {
+                Some(s) => old_stack_to_new_stack[s.0],
+                None => None,
+            })
             .collect();
         self
     }

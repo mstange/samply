@@ -169,18 +169,13 @@ fn profile_without_js() {
     .rev()
     .map(|(i, addr)| {
         if i == 0 {
-            FrameAddress::InstructionPointer(addr)
+            FrameAddress::InstructionPointer(process, addr)
         } else {
-            FrameAddress::ReturnAddress(addr)
+            FrameAddress::ReturnAddress(process, addr)
         }
     });
-    let s1 = profile.handle_for_stack_frames(thread, |p| {
-        Some(p.handle_for_frame_with_address(
-            thread,
-            frames1_iter.next()?,
-            category,
-            FrameFlags::empty(),
-        ))
+    let s1 = profile.handle_for_stack_frames(|p| {
+        Some(p.handle_for_frame_with_address(frames1_iter.next()?, category, FrameFlags::empty()))
     });
     profile.add_sample(
         thread,
@@ -203,18 +198,13 @@ fn profile_without_js() {
     .rev()
     .map(|(i, addr)| {
         if i == 0 {
-            FrameAddress::InstructionPointer(*addr)
+            FrameAddress::InstructionPointer(process, *addr)
         } else {
-            FrameAddress::ReturnAddress(*addr)
+            FrameAddress::ReturnAddress(process, *addr)
         }
     });
-    let s2 = profile.handle_for_stack_frames(thread, |p| {
-        Some(p.handle_for_frame_with_address(
-            thread,
-            frames2_iter.next()?,
-            category,
-            FrameFlags::empty(),
-        ))
+    let s2 = profile.handle_for_stack_frames(|p| {
+        Some(p.handle_for_frame_with_address(frames2_iter.next()?, category, FrameFlags::empty()))
     });
     profile.add_sample(
         thread,
@@ -237,18 +227,13 @@ fn profile_without_js() {
     .rev()
     .map(|(i, addr)| {
         if i == 0 {
-            FrameAddress::InstructionPointer(*addr)
+            FrameAddress::InstructionPointer(process, *addr)
         } else {
-            FrameAddress::ReturnAddress(*addr)
+            FrameAddress::ReturnAddress(process, *addr)
         }
     });
-    let s3 = profile.handle_for_stack_frames(thread, |p| {
-        Some(p.handle_for_frame_with_address(
-            thread,
-            frames3_iter.next()?,
-            category,
-            FrameFlags::empty(),
-        ))
+    let s3 = profile.handle_for_stack_frames(|p| {
+        Some(p.handle_for_frame_with_address(frames3_iter.next()?, category, FrameFlags::empty()))
     });
     profile.add_sample(
         thread,
@@ -334,7 +319,7 @@ fn profile_without_js() {
                 "name": []
               },
               "interval": 1.0,
-              "preprocessedProfileVersion": 57,
+              "preprocessedProfileVersion": 60,
               "processType": 0,
               "product": "test",
               "oscpu": "macOS 14.4",
@@ -427,6 +412,386 @@ fn profile_without_js() {
               }
             ],
             "shared": {
+              "stackTable": {
+                "length": 16,
+                "prefix": [
+                  null,
+                  0,
+                  1,
+                  2,
+                  3,
+                  4,
+                  5,
+                  1,
+                  7,
+                  8,
+                  9,
+                  10,
+                  7,
+                  12,
+                  13,
+                  14
+                ],
+                "frame": [
+                  0,
+                  1,
+                  2,
+                  3,
+                  4,
+                  5,
+                  6,
+                  7,
+                  8,
+                  9,
+                  10,
+                  11,
+                  12,
+                  13,
+                  14,
+                  15
+                ]
+              },
+              "frameTable": {
+                "length": 16,
+                "address": [
+                  -1,
+                  796420,
+                  911223,
+                  1332248,
+                  2354017,
+                  2452862,
+                  1700071,
+                  172156,
+                  1075602,
+                  905942,
+                  979918,
+                  2437518,
+                  1405368,
+                  737506,
+                  2586868,
+                  674246
+                ],
+                "inlineDepth": [
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0
+                ],
+                "category": [
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1
+                ],
+                "subcategory": [
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0
+                ],
+                "func": [
+                  0,
+                  1,
+                  2,
+                  3,
+                  4,
+                  5,
+                  6,
+                  7,
+                  8,
+                  9,
+                  10,
+                  11,
+                  12,
+                  13,
+                  14,
+                  15
+                ],
+                "nativeSymbol": [
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  0,
+                  1,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  2
+                ],
+                "innerWindowID": [
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0
+                ],
+                "line": [
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null
+                ],
+                "column": [
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null
+                ]
+              },
+              "funcTable": {
+                "length": 16,
+                "name": [
+                  0,
+                  2,
+                  3,
+                  4,
+                  5,
+                  6,
+                  8,
+                  9,
+                  10,
+                  11,
+                  12,
+                  13,
+                  14,
+                  15,
+                  16,
+                  17
+                ],
+                "isJS": [
+                  false,
+                  false,
+                  false,
+                  false,
+                  false,
+                  false,
+                  false,
+                  false,
+                  false,
+                  false,
+                  false,
+                  false,
+                  false,
+                  false,
+                  false,
+                  false
+                ],
+                "relevantForJS": [
+                  false,
+                  false,
+                  false,
+                  false,
+                  false,
+                  false,
+                  false,
+                  false,
+                  false,
+                  false,
+                  false,
+                  false,
+                  false,
+                  false,
+                  false,
+                  false
+                ],
+                "resource": [
+                  -1,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  1,
+                  1,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  1
+                ],
+                "source": [
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null
+                ],
+                "lineNumber": [
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null
+                ],
+                "columnNumber": [
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null
+                ]
+              },
+              "sources": {
+                "length": 0,
+                "uuid": [],
+                "filename": [],
+              },
+              "nativeSymbols": {
+                "length": 3,
+                "address": [
+                  1700001,
+                  172156,
+                  674226
+                ],
+                "functionSize": [
+                  180,
+                  20,
+                  44
+                ],
+                "libIndex": [
+                  1,
+                  1,
+                  1
+                ],
+                "name": [
+                  8,
+                  9,
+                  17
+                ]
+              },
+              "resourceTable": {
+                "length": 2,
+                "lib": [
+                  0,
+                  1
+                ],
+                "name": [
+                  1,
+                  7
+                ],
+                "host": [
+                  null,
+                  null
+                ],
+                "type": [
+                  1,
+                  1
+                ]
+              },
               "stringArray": [
                 "0x7ffdb4824837",
                 "dump_syms",
@@ -455,300 +820,6 @@ fn profile_without_js() {
             },
             "threads": [
               {
-                "frameTable": {
-                  "length": 16,
-                  "address": [
-                    -1,
-                    796420,
-                    911223,
-                    1332248,
-                    2354017,
-                    2452862,
-                    1700071,
-                    172156,
-                    1075602,
-                    905942,
-                    979918,
-                    2437518,
-                    1405368,
-                    737506,
-                    2586868,
-                    674246
-                  ],
-                  "inlineDepth": [
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0
-                  ],
-                  "category": [
-                    1,
-                    1,
-                    1,
-                    1,
-                    1,
-                    1,
-                    1,
-                    1,
-                    1,
-                    1,
-                    1,
-                    1,
-                    1,
-                    1,
-                    1,
-                    1
-                  ],
-                  "subcategory": [
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0
-                  ],
-                  "func": [
-                    0,
-                    1,
-                    2,
-                    3,
-                    4,
-                    5,
-                    6,
-                    7,
-                    8,
-                    9,
-                    10,
-                    11,
-                    12,
-                    13,
-                    14,
-                    15
-                  ],
-                  "nativeSymbol": [
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    0,
-                    1,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    2
-                  ],
-                  "innerWindowID": [
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0
-                  ],
-                  "line": [
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null
-                  ],
-                  "column": [
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null
-                  ]
-                },
-                "funcTable": {
-                  "length": 16,
-                  "name": [
-                    0,
-                    2,
-                    3,
-                    4,
-                    5,
-                    6,
-                    8,
-                    9,
-                    10,
-                    11,
-                    12,
-                    13,
-                    14,
-                    15,
-                    16,
-                    17
-                  ],
-                  "isJS": [
-                    false,
-                    false,
-                    false,
-                    false,
-                    false,
-                    false,
-                    false,
-                    false,
-                    false,
-                    false,
-                    false,
-                    false,
-                    false,
-                    false,
-                    false,
-                    false
-                  ],
-                  "relevantForJS": [
-                    false,
-                    false,
-                    false,
-                    false,
-                    false,
-                    false,
-                    false,
-                    false,
-                    false,
-                    false,
-                    false,
-                    false,
-                    false,
-                    false,
-                    false,
-                    false
-                  ],
-                  "resource": [
-                    -1,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    1,
-                    1,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    1
-                  ],
-                  "fileName": [
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null
-                  ],
-                  "lineNumber": [
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null
-                  ],
-                  "columnNumber": [
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null
-                  ]
-                },
                 "markers": {
                   "length": 2,
                   "category": [
@@ -787,29 +858,6 @@ fn profile_without_js() {
                 },
                 "name": "test",
                 "isMainThread": true,
-                "nativeSymbols": {
-                  "length": 3,
-                  "address": [
-                    1700001,
-                    172156,
-                    674226
-                  ],
-                  "functionSize": [
-                    180,
-                    20,
-                    44
-                  ],
-                  "libIndex": [
-                    1,
-                    1,
-                    1
-                  ],
-                  "name": [
-                    8,
-                    9,
-                    17
-                  ]
-                },
                 "pausedRanges": [],
                 "pid": "123",
                 "processName": "test",
@@ -817,25 +865,6 @@ fn profile_without_js() {
                 "processStartupTime": 0.0,
                 "processType": "default",
                 "registerTime": 0.0,
-                "resourceTable": {
-                  "length": 2,
-                  "lib": [
-                    0,
-                    1
-                  ],
-                  "name": [
-                    1,
-                    7
-                  ],
-                  "host": [
-                    null,
-                    null
-                  ],
-                  "type": [
-                    1,
-                    1
-                  ]
-                },
                 "samples": {
                   "length": 4,
                   "weightType": "samples",
@@ -862,45 +891,6 @@ fn profile_without_js() {
                     0,
                     0,
                     0
-                  ]
-                },
-                "stackTable": {
-                  "length": 16,
-                  "prefix": [
-                    null,
-                    0,
-                    1,
-                    2,
-                    3,
-                    4,
-                    5,
-                    1,
-                    7,
-                    8,
-                    9,
-                    10,
-                    7,
-                    12,
-                    13,
-                    14
-                  ],
-                  "frame": [
-                    0,
-                    1,
-                    2,
-                    3,
-                    4,
-                    5,
-                    6,
-                    7,
-                    8,
-                    9,
-                    10,
-                    11,
-                    12,
-                    13,
-                    14,
-                    15
                   ]
                 },
                 "tid": "12345",
@@ -962,16 +952,15 @@ fn profile_with_js() {
     let category = profile.handle_for_category(Category("Cycle Collection", CategoryColor::Orange));
     let subcategory = profile.handle_for_subcategory(category, "Graph Reduction");
     let frames = vec![
-        profile.handle_for_frame_with_label(thread, some_label_string, category, FrameFlags::IS_JS),
+        profile.handle_for_frame_with_label(some_label_string, category, FrameFlags::IS_JS),
         profile.handle_for_frame_with_address(
-            thread,
-            FrameAddress::ReturnAddress(0x7f76b7ffc0e7),
+            FrameAddress::ReturnAddress(process, 0x7f76b7ffc0e7),
             subcategory,
             FrameFlags::empty(),
         ),
     ];
     let mut iter = frames.into_iter();
-    let s1 = profile.handle_for_stack_frames(thread, |_| iter.next());
+    let s1 = profile.handle_for_stack_frames(|_| iter.next());
     profile.add_sample(
         thread,
         Timestamp::from_millis_since_reference(1.0),
@@ -1011,7 +1000,7 @@ fn profile_with_js() {
                 "name": []
               },
               "interval": 1.0,
-              "preprocessedProfileVersion": 57,
+              "preprocessedProfileVersion": 60,
               "processType": 0,
               "product": "test with js",
               "sampleUnits": {
@@ -1029,6 +1018,106 @@ fn profile_with_js() {
             },
             "libs": [],
             "shared": {
+              "stackTable": {
+                "length": 2,
+                "prefix": [
+                  null,
+                  0
+                ],
+                "frame": [
+                  0,
+                  1
+                ]
+              },
+              "frameTable": {
+                "length": 2,
+                "address": [
+                  -1,
+                  -1
+                ],
+                "inlineDepth": [
+                  0,
+                  0
+                ],
+                "category": [
+                  1,
+                  1
+                ],
+                "subcategory": [
+                  0,
+                  1
+                ],
+                "func": [
+                  0,
+                  1
+                ],
+                "nativeSymbol": [
+                  null,
+                  null
+                ],
+                "innerWindowID": [
+                  0,
+                  0
+                ],
+                "line": [
+                  null,
+                  null
+                ],
+                "column": [
+                  null,
+                  null
+                ]
+              },
+              "funcTable": {
+                "length": 2,
+                "name": [
+                  0,
+                  1
+                ],
+                "isJS": [
+                  true,
+                  false
+                ],
+                "relevantForJS": [
+                  false,
+                  false
+                ],
+                "resource": [
+                  -1,
+                  -1
+                ],
+                "source": [
+                  null,
+                  null
+                ],
+                "lineNumber": [
+                  null,
+                  null
+                ],
+                "columnNumber": [
+                  null,
+                  null
+                ]
+              },
+              "resourceTable": {
+                "length": 0,
+                "lib": [],
+                "name": [],
+                "host": [],
+                "type": []
+              },
+              "sources": {
+                "length": 0,
+                "uuid": [],
+                "filename": [],
+              },
+              "nativeSymbols": {
+                "length": 0,
+                "address": [],
+                "functionSize": [],
+                "libIndex": [],
+                "name": []
+              },
               "stringArray": [
                 "Some label string",
                 "0x7f76b7ffc0e6"
@@ -1036,76 +1125,6 @@ fn profile_with_js() {
             },
             "threads": [
               {
-                "frameTable": {
-                  "length": 2,
-                  "address": [
-                    -1,
-                    -1
-                  ],
-                  "inlineDepth": [
-                    0,
-                    0
-                  ],
-                  "category": [
-                    1,
-                    1
-                  ],
-                  "subcategory": [
-                    0,
-                    1
-                  ],
-                  "func": [
-                    0,
-                    1
-                  ],
-                  "nativeSymbol": [
-                    null,
-                    null
-                  ],
-                  "innerWindowID": [
-                    0,
-                    0
-                  ],
-                  "line": [
-                    null,
-                    null
-                  ],
-                  "column": [
-                    null,
-                    null
-                  ]
-                },
-                "funcTable": {
-                  "length": 2,
-                  "name": [
-                    0,
-                    1
-                  ],
-                  "isJS": [
-                    true,
-                    false
-                  ],
-                  "relevantForJS": [
-                    false,
-                    false
-                  ],
-                  "resource": [
-                    -1,
-                    -1
-                  ],
-                  "fileName": [
-                    null,
-                    null
-                  ],
-                  "lineNumber": [
-                    null,
-                    null
-                  ],
-                  "columnNumber": [
-                    null,
-                    null
-                  ]
-                },
                 "markers": {
                   "length": 0,
                   "category": [],
@@ -1117,13 +1136,6 @@ fn profile_with_js() {
                 },
                 "name": "test2",
                 "isMainThread": true,
-                "nativeSymbols": {
-                  "length": 0,
-                  "address": [],
-                  "functionSize": [],
-                  "libIndex": [],
-                  "name": []
-                },
                 "pausedRanges": [],
                 "pid": "123",
                 "processName": "test2",
@@ -1131,13 +1143,6 @@ fn profile_with_js() {
                 "processStartupTime": 0.0,
                 "processType": "default",
                 "registerTime": 0.0,
-                "resourceTable": {
-                  "length": 0,
-                  "lib": [],
-                  "name": [],
-                  "host": [],
-                  "type": []
-                },
                 "samples": {
                   "length": 1,
                   "stack": [
@@ -1155,17 +1160,6 @@ fn profile_with_js() {
                   ]
                 },
                 "showMarkersInTimeline": false,
-                "stackTable": {
-                  "length": 2,
-                  "prefix": [
-                    null,
-                    0
-                  ],
-                  "frame": [
-                    0,
-                    1
-                  ]
-                },
                 "tid": "12346",
                 "unregisterTime": null
               }
@@ -1268,7 +1262,7 @@ fn profile_counters_with_sorted_processes() {
               "initialSelectedThreads": [0],
               "initialVisibleThreads": [0],
               "interval": 1.0,
-              "preprocessedProfileVersion": 57,
+              "preprocessedProfileVersion": 60,
               "processType": 0,
               "product": "test",
               "sampleUnits": {
@@ -1286,32 +1280,56 @@ fn profile_counters_with_sorted_processes() {
             },
             "libs": [],
             "shared": {
+              "stackTable": {
+                "length": 0,
+                "prefix": [],
+                "frame": []
+              },
+              "frameTable": {
+                "length": 0,
+                "address": [],
+                "inlineDepth": [],
+                "category": [],
+                "subcategory": [],
+                "func": [],
+                "nativeSymbol": [],
+                "innerWindowID": [],
+                "line": [],
+                "column": []
+              },
+              "funcTable": {
+                "length": 0,
+                "name": [],
+                "isJS": [],
+                "relevantForJS": [],
+                "resource": [],
+                "source": [],
+                "lineNumber": [],
+                "columnNumber": []
+              },
+              "sources": {
+                "length": 0,
+                "uuid": [],
+                "filename": [],
+              },
+              "nativeSymbols": {
+                "length": 0,
+                "address": [],
+                "functionSize": [],
+                "libIndex": [],
+                "name": []
+              },
+              "resourceTable": {
+                "length": 0,
+                "lib": [],
+                "name": [],
+                "host": [],
+                "type": []
+              },
               "stringArray": [],
             },
             "threads": [
               {
-                "frameTable": {
-                  "length": 0,
-                  "address": [],
-                  "inlineDepth": [],
-                  "category": [],
-                  "subcategory": [],
-                  "func": [],
-                  "nativeSymbol": [],
-                  "innerWindowID": [],
-                  "line": [],
-                  "column": []
-                },
-                "funcTable": {
-                  "length": 0,
-                  "name": [],
-                  "isJS": [],
-                  "relevantForJS": [],
-                  "resource": [],
-                  "fileName": [],
-                  "lineNumber": [],
-                  "columnNumber": []
-                },
                 "markers": {
                   "length": 0,
                   "category": [],
@@ -1323,13 +1341,6 @@ fn profile_counters_with_sorted_processes() {
                 },
                 "name": "test 2",
                 "isMainThread": true,
-                "nativeSymbols": {
-                  "length": 0,
-                  "address": [],
-                  "functionSize": [],
-                  "libIndex": [],
-                  "name": []
-                },
                 "pausedRanges": [],
                 "pid": "123.1",
                 "processName": "test 2",
@@ -1337,13 +1348,6 @@ fn profile_counters_with_sorted_processes() {
                 "processStartupTime": 0.0,
                 "processType": "default",
                 "registerTime": 1.0,
-                "resourceTable": {
-                  "length": 0,
-                  "lib": [],
-                  "name": [],
-                  "host": [],
-                  "type": []
-                },
                 "samples": {
                   "length": 1,
                   "stack": [
@@ -1361,37 +1365,10 @@ fn profile_counters_with_sorted_processes() {
                   ]
                 },
                 "showMarkersInTimeline": false,
-                "stackTable": {
-                  "length": 0,
-                  "prefix": [],
-                  "frame": []
-                },
                 "tid": "54321",
                 "unregisterTime": null
               },
               {
-                "frameTable": {
-                  "length": 0,
-                  "address": [],
-                  "inlineDepth": [],
-                  "category": [],
-                  "subcategory": [],
-                  "func": [],
-                  "nativeSymbol": [],
-                  "innerWindowID": [],
-                  "line": [],
-                  "column": []
-                },
-                "funcTable": {
-                  "length": 0,
-                  "name": [],
-                  "isJS": [],
-                  "relevantForJS": [],
-                  "resource": [],
-                  "fileName": [],
-                  "lineNumber": [],
-                  "columnNumber": []
-                },
                 "markers": {
                   "length": 0,
                   "category": [],
@@ -1403,13 +1380,6 @@ fn profile_counters_with_sorted_processes() {
                 },
                 "name": "test 1",
                 "isMainThread": true,
-                "nativeSymbols": {
-                  "length": 0,
-                  "address": [],
-                  "functionSize": [],
-                  "libIndex": [],
-                  "name": []
-                },
                 "pausedRanges": [],
                 "pid": "123",
                 "processName": "test 1",
@@ -1417,13 +1387,6 @@ fn profile_counters_with_sorted_processes() {
                 "processStartupTime": 1.0,
                 "processType": "default",
                 "registerTime": 0.0,
-                "resourceTable": {
-                  "length": 0,
-                  "lib": [],
-                  "name": [],
-                  "host": [],
-                  "type": []
-                },
                 "samples": {
                   "length": 1,
                   "stack": [
@@ -1441,11 +1404,6 @@ fn profile_counters_with_sorted_processes() {
                   ]
                 },
                 "showMarkersInTimeline": true,
-                "stackTable": {
-                  "length": 0,
-                  "prefix": [],
-                  "frame": []
-                },
                 "tid": "12345",
                 "unregisterTime": null
               }
@@ -1581,7 +1539,7 @@ fn test_flow_marker_fields() {
                 "name": []
               },
               "interval": 1.0,
-              "preprocessedProfileVersion": 57,
+              "preprocessedProfileVersion": 60,
               "processType": 0,
               "product": "test",
               "sampleUnits": {
@@ -1621,6 +1579,52 @@ fn test_flow_marker_fields() {
             },
             "libs": [],
             "shared": {
+              "stackTable": {
+                "length": 0,
+                "prefix": [],
+                "frame": []
+              },
+              "frameTable": {
+                "length": 0,
+                "func": [],
+                "category": [],
+                "subcategory": [],
+                "line": [],
+                "column": [],
+                "address": [],
+                "nativeSymbol": [],
+                "inlineDepth": [],
+                "innerWindowID": []
+              },
+              "funcTable": {
+                "length": 0,
+                "name": [],
+                "isJS": [],
+                "relevantForJS": [],
+                "resource": [],
+                "source": [],
+                "lineNumber": [],
+                "columnNumber": []
+              },
+              "sources": {
+                "length": 0,
+                "uuid": [],
+                "filename": [],
+              },
+              "nativeSymbols": {
+                "length": 0,
+                "address": [],
+                "functionSize": [],
+                "libIndex": [],
+                "name": []
+              },
+              "resourceTable": {
+                "length": 0,
+                "lib": [],
+                "name": [],
+                "host": [],
+                "type": []
+              },
               "stringArray": [
                 "Flow Start",
                 "ab54a98ceb1f0ad2",
@@ -1629,28 +1633,6 @@ fn test_flow_marker_fields() {
             },
             "threads": [
               {
-                "frameTable": {
-                  "length": 0,
-                  "func": [],
-                  "category": [],
-                  "subcategory": [],
-                  "line": [],
-                  "column": [],
-                  "address": [],
-                  "nativeSymbol": [],
-                  "inlineDepth": [],
-                  "innerWindowID": []
-                },
-                "funcTable": {
-                  "length": 0,
-                  "name": [],
-                  "isJS": [],
-                  "relevantForJS": [],
-                  "resource": [],
-                  "fileName": [],
-                  "lineNumber": [],
-                  "columnNumber": []
-                },
                 "markers": {
                   "length": 1,
                   "category": [
@@ -1678,13 +1660,6 @@ fn test_flow_marker_fields() {
                 },
                 "name": "test",
                 "isMainThread": true,
-                "nativeSymbols": {
-                  "length": 0,
-                  "address": [],
-                  "functionSize": [],
-                  "libIndex": [],
-                  "name": []
-                },
                 "pausedRanges": [],
                 "pid": "123",
                 "processName": "test",
@@ -1692,13 +1667,6 @@ fn test_flow_marker_fields() {
                 "processStartupTime": 0.0,
                 "processType": "default",
                 "registerTime": 0.0,
-                "resourceTable": {
-                  "length": 0,
-                  "lib": [],
-                  "name": [],
-                  "host": [],
-                  "type": []
-                },
                 "samples": {
                   "length": 0,
                   "weightType": "samples",
@@ -1706,11 +1674,6 @@ fn test_flow_marker_fields() {
                   "timeDeltas": [],
                   "weight": [],
                   "threadCPUDelta": []
-                },
-                "stackTable": {
-                  "length": 0,
-                  "prefix": [],
-                  "frame": []
                 },
                 "tid": "12345",
                 "unregisterTime": null,

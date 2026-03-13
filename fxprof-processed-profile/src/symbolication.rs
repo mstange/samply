@@ -9,7 +9,9 @@ use crate::profile_symbol_info::{
 };
 use crate::stack_table::StackTable;
 use crate::string_table::ProfileStringTable;
-use crate::{FrameFlags, SourceLocation, StringHandle, SubcategoryHandle};
+use crate::{
+    FrameFlags, FrameHandle, SourceLocation, StackHandle, StringHandle, SubcategoryHandle,
+};
 
 /// Describes a native frame which should be replaced with its symbolicated
 /// equivalent.
@@ -36,7 +38,7 @@ impl FrameKeyForSymbolication {
 /// stack node's frame.
 pub enum StackNodeConversionAction {
     /// Change the frame index to the new index.
-    RemapIndex(usize),
+    RemapIndex(FrameHandle),
     /// Replace this stack node with one or more stack nodes by looking up
     /// the symbolicated frames for this frame key.
     Symbolicate(FrameKeyForSymbolication),
@@ -153,7 +155,12 @@ pub fn apply_symbol_information(
     libs: &FastHashSet<GlobalLibIndex>,
     lib_symbols: &BTreeMap<GlobalLibIndex, &LibSymbolInfo>,
     strings: &mut StringTableAdapter,
-) -> (FrameInterner, NativeSymbols, StackTable, Vec<Option<usize>>) {
+) -> (
+    FrameInterner,
+    NativeSymbols,
+    StackTable,
+    Vec<Option<StackHandle>>,
+) {
     let (mut new_native_symbols, old_native_symbol_to_new_native_symbol) =
         native_symbols.new_table_with_symbols_from_libs_removed(libs);
 
@@ -389,7 +396,7 @@ fn create_symbolicated_frames_for_frame(
             source_location: SourceLocation::default(),
             flags: frame_flags,
         });
-        return CompactFrameSequence::single_frame(new_frame);
+        return CompactFrameSequence::single_frame(new_frame.0);
     };
 
     // We have symbol information for this address!
@@ -429,7 +436,7 @@ fn create_symbolicated_frames_for_frame(
             source_location: SourceLocation::default(),
             flags: frame_flags,
         });
-        return CompactFrameSequence::single_frame(new_frame);
+        return CompactFrameSequence::single_frame(new_frame.0);
     }
 
     // We have function name + file path + line info for this address, and it
@@ -450,22 +457,24 @@ fn create_symbolicated_frames_for_frame(
     // seen before - it didn't contain any frames at all from lib before
     // `create_symbolicated_frames` was called.
     CompactFrameSequence::from_iter(frame_iter.enumerate().map(|(inline_depth, frame)| {
-        new_frame_interner.index_for_frame(InternalFrame {
-            name: strings.convert_index(frame.function_name),
-            variant: InternalFrameVariant::Native(NativeFrameData {
-                lib,
-                native_symbol: Some(native_symbol_index),
-                relative_address: address,
-                inline_depth: inline_depth as u16,
-            }),
-            subcategory,
-            source_location: SourceLocation {
-                file_path: frame.file.map(|f| strings.convert_index(f)),
-                line: frame.line,
-                col: None,
-            },
-            flags: frame_flags,
-        })
+        new_frame_interner
+            .index_for_frame(InternalFrame {
+                name: strings.convert_index(frame.function_name),
+                variant: InternalFrameVariant::Native(NativeFrameData {
+                    lib,
+                    native_symbol: Some(native_symbol_index),
+                    relative_address: address,
+                    inline_depth: inline_depth as u16,
+                }),
+                subcategory,
+                source_location: SourceLocation {
+                    file_path: frame.file.map(|f| strings.convert_index(f)),
+                    line: frame.line,
+                    col: None,
+                },
+                flags: frame_flags,
+            })
+            .0
     }))
 }
 
@@ -489,13 +498,15 @@ fn create_symbolicated_stacks(
     conversion_action_for_stack_frame: Vec<StackNodeConversionAction>,
     stack_table: StackTable,
     symbolicated_frames_by_key: BTreeMap<FrameKeyForSymbolication, CompactFrameSequence>,
-) -> (StackTable, Vec<Option<usize>>) {
+) -> (StackTable, Vec<Option<StackHandle>>) {
     let mut new_stack_table = StackTable::new();
-    let mut old_stack_to_new_stack = Vec::with_capacity(stack_table.len());
+    let mut old_stack_to_new_stack: Vec<Option<StackHandle>> =
+        Vec::with_capacity(stack_table.len());
 
     for (old_prefix, old_frame) in stack_table.into_stacks() {
+        let old_prefix = old_prefix.map(|StackHandle(index)| index);
         let new_prefix = old_prefix.and_then(|old_prefix| old_stack_to_new_stack[old_prefix]);
-        let new_stack = match &conversion_action_for_stack_frame[old_frame] {
+        let new_stack: Option<StackHandle> = match &conversion_action_for_stack_frame[old_frame.0] {
             StackNodeConversionAction::RemapIndex(new_frame) => {
                 Some(new_stack_table.index_for_stack(new_prefix, *new_frame))
             }
@@ -504,8 +515,9 @@ fn create_symbolicated_stacks(
                 let expanded_frames = symbolicated_frames_by_key[frame_key_for_symbolication];
                 let mut current_stack = new_prefix;
                 for frame_index in expanded_frames.frame_index_iter() {
-                    current_stack =
-                        Some(new_stack_table.index_for_stack(current_stack, frame_index));
+                    current_stack = Some(
+                        new_stack_table.index_for_stack(current_stack, FrameHandle(frame_index)),
+                    );
                 }
                 current_stack
             }
