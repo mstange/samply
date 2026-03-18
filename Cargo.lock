@@ -1673,9 +1673,9 @@ checksum = "17359afc20d7ab31fdb42bb844c8b3bb1dabd7dcf7e68428492da7f16966fcef"
 
 [[package]]
 name = "pdb-addr2line"
-version = "0.11.2"
+version = "0.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b2a2e496e34cd96a1bb26f681e5adb11c98f1e5378e294e60c06c0cf04c526ba"
+checksum = "d37ea3b284071f1c03aba6b97fd2c8d884348ef8fd0a9f2c2e0f66c2f451ba17"
 dependencies = [
  "bitflags",
  "elsa",
@@ -1687,9 +1687,9 @@ dependencies = [
 
 [[package]]
 name = "pdb2"
-version = "0.9.2"
+version = "0.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "266b8733697ccc3aa405a9b2cf485a42746ad1cf73d3b0497b79b24f9e874a71"
+checksum = "408d6fa13d943ee4b76ffda52cc28e817df9c2c4b2c46bd9aec8bff574377e1a"
 dependencies = [
  "fallible-iterator",
  "scroll",
