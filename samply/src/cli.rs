@@ -336,8 +336,8 @@ pub struct ProfileCreationArgs {
     #[arg(long)]
     pub unknown_event_markers: bool,
 
-    /// Enable CoreCLR event conversion.
-    #[clap(long, require_equals = true, value_name = "FLAG", value_enum, value_delimiter = ',', num_args = 0.., default_values_t = vec![CoreClrArgs::Enabled])]
+    /// Enable CoreCLR event conversion. Implies --unlink-aux-files if set.
+    #[clap(long, require_equals = true, value_name = "FLAG", value_enum, value_delimiter = ',', num_args = 0.., default_values_t = Vec::<CoreClrArgs>::new(), default_missing_value = "enabled")]
     pub coreclr: Vec<CoreClrArgs>,
 }
 
