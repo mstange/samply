@@ -34,7 +34,7 @@ use crate::sample_table::WeightType;
 use crate::string_table::{ProfileStringTable, StringHandle};
 use crate::thread::{ProcessHandle, Thread};
 use crate::timestamp::Timestamp;
-use crate::{FrameFlags, PlatformSpecificReferenceTimestamp, Symbol};
+use crate::{FrameFlags, PlatformSpecificReferenceTimestamp};
 
 /// The sampling interval used during profile recording.
 ///
@@ -629,9 +629,11 @@ impl Profile {
                 let symbol = lib_symbol_table.and_then(|symbol_table| symbol_table.lookup(address));
                 let (native_symbol, name) = match symbol {
                     Some(symbol) => {
-                        let (native_symbol, name) = self
+                        let name = self.shared_data.string_table.index_for_string(&symbol.name);
+                        let native_symbol = self
                             .shared_data
-                            .native_symbol_index_and_string_index_for_symbol(lib_index, symbol);
+                            .native_symbols
+                            .symbol_index_for_symbol(lib_index, symbol.address, symbol.size, name);
                         (Some(native_symbol), name)
                     }
                     None => {
@@ -776,14 +778,19 @@ impl Profile {
     pub fn handle_for_native_symbol(
         &mut self,
         lib: LibraryHandle,
-        symbol: &Symbol,
+        symbol_address: u32,
+        symbol_size: Option<u32>,
+        symbol_name: StringHandle,
     ) -> NativeSymbolHandle {
         let global_lib_index = self
             .global_libs
             .index_for_used_lib(lib, &mut self.shared_data.string_table);
-        let native_symbol_index = self
-            .shared_data
-            .native_symbol_index_for_native_symbol(global_lib_index, symbol);
+        let native_symbol_index = self.shared_data.native_symbols.symbol_index_for_symbol(
+            global_lib_index,
+            symbol_address,
+            symbol_size,
+            symbol_name,
+        );
         NativeSymbolHandle(native_symbol_index)
     }
 

@@ -11,14 +11,14 @@ use crate::stack_table::StackTable;
 use crate::string_table::{ProfileStringTable, StringHandle};
 use crate::symbol_info::SymbolStringTable;
 use crate::symbolication::{apply_symbol_information, StringTableAdapter};
-use crate::{FrameHandle, StackHandle, Symbol};
+use crate::{FrameHandle, StackHandle};
 
 #[derive(Debug)]
 pub struct ProfileSharedData {
     pub(crate) string_table: ProfileStringTable,
     stack_table: StackTable,
     frame_interner: FrameInterner,
-    native_symbols: NativeSymbols,
+    pub(crate) native_symbols: NativeSymbols,
 }
 
 impl ProfileSharedData {
@@ -29,25 +29,6 @@ impl ProfileSharedData {
             frame_interner: FrameInterner::new(),
             native_symbols: NativeSymbols::new(),
         }
-    }
-
-    pub fn native_symbol_index_and_string_index_for_symbol(
-        &mut self,
-        lib_index: GlobalLibIndex,
-        symbol: &Symbol,
-    ) -> (NativeSymbolIndex, StringHandle) {
-        self.native_symbols
-            .symbol_index_and_string_index_for_symbol(lib_index, symbol, &mut self.string_table)
-    }
-
-    pub fn native_symbol_index_for_native_symbol(
-        &mut self,
-        lib_index: GlobalLibIndex,
-        symbol: &Symbol,
-    ) -> NativeSymbolIndex {
-        let (symbol_index, _) =
-            self.native_symbol_index_and_string_index_for_symbol(lib_index, symbol);
-        symbol_index
     }
 
     pub fn get_native_symbol_name(&self, native_symbol_index: NativeSymbolIndex) -> StringHandle {
