@@ -471,6 +471,8 @@ fn create_symbolicated_frames_for_frame(
                     file_path: frame.file.map(|f| strings.convert_index(f)),
                     line: frame.line,
                     col: None,
+                    function_start_line: None,
+                    function_start_col: None,
                 },
                 flags: frame_flags,
             })

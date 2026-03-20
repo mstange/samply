@@ -195,7 +195,12 @@ impl InternalFrame {
             flags,
             ..
         } = *self;
-        let file_path = self.source_location.file_path;
+        let SourceLocation {
+            file_path,
+            function_start_line,
+            function_start_col,
+            ..
+        } = self.source_location;
         let source = file_path.map(|file_path| {
             source_table.index_for_source(SourceKey {
                 id: None,
@@ -212,6 +217,8 @@ impl InternalFrame {
         FuncKey {
             name,
             source,
+            start_line: function_start_line,
+            start_column: function_start_col,
             lib,
             flags,
         }

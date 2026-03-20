@@ -127,15 +127,17 @@ pub struct FrameSymbolInfo {
 pub struct SourceLocation {
     /// The [`StringHandle`] for the file path of the source file. Optional.
     pub file_path: Option<StringHandle>,
-    /// The line number in the source file, optional. The first line has number 1.
+    /// The line number in the source file, 1-based. Optional.
     ///
     /// This should be the line number of the line that's "being executed" for
     /// this frame, i.e. a line within a function.
     pub line: Option<u32>,
-    /// The column number in the source file, measured in bytes from line start. Optional.
-    ///
-    /// The first byte in each line has column number zero.
+    /// The column number in the source file, 1-based. Optional.
     pub col: Option<u32>,
+    /// The line number (1-based) at file_path where the function starts. Optional.
+    pub function_start_line: Option<u32>,
+    /// The column number (1-based) at file_path where the function starts. Optional.
+    pub function_start_col: Option<u32>,
 }
 
 /// The unit that should be used for the timeline at the top of the profiler UI.
