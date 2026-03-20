@@ -215,22 +215,29 @@ impl<'a> serde::Serialize for ResponseFrame<'a> {
             &self.memory_map[frame.module_index as usize].debug_name,
         )?;
 
-        if let Some(symbol_map) = self.symbols_by_module_index.get(&frame.module_index) {
+        if let Some(PerModuleResultsRef {
+            symbol_map,
+            address_results,
+        }) = self.symbols_by_module_index.get(&frame.module_index)
+        {
             // If we have a symbol table for this library, then we know that
             // this address is present in it.
-            let address_result = symbol_map.address_results.get(&frame.address).unwrap();
+            let address_result = address_results.get(&frame.address).unwrap();
             // But the result might still be None.
             if let Some(address_result) = address_result {
+                let symbol_name = symbol_map.resolve_symbol_name(address_result.symbol.name);
+
                 // Use the function name from debug info if available, otherwise use the symbol name
-                let function_name = address_result
-                    .function_name
-                    .map(|h| symbol_map.symbol_map.resolve_function_name(h))
-                    .unwrap_or_else(|| {
-                        symbol_map
-                            .symbol_map
-                            .resolve_symbol_name(address_result.symbol.name)
-                    });
-                map.serialize_entry("function", &function_name)?;
+                if let Some(f) = address_result.function_name {
+                    let function_name = symbol_map.resolve_function_name(f);
+                    map.serialize_entry("function", &function_name)?;
+                    if symbol_name != function_name {
+                        map.serialize_entry("symbol", &symbol_name)?;
+                    }
+                } else {
+                    map.serialize_entry("function", &symbol_name)?;
+                };
+
                 map.serialize_entry(
                     "function_offset",
                     &SerializeAsHexStr(frame.address - address_result.symbol.address),
@@ -243,18 +250,13 @@ impl<'a> serde::Serialize for ResponseFrame<'a> {
                     let (outer, inlines) = frames
                         .split_last()
                         .expect("inline_frames should always have at least one element");
-                    if let Some(file) = &outer.file_path {
-                        let file = symbol_map.symbol_map.resolve_source_file_path(*file);
-                        map.serialize_entry("file", &to_api_file_path(&file))?;
-                    }
-                    if let Some(line) = outer.line_number.and_then(NonZeroU32::new) {
-                        map.serialize_entry("line", &line)?;
-                    }
+                    ResponseInlineFrame(outer, *symbol_map)
+                        .serialize_file_and_line_info::<S>(&mut map)?;
 
                     if !inlines.is_empty() {
                         map.serialize_entry(
                             "inlines",
-                            &ResponseInlineFrames(inlines, symbol_map.symbol_map),
+                            &ResponseInlineFrames(inlines, *symbol_map),
                         )?;
                     }
                 }
@@ -282,6 +284,30 @@ impl<'a> serde::Serialize for ResponseInlineFrames<'a> {
 
 struct ResponseInlineFrame<'a>(&'a FrameDebugInfo, &'a dyn SymbolMapTrait);
 
+impl<'a> ResponseInlineFrame<'a> {
+    pub fn serialize_file_and_line_info<S>(&self, map: &mut S::SerializeMap) -> Result<(), S::Error>
+    where
+        S: serde::Serializer,
+    {
+        if let Some(file) = &self.0.file_path {
+            let file = self.1.resolve_source_file_path(*file);
+            map.serialize_entry("file", &to_api_file_path(&file))?;
+        }
+        if let Some(line) = self.0.line_number.and_then(NonZeroU32::new) {
+            map.serialize_entry("line", &line)?;
+        }
+        if let Some(col) = self.0.column_number.and_then(NonZeroU32::new) {
+            map.serialize_entry("col", &col)?;
+        }
+        if let Some(function_start_line) = self.0.function_start_line.and_then(NonZeroU32::new) {
+            map.serialize_entry("function_start_line", &function_start_line)?;
+        }
+        if let Some(function_start_col) = self.0.function_start_column.and_then(NonZeroU32::new) {
+            map.serialize_entry("function_start_col", &function_start_col)?;
+        }
+        Ok(())
+    }
+}
 impl<'a> serde::Serialize for ResponseInlineFrame<'a> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -292,13 +318,7 @@ impl<'a> serde::Serialize for ResponseInlineFrame<'a> {
             let function_name = self.1.resolve_function_name(function);
             map.serialize_entry("function", &function_name)?;
         }
-        if let Some(file) = &self.0.file_path {
-            let file = self.1.resolve_source_file_path(*file);
-            map.serialize_entry("file", &to_api_file_path(&file))?;
-        }
-        if let Some(line) = self.0.line_number.and_then(NonZeroU32::new) {
-            map.serialize_entry("line", &line)?;
-        }
+        self.serialize_file_and_line_info::<S>(&mut map)?;
         map.end()
     }
 }
