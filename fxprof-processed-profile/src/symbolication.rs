@@ -470,9 +470,9 @@ fn create_symbolicated_frames_for_frame(
                 source_location: SourceLocation {
                     file_path: frame.file.map(|f| strings.convert_index(f)),
                     line: frame.line,
-                    col: None,
-                    function_start_line: None,
-                    function_start_col: None,
+                    col: frame.col,
+                    function_start_line: frame.function_start_line,
+                    function_start_col: frame.function_start_col,
                 },
                 flags: frame_flags,
             })
