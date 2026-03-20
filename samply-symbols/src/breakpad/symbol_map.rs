@@ -340,6 +340,7 @@ impl<'object, T: FileContents> SymbolMapTrait for BreakpadSymbolMapInner<'object
                         function: Some(name),
                         file_path: Some(self.generation.source_file_handle(inlinee.call_file)),
                         line_number: Some(inlinee.call_line),
+                        ..Default::default()
                     });
                     name = self.generation.function_name_handle(FunctionNameIndex(
                         self.index.symbol_entries.len() as u32 + inlinee.origin_id,
@@ -357,6 +358,7 @@ impl<'object, T: FileContents> SymbolMapTrait for BreakpadSymbolMapInner<'object
                     function: Some(name),
                     file_path: file,
                     line_number,
+                    ..Default::default()
                 });
                 frames.reverse();
 

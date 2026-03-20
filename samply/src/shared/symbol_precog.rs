@@ -193,6 +193,7 @@ impl wholesym::samply_symbols::SymbolMapTrait for PrecogLibraySymbolMap {
                                         self.generation.source_file_handle(file.into())
                                     }),
                                     line_number: frame.line,
+                                    ..Default::default()
                                 })
                                 .collect(),
                         )

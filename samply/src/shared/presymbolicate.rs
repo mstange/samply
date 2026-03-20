@@ -66,9 +66,9 @@ fn convert_address_frame(
         function_name,
         file,
         line: frame.line_number,
-        col: None,
-        function_start_line: None,
-        function_start_col: None,
+        col: frame.column_number,
+        function_start_line: frame.function_start_line,
+        function_start_col: frame.function_start_column,
     })
 }
 
