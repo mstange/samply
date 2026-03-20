@@ -2,7 +2,7 @@ use std::collections::VecDeque;
 use std::iter::{Cloned, Rev};
 
 use fxprof_processed_profile::{
-    FrameAddress, FrameFlags, FrameHandle, Profile, SubcategoryHandle, ThreadHandle,
+    FrameAddress, FrameFlags, FrameHandle, ProcessHandle, Profile, SubcategoryHandle,
 };
 
 use super::jit_category_manager::{JsFrame, JsName};
@@ -34,6 +34,7 @@ struct FirstPassIter<I: Iterator<Item = StackFrame>>(I);
 
 struct SecondPassIter<'a, I: Iterator<Item = FirstPassFrameInfo>> {
     inner: I,
+    process_handle: ProcessHandle,
     lib_mappings: &'a LibMappingsHierarchy,
     user_category: SubcategoryHandle,
     kernel_category: SubcategoryHandle,
@@ -47,7 +48,6 @@ struct LibartFilteringIter<'c, I: Iterator<Item = SecondPassFrameInfo>> {
 
 struct ConvertedStackIterD<I: Iterator<Item = SecondPassFrameInfo>> {
     inner: I,
-    thread: ThreadHandle,
     pending_frame_handle: Option<FrameHandle>,
     js_name_for_baseline_interpreter: Option<JsName>,
 }
@@ -123,17 +123,18 @@ impl<I: Iterator<Item = FirstPassFrameInfo>> Iterator for SecondPassIter<'_, I> 
                     )
                 }
                 None => {
+                    let p = self.process_handle;
                     let location = match from_ip {
-                        true => FrameAddress::InstructionPointer(lookup_address),
-                        false => FrameAddress::AdjustedReturnAddress(lookup_address),
+                        true => FrameAddress::InstructionPointer(p, lookup_address),
+                        false => FrameAddress::AdjustedReturnAddress(p, lookup_address),
                     };
                     (location, self.user_category, None, None)
                 }
             },
             StackMode::Kernel => {
                 let location = match from_ip {
-                    true => FrameAddress::InstructionPointer(lookup_address),
-                    false => FrameAddress::AdjustedReturnAddress(lookup_address),
+                    true => FrameAddress::KernelInstructionPointer(lookup_address),
+                    false => FrameAddress::KernelAdjustedReturnAddress(lookup_address),
                 };
                 (location, self.kernel_category, None, None)
             }
@@ -245,16 +246,12 @@ impl<I: Iterator<Item = SecondPassFrameInfo>> ConvertedStackIterD<I> {
         };
 
         let mut frame_handle =
-            profile.handle_for_frame_with_address(self.thread, location, category, frame_flags);
+            profile.handle_for_frame_with_address(location, category, frame_flags);
         if let Some(JsName::NonSelfHosted(js_name)) = extra_js_name {
             // Prepend a JS frame.
             // We don't treat Spidermonkey "self-hosted" functions as JS (e.g. filter/map/push).
-            let prepended_js_frame = profile.handle_for_frame_with_label(
-                self.thread,
-                js_name,
-                category,
-                FrameFlags::IS_JS,
-            );
+            let prepended_js_frame =
+                profile.handle_for_frame_with_label(js_name, category, FrameFlags::IS_JS);
             let buffered_frame = std::mem::replace(&mut frame_handle, prepended_js_frame);
             self.pending_frame_handle = Some(buffered_frame);
         };
@@ -287,7 +284,7 @@ impl StackConverter {
     /// Returns an iterator going from root caller to callee.
     pub fn convert_stack<'a>(
         &'a mut self,
-        thread: ThreadHandle,
+        process: ProcessHandle,
         stack: &'a [StackFrame],
         lib_mappings: &'a LibMappingsHierarchy,
         extra_first_frame: Option<FrameHandle>,
@@ -295,6 +292,7 @@ impl StackConverter {
         let pass1 = FirstPassIter(stack.iter().cloned().rev());
         let pass2 = SecondPassIter {
             inner: pass1,
+            process_handle: process,
             lib_mappings,
             user_category: self.user_category,
             kernel_category: self.kernel_category,
@@ -307,7 +305,6 @@ impl StackConverter {
         };
         let pass4 = ConvertedStackIterD {
             inner: pass3,
-            thread,
             pending_frame_handle: extra_first_frame,
             js_name_for_baseline_interpreter: None,
         };

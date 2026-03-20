@@ -210,6 +210,7 @@ impl Processes {
                 };
 
                 ProcessSampleData::new(
+                    process.handle,
                     process.unresolved_samples,
                     process.regular_lib_mapping_ops,
                     jitdump_lib_mapping_op_queues,
@@ -1331,7 +1332,6 @@ impl ProfileContext {
 
         if let Some((cpu_thread_handle, cpu_delta)) = per_cpu_stuff {
             let thread_label_frame = self.profile.handle_for_frame_with_label(
-                cpu_thread_handle,
                 thread_label,
                 CategoryHandle::OTHER,
                 FrameFlags::empty(),
@@ -1648,9 +1648,7 @@ impl ProfileContext {
                     let begin_timestamp = self
                         .timestamp_converter
                         .convert_time(idle_cpu_sample.begin_timestamp);
-                    let stack =
-                        self.profile
-                            .handle_for_stack(cpu.thread_handle, cpu.idle_frame, None);
+                    let stack = self.profile.handle_for_stack(cpu.idle_frame, None);
                     self.profile.add_sample(
                         cpu.thread_handle,
                         begin_timestamp,

@@ -4,7 +4,6 @@ use crate::fast_hash_map::{FastHashMap, FastHashSet};
 use crate::global_lib_table::GlobalLibIndex;
 use crate::library_info::Symbol;
 use crate::string_table::{ProfileStringTable, StringHandle};
-use crate::ThreadHandle;
 
 /// Represents a symbol from the symbol table of a library. Obtained from [`Profile::handle_for_native_symbol`](crate::Profile::handle_for_native_symbol).
 ///
@@ -35,7 +34,7 @@ use crate::ThreadHandle;
 ///   and line numbers, if this information is known.
 /// - The frame for A has inline depth 0 and the frame for B has inline depth 1.
 #[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash)]
-pub struct NativeSymbolHandle(pub(crate) ThreadHandle, pub(crate) NativeSymbolIndex);
+pub struct NativeSymbolHandle(pub(crate) NativeSymbolIndex);
 
 /// The native symbols that are used by frames in a thread's `FrameTable`.
 /// They can be from different libraries. Only used symbols are included.

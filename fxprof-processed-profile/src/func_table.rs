@@ -5,14 +5,15 @@ use crate::frame::FrameFlags;
 use crate::global_lib_table::GlobalLibIndex;
 use crate::resource_table::{ResourceIndex, ResourceTable};
 use crate::serialization_helpers::SerializableSingleValueColumn;
+use crate::source_table::SourceIndex;
 use crate::string_table::StringHandle;
 
 #[derive(Debug, Clone, Default)]
 pub struct FuncTable {
-    names: Vec<StringHandle>,
-    files: Vec<Option<StringHandle>>,
-    resources: Vec<Option<ResourceIndex>>,
-    flags: Vec<FrameFlags>,
+    name_col: Vec<StringHandle>,
+    source_col: Vec<Option<SourceIndex>>,
+    resource_col: Vec<Option<ResourceIndex>>,
+    flags_col: Vec<FrameFlags>,
 
     func_key_set: FastIndexSet<FuncKey>,
 }
@@ -20,7 +21,7 @@ pub struct FuncTable {
 #[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash)]
 pub struct FuncKey {
     pub name: StringHandle,
-    pub file_path: Option<StringHandle>,
+    pub source: Option<SourceIndex>,
     pub lib: Option<GlobalLibIndex>,
     pub flags: FrameFlags,
 }
@@ -40,17 +41,17 @@ impl FuncTable {
 
         let FuncKey {
             name,
-            file_path,
+            source,
             lib,
             flags,
         } = func_key;
 
         let resource = lib.map(|lib| resource_table.resource_for_lib(lib));
 
-        self.names.push(name);
-        self.files.push(file_path);
-        self.resources.push(resource);
-        self.flags.push(flags);
+        self.name_col.push(name);
+        self.source_col.push(source);
+        self.resource_col.push(resource);
+        self.flags_col.push(flags);
 
         func_index
     }
@@ -67,23 +68,23 @@ impl Serialize for FuncIndex {
 
 impl Serialize for FuncTable {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        let len = self.names.len();
+        let len = self.name_col.len();
         let mut map = serializer.serialize_map(None)?;
         map.serialize_entry("length", &len)?;
-        map.serialize_entry("name", &self.names)?;
+        map.serialize_entry("name", &self.name_col)?;
         map.serialize_entry(
             "isJS",
-            &SerializableFlagColumn(&self.flags, FrameFlags::IS_JS),
+            &SerializableFlagColumn(&self.flags_col, FrameFlags::IS_JS),
         )?;
         map.serialize_entry(
             "relevantForJS",
-            &SerializableFlagColumn(&self.flags, FrameFlags::IS_RELEVANT_FOR_JS),
+            &SerializableFlagColumn(&self.flags_col, FrameFlags::IS_RELEVANT_FOR_JS),
         )?;
         map.serialize_entry(
             "resource",
-            &SerializableFuncTableResourceColumn(&self.resources),
+            &SerializableFuncTableResourceColumn(&self.resource_col),
         )?;
-        map.serialize_entry("fileName", &self.files)?;
+        map.serialize_entry("source", &self.source_col)?;
         map.serialize_entry("lineNumber", &SerializableSingleValueColumn((), len))?;
         map.serialize_entry("columnNumber", &SerializableSingleValueColumn((), len))?;
         map.end()

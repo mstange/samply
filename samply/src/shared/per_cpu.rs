@@ -8,7 +8,7 @@ use crate::shared::timestamp_converter::TimestampConverter;
 
 pub struct Cpus {
     start_time: Timestamp,
-    process_handle: ProcessHandle,
+    pub process_handle: ProcessHandle,
     combined_thread_handle: ThreadHandle,
     cpus: Vec<Cpu>,
 }
@@ -133,7 +133,6 @@ impl Cpus {
             profile.set_thread_name(thread, &name);
             let idle_string = profile.handle_for_string("<Idle>");
             let idle_frame = profile.handle_for_frame_with_label(
-                thread,
                 idle_string,
                 CategoryHandle::OTHER,
                 FrameFlags::empty(),

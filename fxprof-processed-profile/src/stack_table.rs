@@ -1,6 +1,6 @@
 use serde::ser::{Serialize, SerializeMap, Serializer};
 
-use crate::fast_hash_map::FastIndexSet;
+use crate::{fast_hash_map::FastIndexSet, FrameHandle, StackHandle};
 
 /// The stack table stores the tree of stack nodes of a thread. The shape of the tree is encoded in
 /// the prefix column: Root stack nodes have null as their prefix, and every non-root stack has the
@@ -40,23 +40,26 @@ use crate::fast_hash_map::FastIndexSet;
 /// would be lost if it wasn't inherited into the nsAttrAndChildArray::InsertChildAt stack before
 /// transforms are applied.
 #[derive(Debug, Clone, Default)]
-pub struct StackTable(FastIndexSet<(Option<usize>, usize)>);
+pub struct StackTable(FastIndexSet<(Option<StackHandle>, FrameHandle)>);
 
 impl StackTable {
     pub fn new() -> Self {
         Default::default()
     }
 
-    pub fn index_for_stack(&mut self, prefix: Option<usize>, frame: usize) -> usize {
-        let (stack_index, _is_new) = self.0.insert_full((prefix, frame));
-        stack_index
+    pub fn index_for_stack(
+        &mut self,
+        prefix: Option<StackHandle>,
+        frame: FrameHandle,
+    ) -> StackHandle {
+        StackHandle(self.0.insert_full((prefix, frame)).0)
     }
 
     pub fn len(&self) -> usize {
         self.0.len()
     }
 
-    pub fn into_stacks(self) -> impl Iterator<Item = (Option<usize>, usize)> {
+    pub fn into_stacks(self) -> impl Iterator<Item = (Option<StackHandle>, FrameHandle)> {
         self.0.into_iter()
     }
 }

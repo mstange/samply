@@ -7,7 +7,6 @@ use samply_symbols::{
     LookupAddress, SymbolManager,
 };
 use yaxpeax_arch::{Arch, DecodeError, LengthedInstruction, Reader, U8Reader};
-use yaxpeax_x86::amd64::{Opcode, Operand};
 
 use self::response_json::Response;
 use crate::asm::response_json::DecodedInstruction;
@@ -140,7 +139,22 @@ impl<'a, H: FileAndPathHelper> AsmApi<'a, H> {
                 CodeByteReadingError::FileIO(e) => AsmError::FileIO(e),
             })?;
 
-        decode_arch(bytes, architecture, rel_address, disassembly_len)
+        // Load the symbol map for branch target resolution.
+        let symbol_map = self
+            .symbol_manager
+            .load_symbol_map(&library_info)
+            .await
+            .ok();
+
+        let response = decode_arch(
+            bytes,
+            architecture,
+            rel_address,
+            disassembly_len,
+            symbol_map.as_ref(),
+        )?;
+
+        Ok(response)
     }
 
     async fn get_function_end_address(
@@ -157,21 +171,29 @@ impl<'a, H: FileAndPathHelper> AsmApi<'a, H> {
     }
 }
 
-fn decode_arch(
+fn decode_arch<H: FileAndPathHelper>(
     bytes: &[u8],
     arch: Option<&str>,
     rel_address: u32,
     decode_len: u32,
+    symbol_map: Option<&samply_symbols::SymbolMap<H>>,
 ) -> Result<Response, AsmError> {
     Ok(match arch {
-        Some("x86") => decode::<yaxpeax_x86::protected_mode::Arch>(bytes, rel_address, decode_len),
+        Some("x86") => decode::<yaxpeax_x86::protected_mode::Arch, H>(
+            bytes,
+            rel_address,
+            decode_len,
+            symbol_map,
+        ),
         Some("x86_64" | "x86_64h") => {
-            decode::<yaxpeax_x86::amd64::Arch>(bytes, rel_address, decode_len)
+            decode::<yaxpeax_x86::amd64::Arch, H>(bytes, rel_address, decode_len, symbol_map)
         }
         Some("arm64" | "arm64e") => {
-            decode::<yaxpeax_arm::armv8::a64::ARMv8>(bytes, rel_address, decode_len)
+            decode::<yaxpeax_arm::armv8::a64::ARMv8, H>(bytes, rel_address, decode_len, symbol_map)
         }
-        Some("arm") => decode::<yaxpeax_arm::armv7::ARMv7>(bytes, rel_address, decode_len),
+        Some("arm") => {
+            decode::<yaxpeax_arm::armv7::ARMv7, H>(bytes, rel_address, decode_len, symbol_map)
+        }
         _ => {
             return Err(AsmError::UnrecognizedArch(
                 arch.map_or_else(|| "unknown".to_string(), |a| a.to_string()),
@@ -180,13 +202,36 @@ fn decode_arch(
     })
 }
 
+/// Formats a branch target address with symbol information if available.
+/// Returns a string like "<symbol_name>" or "<symbol_name+0x123>".
+fn format_branch_symbol<H: FileAndPathHelper>(
+    target_address: u32,
+    symbol_map: Option<&samply_symbols::SymbolMap<H>>,
+) -> Option<String> {
+    let symbol_map = symbol_map?;
+    let lookup_result = symbol_map.lookup_sync(LookupAddress::Relative(target_address))?;
+    let symbol_name = symbol_map.resolve_symbol_name(lookup_result.symbol.name);
+
+    // Check if we're at the function start or inside it.
+    Some(if lookup_result.symbol.address == target_address {
+        format!("<{}>", symbol_name)
+    } else {
+        let offset = target_address - lookup_result.symbol.address;
+        format!("<{}+0x{:x}>", symbol_name, offset)
+    })
+}
+
 trait InstructionDecoding: Arch {
     const ARCH_NAME: &'static str;
     const SYNTAX: &'static [&'static str];
     const ADJUST_BY_AFTER_ERROR: usize;
     fn make_decoder() -> Self::Decoder;
-    fn stringify_inst(rel_address: u32, offset: u32, inst: Self::Instruction)
-        -> DecodedInstruction;
+    fn stringify_inst<H: FileAndPathHelper>(
+        rel_address: u32,
+        offset: u32,
+        inst: Self::Instruction,
+        symbol_map: Option<&samply_symbols::SymbolMap<H>>,
+    ) -> DecodedInstruction;
 }
 
 impl InstructionDecoding for yaxpeax_x86::amd64::Arch {
@@ -198,11 +243,14 @@ impl InstructionDecoding for yaxpeax_x86::amd64::Arch {
         yaxpeax_x86::amd64::InstDecoder::default()
     }
 
-    fn stringify_inst(
+    fn stringify_inst<H: FileAndPathHelper>(
         rel_address: u32,
         offset: u32,
         inst: Self::Instruction,
+        symbol_map: Option<&samply_symbols::SymbolMap<H>>,
     ) -> DecodedInstruction {
+        use yaxpeax_x86::amd64::{Opcode, Operand};
+
         let (mut intel_insn, mut c_insn) = (
             inst.display_with(yaxpeax_x86::amd64::DisplayStyle::Intel)
                 .to_string(),
@@ -210,35 +258,33 @@ impl InstructionDecoding for yaxpeax_x86::amd64::Arch {
                 .to_string(),
         );
 
-        fn is_relative_branch(opcode: Opcode) -> bool {
-            matches!(
-                opcode,
-                Opcode::JMP
-                    | Opcode::JRCXZ
-                    | Opcode::LOOP
-                    | Opcode::LOOPZ
-                    | Opcode::LOOPNZ
-                    | Opcode::JO
-                    | Opcode::JNO
-                    | Opcode::JB
-                    | Opcode::JNB
-                    | Opcode::JZ
-                    | Opcode::JNZ
-                    | Opcode::JNA
-                    | Opcode::JA
-                    | Opcode::JS
-                    | Opcode::JNS
-                    | Opcode::JP
-                    | Opcode::JNP
-                    | Opcode::JL
-                    | Opcode::JGE
-                    | Opcode::JLE
-                    | Opcode::JG
-                    | Opcode::CALL
-            )
-        }
+        let is_relative_branch = matches!(
+            inst.opcode(),
+            Opcode::JMP
+                | Opcode::JRCXZ
+                | Opcode::LOOP
+                | Opcode::LOOPZ
+                | Opcode::LOOPNZ
+                | Opcode::JO
+                | Opcode::JNO
+                | Opcode::JB
+                | Opcode::JNB
+                | Opcode::JZ
+                | Opcode::JNZ
+                | Opcode::JNA
+                | Opcode::JA
+                | Opcode::JS
+                | Opcode::JNS
+                | Opcode::JP
+                | Opcode::JNP
+                | Opcode::JL
+                | Opcode::JGE
+                | Opcode::JLE
+                | Opcode::JG
+                | Opcode::CALL
+        );
 
-        if is_relative_branch(inst.opcode()) {
+        if is_relative_branch {
             match inst.operand(0) {
                 Operand::ImmediateI8 { imm } => {
                     let rel = imm;
@@ -247,6 +293,9 @@ impl InstructionDecoding for yaxpeax_x86::amd64::Arch {
                         + inst.len().to_const() as i64
                         + rel as i64;
                     intel_insn = format!("{} 0x{:x}", inst.opcode(), dest);
+                    if let Some(symbol_info) = format_branch_symbol(dest as u32, symbol_map) {
+                        intel_insn = format!("{} {}", intel_insn, symbol_info);
+                    }
                     c_insn.clone_from(&intel_insn);
                 }
                 Operand::ImmediateI32 { imm } => {
@@ -256,6 +305,9 @@ impl InstructionDecoding for yaxpeax_x86::amd64::Arch {
                         + inst.len().to_const() as i64
                         + rel as i64;
                     intel_insn = format!("{} 0x{:x}", inst.opcode(), dest);
+                    if let Some(symbol_info) = format_branch_symbol(dest as u32, symbol_map) {
+                        intel_insn = format!("{} {}", intel_insn, symbol_info);
+                    }
                     c_insn.clone_from(&intel_insn);
                 }
                 _ => {}
@@ -278,11 +330,13 @@ impl InstructionDecoding for yaxpeax_x86::protected_mode::Arch {
         yaxpeax_x86::protected_mode::InstDecoder::default()
     }
 
-    fn stringify_inst(
+    fn stringify_inst<H: FileAndPathHelper>(
         _rel_address: u32,
         offset: u32,
         inst: Self::Instruction,
+        _symbol_map: Option<&samply_symbols::SymbolMap<H>>,
     ) -> DecodedInstruction {
+        // TODO: Extract branch targets for x86 protected mode if needed.
         DecodedInstruction {
             offset,
             decoded_string_per_syntax: vec![inst.to_string()],
@@ -299,14 +353,72 @@ impl InstructionDecoding for yaxpeax_arm::armv8::a64::ARMv8 {
         yaxpeax_arm::armv8::a64::InstDecoder::default()
     }
 
-    fn stringify_inst(
-        _rel_address: u32,
+    fn stringify_inst<H: FileAndPathHelper>(
+        rel_address: u32,
         offset: u32,
         inst: Self::Instruction,
+        symbol_map: Option<&samply_symbols::SymbolMap<H>>,
     ) -> DecodedInstruction {
+        use yaxpeax_arm::armv8::a64::{Opcode, Operand};
+
+        let mut inst_str = inst.to_string();
+
+        let is_relative_branch = matches!(
+            inst.opcode,
+            Opcode::B
+                | Opcode::BL
+                | Opcode::Bcc(_)
+                | Opcode::BCcc(_)
+                | Opcode::CBZ
+                | Opcode::CBNZ
+                | Opcode::TBZ
+                | Opcode::TBNZ
+        );
+
+        if is_relative_branch {
+            // Extract the branch target from the instruction operands.
+            // Different branch types have the target in different operand positions:
+            // - B, BL, Bcc: operand 0 is the offset.
+            // - CBZ, CBNZ: operand 1 is the offset (operand 0 is the register).
+            // - TBZ, TBNZ: operand 2 is the offset (operands 0-1 are register and bit).
+            let operand_index = match inst.opcode {
+                Opcode::TBZ | Opcode::TBNZ => 2,
+                Opcode::CBZ | Opcode::CBNZ => 1,
+                _ => 0,
+            };
+
+            if let Operand::PCOffset(imm) = inst.operands[operand_index] {
+                // PC-relative offset in bytes.
+                // Unlike ARM32 BranchOffset/BranchThumbOffset, yaxpeax-arm returns ARM64
+                // PCOffset values already shifted, not as instruction units.
+                let dest = rel_address as i64 + offset as i64 + imm;
+
+                // Format the instruction with the absolute address.
+                inst_str = match inst.opcode {
+                    Opcode::TBZ | Opcode::TBNZ => {
+                        format!(
+                            "{} {}, {}, 0x{:x}",
+                            inst.opcode, inst.operands[0], inst.operands[1], dest
+                        )
+                    }
+                    Opcode::CBZ | Opcode::CBNZ => {
+                        format!("{} {}, 0x{:x}", inst.opcode, inst.operands[0], dest)
+                    }
+                    _ => {
+                        format!("{} 0x{:x}", inst.opcode, dest)
+                    }
+                };
+
+                // Add symbol information if available.
+                if let Some(symbol_info) = format_branch_symbol(dest as u32, symbol_map) {
+                    inst_str = format!("{} {}", inst_str, symbol_info);
+                }
+            }
+        }
+
         DecodedInstruction {
             offset,
-            decoded_string_per_syntax: vec![inst.to_string()],
+            decoded_string_per_syntax: vec![inst_str],
         }
     }
 }
@@ -331,22 +443,59 @@ impl InstructionDecoding for yaxpeax_arm::armv7::ARMv7 {
         yaxpeax_arm::armv7::InstDecoder::default_thumb()
     }
 
-    fn stringify_inst(
-        _rel_address: u32,
+    fn stringify_inst<H: FileAndPathHelper>(
+        rel_address: u32,
         offset: u32,
         inst: Self::Instruction,
+        symbol_map: Option<&samply_symbols::SymbolMap<H>>,
     ) -> DecodedInstruction {
+        use yaxpeax_arm::armv7::{ConditionedOpcode, Opcode, Operand};
+        let mut inst_str = inst.to_string();
+
+        let is_relative_branch = matches!(inst.opcode, Opcode::B | Opcode::BL | Opcode::BLX);
+
+        if is_relative_branch {
+            match inst.operands[0] {
+                Operand::BranchThumbOffset(imm) => {
+                    // For Thumb mode, the immediate is left-shifted by 1.
+                    // Thumb instructions are 2-byte aligned.
+                    let byte_offset = imm << 1;
+                    let dest = rel_address as i64 + offset as i64 + byte_offset as i64;
+                    let opcode =
+                        ConditionedOpcode(inst.opcode, inst.s, inst.thumb_w, inst.condition);
+                    inst_str = format!("{} 0x{:x}", opcode, dest);
+                    if let Some(symbol_info) = format_branch_symbol(dest as u32, symbol_map) {
+                        inst_str = format!("{} {}", inst_str, symbol_info);
+                    }
+                }
+                Operand::BranchOffset(imm) => {
+                    // For ARM mode (non-Thumb), the immediate is left-shifted by 2.
+                    // ARM instructions are 4-byte aligned.
+                    let byte_offset = imm << 2;
+                    let dest = rel_address as i64 + offset as i64 + byte_offset as i64;
+                    let opcode =
+                        ConditionedOpcode(inst.opcode, inst.s, inst.thumb_w, inst.condition);
+                    inst_str = format!("{} 0x{:x}", opcode, dest);
+                    if let Some(symbol_info) = format_branch_symbol(dest as u32, symbol_map) {
+                        inst_str = format!("{} {}", inst_str, symbol_info);
+                    }
+                }
+                _ => {}
+            }
+        }
+
         DecodedInstruction {
             offset,
-            decoded_string_per_syntax: vec![inst.to_string()],
+            decoded_string_per_syntax: vec![inst_str],
         }
     }
 }
 
-fn decode<'a, A: InstructionDecoding>(
+fn decode<'a, A: InstructionDecoding, H: FileAndPathHelper>(
     bytes: &'a [u8],
     rel_address: u32,
     decode_len: u32,
+    symbol_map: Option<&samply_symbols::SymbolMap<H>>,
 ) -> Response
 where
     u64: From<A::Address>,
@@ -364,7 +513,7 @@ where
         let before = u64::from(reader.total_offset()) as u32;
         match decoder.decode(&mut reader) {
             Ok(inst) => {
-                instructions.push(A::stringify_inst(rel_address, offset, inst));
+                instructions.push(A::stringify_inst(rel_address, offset, inst, symbol_map));
                 let after = u64::from(reader.total_offset()) as u32;
                 offset += after - before;
             }
