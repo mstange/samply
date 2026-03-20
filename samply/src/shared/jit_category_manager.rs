@@ -129,11 +129,21 @@ impl JitCategoryManager {
         ),
         ("JS:+", Category("Maglev", CategoryColor::Green), true),
         (
+            "JS:o+",
+            Category("Maglev (OSR)", CategoryColor::Green),
+            true,
+        ),
+        (
             "JS:*'",
             Category("Turbofan (context specialized)", CategoryColor::Green),
             true,
         ),
         ("JS:*", Category("Turbofan", CategoryColor::Green), true),
+        (
+            "JS:o*",
+            Category("Turbofan (OSR)", CategoryColor::Green),
+            true,
+        ),
         ("JS:?", Category("JavaScript", CategoryColor::Blue), true),
         ("py::", Category("Python", CategoryColor::Blue), true),
         ("Builtin:", Category("Builtin", CategoryColor::Brown), false),
