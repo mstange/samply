@@ -234,12 +234,14 @@ impl<I: Iterator<Item = SecondPassFrameInfo>> ConvertedStackIterD<I> {
             Some(JsFrame::RegularInAdditionToNativeFrame(js_name)) => {
                 // Remember the name for a potentially upcoming unnamed BaselineInterpreter frame.
                 self.js_name_for_baseline_interpreter = Some(js_name);
-                Some(js_name)
+                frame_flags |= FrameFlags::IS_JS;
+                None
             }
-            Some(JsFrame::BaselineInterpreterStub(js_name)) => {
+            Some(JsFrame::BaselineInterpreterStub(_js_name)) => {
                 // Discard the name of an ancestor JS function.
                 self.js_name_for_baseline_interpreter = None;
-                Some(js_name)
+                frame_flags |= FrameFlags::IS_JS;
+                None
             }
             Some(JsFrame::BaselineInterpreter) => self.js_name_for_baseline_interpreter.take(),
             None => None,
