@@ -48,6 +48,110 @@ pub fn debug_id_and_code_id_for_jitdump(
     (debug_id, code_id_bytes)
 }
 
+const JS_PREFIXES_WITH_SPACE_SEPARATED_FILENAME_AT_THE_END: &[&str] = &[
+    // JSC categories.
+    "JSC-Baseline: ",
+    "JSC-DFG: ",
+    "JSC-FTL: ",
+    "JSC-WasmOMG: ",
+    "JSC-WasmBBQ: ",
+    // V8 prefixes: https://source.chromium.org/chromium/chromium/src/+/main:v8/src/objects/code-kind.cc;l=21;drc=52e0bed2a5bce0ccc0894c03bdd7a6e13e6aff50
+    "JS:~",
+    "Script:~",
+    "JS:^",
+    "JS:+'",
+    "JS:+",
+    "JS:o+",
+    "JS:*'",
+    "JS:*",
+    "JS:o*",
+    "JS:?",
+];
+
+const JS_PREFIXES_WITH_PARENTHESIZED_FILENAME_AT_THE_END: &[&str] =
+    &["Interpreter: ", "Baseline: ", "Ion: ", "Wasm: "];
+
+const JS_PREFIXES_WITHOUT_FILENAME: &[&str] = &["py::"];
+
+struct JsFileInfo<'a> {
+    filename: &'a str,
+    start_line: Option<u32>,
+    start_col: Option<u32>,
+}
+
+impl<'a> JsFileInfo<'a> {
+    pub fn file_only(filename: &'a str) -> Self {
+        Self {
+            filename,
+            start_line: None,
+            start_col: None,
+        }
+    }
+    pub fn file_and_line(filename: &'a str, line: u32) -> Self {
+        Self {
+            filename,
+            start_line: Some(line),
+            start_col: None,
+        }
+    }
+    pub fn file_and_line_and_col(filename: &'a str, line: u32, col: u32) -> Self {
+        Self {
+            filename,
+            start_line: Some(line),
+            start_col: Some(col),
+        }
+    }
+}
+
+fn split_colon_separated_number_from_end(s: &str) -> Option<(&str, u32)> {
+    let (rest, suffix) = s.rsplit_once(':')?;
+    let num = suffix.parse::<u32>().ok()?;
+    Some((rest, num))
+}
+
+/// Split "filename.js:4:5" into ("filename.js", 4, 5)
+fn extract_file_info(file: &str) -> JsFileInfo<'_> {
+    let Some((rest, last_num)) = split_colon_separated_number_from_end(file) else {
+        return JsFileInfo::file_only(file);
+    };
+    match split_colon_separated_number_from_end(rest) {
+        Some((rest, second_last_num)) => {
+            JsFileInfo::file_and_line_and_col(rest, second_last_num, last_num)
+        }
+        None => JsFileInfo::file_and_line(rest, last_num),
+    }
+}
+
+fn parse_js_jit_function_name(raw_name: &str) -> Option<(&str, Option<&str>)> {
+    for prefix in JS_PREFIXES_WITH_SPACE_SEPARATED_FILENAME_AT_THE_END {
+        let Some(rest) = raw_name.strip_prefix(prefix) else {
+            continue;
+        };
+        if let Some((name, filename)) = rest.rsplit_once(' ') {
+            return Some((name, Some(filename)));
+        }
+        return Some((rest, None));
+    }
+    for prefix in JS_PREFIXES_WITH_PARENTHESIZED_FILENAME_AT_THE_END {
+        let Some(rest) = raw_name.strip_prefix(prefix) else {
+            continue;
+        };
+        if let Some(without_trailing_paren) = rest.strip_suffix(')') {
+            if let Some((name, filename)) = without_trailing_paren.rsplit_once(" (") {
+                return Some((name, Some(filename)));
+            }
+        }
+        return Some((rest, None));
+    }
+    for prefix in JS_PREFIXES_WITHOUT_FILENAME {
+        let Some(rest) = raw_name.strip_prefix(prefix) else {
+            continue;
+        };
+        return Some((rest, None));
+    }
+    None
+}
+
 #[derive(Debug, Clone)]
 pub struct JitDumpIndex {
     pub endian: Endianness,
@@ -288,40 +392,63 @@ impl<'a, T: FileContents> JitDumpSymbolMapInner<'a, T> {
     ) -> Option<SyncAddressInfo> {
         let mut cache = self.cache.lock().unwrap();
         let name_bytes = cache.get_function_name(index)?;
-        let name = cache
-            .string_interner
-            .intern_cow(String::from_utf8_lossy(name_bytes));
+        let name_str = String::from_utf8_lossy(name_bytes);
+        let frames = Self::get_frames(&mut cache, index, &name_str, offset_relative_to_symbol);
+
+        let name = cache.string_interner.intern_cow(name_str);
         let symbol = SymbolInfo {
             address: symbol_address,
             size: Some(self.index.entries[index].code_bytes_len as u32),
             name: name.into(),
         };
-        let Some(debug_info) = cache.get_debug_info(index) else {
-            return Some(SyncAddressInfo {
-                symbol,
-                frames: None,
-            });
-        };
-        let lookup_avma = debug_info.code_addr + offset_relative_to_symbol;
-        let entry = debug_info.lookup(lookup_avma)?;
-        let line = entry.line;
-        let column = entry.column;
-        let file_path = match entry.file_path.as_slice() {
-            Cow::Borrowed(s) => cache.string_interner.intern_cow(String::from_utf8_lossy(s)),
-            Cow::Owned(s) => cache
-                .string_interner
-                .intern_owned(&String::from_utf8_lossy(&s)),
-        };
-        let frame = FrameDebugInfo {
-            function: Some(name.into()),
-            file_path: Some(file_path.into()),
-            line_number: Some(line),
-            column_number: Some(column),
-            ..Default::default()
-        };
-
-        let frames = Some(FramesLookupResult::Available(vec![frame]));
         Some(SyncAddressInfo { symbol, frames })
+    }
+
+    fn get_frames(
+        cache: &mut JitDumpSymbolMapCache<'a, T>,
+        index: usize,
+        name_str: &str,
+        offset_relative_to_symbol: u64,
+    ) -> Option<FramesLookupResult> {
+        let mut frame = FrameDebugInfo::default();
+        let mut has_any_frame_info = false;
+        if let Some(debug_info) = cache.get_debug_info(index) {
+            has_any_frame_info = true;
+            let lookup_avma = debug_info.code_addr + offset_relative_to_symbol;
+            let entry = debug_info.lookup(lookup_avma)?;
+            let line = entry.line;
+            let column = entry.column;
+            let file_path = match entry.file_path.as_slice() {
+                Cow::Borrowed(s) => cache.string_interner.intern_cow(String::from_utf8_lossy(s)),
+                Cow::Owned(s) => cache
+                    .string_interner
+                    .intern_owned(&String::from_utf8_lossy(&s)),
+            };
+            let name = cache.string_interner.intern_owned(name_str);
+            frame.function = Some(name.into());
+            frame.file_path = Some(file_path.into());
+            frame.line_number = Some(line);
+            frame.column_number = Some(column);
+        }
+
+        if let Some((function_name_str, raw_filename)) = parse_js_jit_function_name(name_str) {
+            has_any_frame_info = true;
+            let function_name = cache.string_interner.intern_owned(function_name_str);
+            frame.function = Some(function_name.into());
+            if let Some(raw_filename) = raw_filename {
+                let file_info = extract_file_info(raw_filename);
+                let file = cache.string_interner.intern_owned(file_info.filename);
+                frame.file_path = Some(file.into());
+                frame.function_start_line = file_info.start_line;
+                frame.function_start_column = file_info.start_col;
+            }
+        }
+
+        if has_any_frame_info {
+            Some(FramesLookupResult::Available(vec![frame]))
+        } else {
+            None
+        }
     }
 }
 
