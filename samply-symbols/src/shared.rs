@@ -307,14 +307,20 @@ pub trait FileContents: Send + Sync {
 
 /// The debug information (function name, file path, line number) for a single frame
 /// at the looked-up address.
-#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, Hash, PartialEq, Eq)]
 pub struct FrameDebugInfo {
     /// The function name for this frame, if known.
     pub function: Option<FunctionNameHandle>,
     /// The [`SourceFilePathHandle`] for this frame, if known.
     pub file_path: Option<SourceFilePathHandle>,
-    /// The line number for this frame, if known.
+    /// The line number (1-based) for this frame, if known.
     pub line_number: Option<u32>,
+    /// The column number (1-based) for this frame, if known.
+    pub column_number: Option<u32>,
+    /// The line number (1-based) where this frame's function starts, if known.
+    pub function_start_line: Option<u32>,
+    /// The column number (1-based) where this frame's function starts, if known.
+    pub function_start_column: Option<u32>,
 }
 
 /// A trait which abstracts away the token that's passed to the [`FileAndPathHelper::load_file`]

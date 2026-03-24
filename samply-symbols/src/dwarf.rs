@@ -59,6 +59,7 @@ pub fn convert_stack_frame<R: gimli::Reader>(
         function,
         file_path,
         line_number: frame.location.and_then(|l| l.line),
+        ..Default::default()
     }
 }
 

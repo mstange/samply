@@ -2,8 +2,7 @@ use serde::ser::{Serialize, SerializeMap, Serializer};
 
 use crate::fast_hash_map::{FastHashMap, FastHashSet};
 use crate::global_lib_table::GlobalLibIndex;
-use crate::library_info::Symbol;
-use crate::string_table::{ProfileStringTable, StringHandle};
+use crate::string_table::StringHandle;
 
 /// Represents a symbol from the symbol table of a library. Obtained from [`Profile::handle_for_native_symbol`](crate::Profile::handle_for_native_symbol).
 ///
@@ -80,18 +79,6 @@ impl NativeSymbols {
                 native_symbol_index
             });
         NativeSymbolIndex(symbol_index as u32)
-    }
-
-    pub fn symbol_index_and_string_index_for_symbol(
-        &mut self,
-        lib_index: GlobalLibIndex,
-        symbol: &Symbol,
-        string_table: &mut ProfileStringTable,
-    ) -> (NativeSymbolIndex, StringHandle) {
-        let name_string_index = string_table.index_for_string(&symbol.name);
-        let symbol_index =
-            self.symbol_index_for_symbol(lib_index, symbol.address, symbol.size, name_string_index);
-        (symbol_index, name_string_index)
     }
 
     pub fn new_table_with_symbols_from_libs_removed(
