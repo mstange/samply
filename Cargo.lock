@@ -4,12 +4,12 @@ version = 3
 
 [[package]]
 name = "addr2line"
-version = "0.25.1"
+version = "0.26.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1b5d307320b3181d6d7954e663bd7c774a838b8220fe0593c86d9fb09f498b4b"
+checksum = "9698bf0769c641b18618039fe2ebd41eb3541f98433000f64e663fab7cea2c87"
 dependencies = [
  "fallible-iterator",
- "gimli",
+ "gimli 0.33.0",
 ]
 
 [[package]]
@@ -711,7 +711,7 @@ dependencies = [
  "arrayvec",
  "cfg-if",
  "fallible-iterator",
- "gimli",
+ "gimli 0.32.3",
  "macho-unwind-info",
  "pe-unwind-info",
 ]
@@ -892,6 +892,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e629b9b98ef3dd8afe6ca2bd0f89306cec16d43d907889945bc5d6687f2f13c7"
 dependencies = [
  "fallible-iterator",
+ "stable_deref_trait",
+]
+
+[[package]]
+name = "gimli"
+version = "0.33.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0bf7f043f89559805f8c7cacc432749b2fa0d0a0a9ee46ce47164ed5ba7f126c"
+dependencies = [
  "stable_deref_trait",
 ]
 
@@ -2409,7 +2418,7 @@ dependencies = [
  "elsa",
  "flate2",
  "futures",
- "gimli",
+ "gimli 0.32.3",
  "linux-perf-data",
  "lzma-rs",
  "macho-unwind-info",
