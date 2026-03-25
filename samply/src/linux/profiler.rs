@@ -4,7 +4,7 @@ use std::os::unix::process::ExitStatusExt;
 use std::path::Path;
 use std::process::ExitStatus;
 use std::thread;
-use std::time::{Duration, SystemTime};
+use std::time::{Duration, Instant, SystemTime};
 
 use crossbeam_channel::{Receiver, Sender};
 use fxprof_processed_profile::{Profile, ReferenceTimestamp};
@@ -532,7 +532,7 @@ fn run_profiler(
     mut converter: Converter<
         framehop::UnwinderNative<MmapRangeOrVec, framehop::MayAllocateDuringUnwind>,
     >,
-    _time_limit: Option<Duration>,
+    time_limit: Option<Duration>,
     more_processes_request_receiver: Receiver<SamplerRequest>,
     more_processes_reply_sender: Sender<bool>,
     mut stop_receiver: oneshot::Receiver<()>,
@@ -540,6 +540,7 @@ fn run_profiler(
 ) -> Profile {
     // eprintln!("Running...");
 
+    let start_time = Instant::now();
     let mut should_stop_profiling_once_perf_events_exhausted = false;
     let mut pending_lost_events = 0;
     let mut total_lost_events = 0;
@@ -547,6 +548,12 @@ fn run_profiler(
     loop {
         if stop_receiver.try_recv().is_ok() {
             break;
+        }
+
+        if let Some(time_limit) = time_limit {
+            if start_time.elapsed() >= time_limit {
+                break;
+            }
         }
 
         match more_processes_request_receiver.try_recv() {
