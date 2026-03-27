@@ -2108,9 +2108,7 @@ impl SampleStack {
 
             // Find where to splice: match the last real DWARF frame's address in the
             // FP callchain, then append everything deeper from the FP walk.
-            let last_dwarf_addr = self.dwarf[..dwarf_len]
-                .last()
-                .map(|f| f.address());
+            let last_dwarf_addr = self.dwarf[..dwarf_len].last().map(|f| f.address());
             let splice_idx = last_dwarf_addr
                 .and_then(|addr| fp_stack.iter().position(|f| f.address() == addr))
                 .map(|i| i + 1)
