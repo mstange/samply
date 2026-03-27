@@ -121,10 +121,13 @@ pub fn get_presymbolicate_info(
                     },
                     arch: lib.arch.clone(),
                     debug_name: Some(lib.debug_name.clone()),
-                    code_id: lib
-                        .code_id
-                        .as_ref()
-                        .map(|id| wholesym::CodeId::from_str(id).expect("bad codeid")),
+                    code_id: lib.code_id.as_ref().and_then(|id| {
+                        wholesym::CodeId::from_str(id)
+                            .inspect_err(|_| {
+                                log::warn!("Failed to parse code ID {id:?} for {lib:#?}")
+                            })
+                            .ok()
+                    }),
                 };
                 let rvas: Vec<u32> = rvas.into_iter().collect();
                 (lib_handle, lib_info, rvas)
