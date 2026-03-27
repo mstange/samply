@@ -1,4 +1,4 @@
-use fxprof_processed_profile::{FrameFlags, FrameHandle, Profile, SubcategoryHandle, ThreadHandle};
+use fxprof_processed_profile::{FrameFlags, FrameHandle, Profile, SubcategoryHandle};
 
 use super::stack_converter::ConvertedStackIter;
 
@@ -59,7 +59,6 @@ impl<'a> StackDepthLimitingFrameIter<'a> {
     pub fn new(
         profile: &mut Profile,
         iter: ConvertedStackIter<'a>,
-        thread: ThreadHandle,
         category: SubcategoryHandle,
     ) -> Self {
         // Check if part of the stack should be elided, to limit the stack depth.
@@ -75,7 +74,6 @@ impl<'a> StackDepthLimitingFrameIter<'a> {
             let elision_frame_string =
                 profile.handle_for_string(&format!("({elided_count} frames elided)"));
             let elision_frame_handle = profile.handle_for_frame_with_label(
-                thread,
                 elision_frame_string,
                 category,
                 FrameFlags::empty(),

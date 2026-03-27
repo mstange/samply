@@ -18,7 +18,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
       - run: rustup update stable
       - name: Check formatting
         run: cargo fmt --all --check --verbose
@@ -48,13 +48,13 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
       
       - name: Install sccache
         uses: mozilla-actions/sccache-action@v0.0.9
       
       - name: Cache Cargo dependencies
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             ~/.cargo/registry
@@ -98,13 +98,13 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
       
       - name: Install sccache
         uses: mozilla-actions/sccache-action@v0.0.9
       
       - name: Cache Cargo dependencies
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             ~/.cargo/registry
@@ -143,13 +143,13 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
       
       - name: Install sccache
         uses: mozilla-actions/sccache-action@v0.0.9
       
       - name: Cache Cargo dependencies
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             ~/.cargo/registry

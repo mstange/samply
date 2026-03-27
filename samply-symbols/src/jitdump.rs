@@ -305,6 +305,7 @@ impl<'a, T: FileContents> JitDumpSymbolMapInner<'a, T> {
         let lookup_avma = debug_info.code_addr + offset_relative_to_symbol;
         let entry = debug_info.lookup(lookup_avma)?;
         let line = entry.line;
+        let column = entry.column;
         let file_path = match entry.file_path.as_slice() {
             Cow::Borrowed(s) => cache.string_interner.intern_cow(String::from_utf8_lossy(s)),
             Cow::Owned(s) => cache
@@ -315,6 +316,8 @@ impl<'a, T: FileContents> JitDumpSymbolMapInner<'a, T> {
             function: Some(name.into()),
             file_path: Some(file_path.into()),
             line_number: Some(line),
+            column_number: Some(column),
+            ..Default::default()
         };
 
         let frames = Some(FramesLookupResult::Available(vec![frame]));

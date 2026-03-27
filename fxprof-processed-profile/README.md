@@ -28,12 +28,12 @@ let thread = profile.add_thread(process, 54132000, Timestamp::from_millis_since_
 profile.set_thread_name(thread, "Main thread");
 
 let root_node_string = profile.handle_for_string("Root node");
-let root_frame = profile.handle_for_frame_with_label(thread, root_node_string, CategoryHandle::OTHER, FrameFlags::empty());
+let root_frame = profile.handle_for_frame_with_label(root_node_string, CategoryHandle::OTHER, FrameFlags::empty());
 let first_callee_string = profile.handle_for_string("First callee");
-let first_callee_frame = profile.handle_for_frame_with_label(thread, first_callee_string, CategoryHandle::OTHER, FrameFlags::empty());
+let first_callee_frame = profile.handle_for_frame_with_label(first_callee_string, CategoryHandle::OTHER, FrameFlags::empty());
 
-let root_stack_node = profile.handle_for_stack(thread, root_frame, None);
-let first_callee_node = profile.handle_for_stack(thread, first_callee_frame, Some(root_stack_node));
+let root_stack_node = profile.handle_for_stack(root_frame, None);
+let first_callee_node = profile.handle_for_stack(first_callee_frame, Some(root_stack_node));
 profile.add_sample(thread, Timestamp::from_millis_since_reference(0.0), Some(first_callee_node), CpuDelta::ZERO, 1);
 
 let writer = std::io::BufWriter::new(output_file);

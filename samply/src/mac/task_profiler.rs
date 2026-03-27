@@ -668,6 +668,7 @@ impl TaskProfiler {
             }
         }
         let process_sample_data = ProcessSampleData::new(
+            self.profile_process,
             self.unresolved_samples,
             self.lib_mapping_ops,
             jitdump_lib_ops,

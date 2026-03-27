@@ -8,8 +8,9 @@ use crate::global_lib_table::{GlobalLibIndex, UsedLibraryAddressesCollector};
 use crate::native_symbols::NativeSymbolIndex;
 use crate::resource_table::ResourceTable;
 use crate::serialization_helpers::SerializableSingleValueColumn;
+use crate::source_table::{SourceKey, SourceTable};
 use crate::string_table::StringHandle;
-use crate::SourceLocation;
+use crate::{FrameHandle, SourceLocation};
 
 #[derive(Debug, Clone, Default)]
 pub struct FrameInterner {
@@ -22,7 +23,7 @@ impl FrameInterner {
         Default::default()
     }
 
-    pub fn index_for_frame(&mut self, frame: InternalFrame) -> usize {
+    pub fn index_for_frame(&mut self, frame: InternalFrame) -> FrameHandle {
         let (frame_index, is_new) = self.frame_key_set.insert_full(frame);
 
         if is_new
@@ -32,7 +33,7 @@ impl FrameInterner {
         {
             self.contains_js_frame = true;
         }
-        frame_index
+        FrameHandle(frame_index)
     }
 
     pub fn gather_used_rvas(&self, collector: &mut UsedLibraryAddressesCollector) {
@@ -56,7 +57,7 @@ impl FrameInterner {
         self.contains_js_frame
     }
 
-    pub fn create_tables(&self) -> (FrameTable, FuncTable, ResourceTable) {
+    pub fn create_tables(&self) -> (FrameTable, FuncTable, SourceTable, ResourceTable) {
         let len = self.frame_key_set.len();
         let mut func_col = Vec::with_capacity(len);
         let mut category_col = Vec::with_capacity(len);
@@ -69,9 +70,10 @@ impl FrameInterner {
 
         let mut func_table = FuncTable::default();
         let mut resource_table = ResourceTable::default();
+        let mut source_table = SourceTable::default();
 
         for frame in &self.frame_key_set {
-            let func_key = frame.func_key();
+            let func_key = frame.func_key(&mut source_table);
             let func = func_table.index_for_func(func_key, &mut resource_table);
 
             func_col.push(func);
@@ -111,7 +113,7 @@ impl FrameInterner {
             inline_depth_col,
         };
 
-        (frame_table, func_table, resource_table)
+        (frame_table, func_table, source_table, resource_table)
     }
 }
 
@@ -186,21 +188,37 @@ pub enum InternalFrameVariant {
 }
 
 impl InternalFrame {
-    pub fn func_key(&self) -> FuncKey {
+    pub fn func_key(&self, source_table: &mut SourceTable) -> FuncKey {
         let InternalFrame {
             name,
             variant,
             flags,
             ..
         } = *self;
-        let file_path = self.source_location.file_path;
+        let SourceLocation {
+            file_path,
+            function_start_line,
+            function_start_col,
+            ..
+        } = self.source_location;
+        let source = file_path.map(|file_path| {
+            source_table.index_for_source(SourceKey {
+                id: None,
+                file_path,
+                start_line: 1,
+                start_column: 1,
+                source_map_url: None,
+            })
+        });
         let lib = match variant {
             InternalFrameVariant::Label => None,
             InternalFrameVariant::Native(NativeFrameData { lib, .. }) => Some(lib),
         };
         FuncKey {
             name,
-            file_path,
+            source,
+            start_line: function_start_line,
+            start_column: function_start_col,
             lib,
             flags,
         }

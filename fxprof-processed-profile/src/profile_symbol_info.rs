@@ -83,4 +83,10 @@ pub struct AddressFrame {
     pub file: Option<SymbolStringIndex>,
     /// The line number within this function, for our address, if known.
     pub line: Option<u32>,
+    /// The column number within this function, for our address, if known.
+    pub col: Option<u32>,
+    /// The line number (1-based) at file_path where the function starts. Optional.
+    pub function_start_line: Option<u32>,
+    /// The column number (1-based) at file_path where the function starts. Optional.
+    pub function_start_col: Option<u32>,
 }

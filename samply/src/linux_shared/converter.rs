@@ -353,7 +353,6 @@ where
             };
 
             let label_frame = self.profile.handle_for_frame_with_label(
-                thread_handle,
                 thread.thread_label,
                 CategoryHandle::OTHER,
                 FrameFlags::empty(),
@@ -369,7 +368,6 @@ where
             );
 
             let label_frame = self.profile.handle_for_frame_with_label(
-                cpus.combined_thread_handle(),
                 thread.thread_label,
                 CategoryHandle::OTHER,
                 FrameFlags::empty(),
