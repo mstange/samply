@@ -993,12 +993,7 @@ where
 
             // Don't use parent's name here - the thread will get its own name via
             // a COMM event, and recycling happens there based on the actual name.
-            parent_process.recycle_or_get_new_thread(
-                e.tid,
-                None,
-                start_time,
-                &mut self.profile,
-            );
+            parent_process.recycle_or_get_new_thread(e.tid, None, start_time, &mut self.profile);
         }
     }
 
