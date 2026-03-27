@@ -302,6 +302,7 @@ impl<'object> SymbolMapTrait for PdbSymbolMapInner<'object> {
                         .map(|f| string_interner.intern_owned(&f).into()),
                     file_path: frame.file.map(|p| string_interner.intern_owned(&p).into()),
                     line_number: frame.line,
+                    ..Default::default()
                 })
                 .collect();
             Some(FramesLookupResult::Available(frames))

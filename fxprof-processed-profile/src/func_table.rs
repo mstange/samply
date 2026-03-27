@@ -4,7 +4,6 @@ use crate::fast_hash_map::FastIndexSet;
 use crate::frame::FrameFlags;
 use crate::global_lib_table::GlobalLibIndex;
 use crate::resource_table::{ResourceIndex, ResourceTable};
-use crate::serialization_helpers::SerializableSingleValueColumn;
 use crate::source_table::SourceIndex;
 use crate::string_table::StringHandle;
 
@@ -12,6 +11,8 @@ use crate::string_table::StringHandle;
 pub struct FuncTable {
     name_col: Vec<StringHandle>,
     source_col: Vec<Option<SourceIndex>>,
+    start_line_col: Vec<Option<u32>>,
+    start_column_col: Vec<Option<u32>>,
     resource_col: Vec<Option<ResourceIndex>>,
     flags_col: Vec<FrameFlags>,
 
@@ -22,6 +23,8 @@ pub struct FuncTable {
 pub struct FuncKey {
     pub name: StringHandle,
     pub source: Option<SourceIndex>,
+    pub start_line: Option<u32>,
+    pub start_column: Option<u32>,
     pub lib: Option<GlobalLibIndex>,
     pub flags: FrameFlags,
 }
@@ -42,6 +45,8 @@ impl FuncTable {
         let FuncKey {
             name,
             source,
+            start_line,
+            start_column,
             lib,
             flags,
         } = func_key;
@@ -50,6 +55,8 @@ impl FuncTable {
 
         self.name_col.push(name);
         self.source_col.push(source);
+        self.start_line_col.push(start_line);
+        self.start_column_col.push(start_column);
         self.resource_col.push(resource);
         self.flags_col.push(flags);
 
@@ -85,8 +92,8 @@ impl Serialize for FuncTable {
             &SerializableFuncTableResourceColumn(&self.resource_col),
         )?;
         map.serialize_entry("source", &self.source_col)?;
-        map.serialize_entry("lineNumber", &SerializableSingleValueColumn((), len))?;
-        map.serialize_entry("columnNumber", &SerializableSingleValueColumn((), len))?;
+        map.serialize_entry("lineNumber", &self.start_line_col)?;
+        map.serialize_entry("columnNumber", &self.start_column_col)?;
         map.end()
     }
 }
