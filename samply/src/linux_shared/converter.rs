@@ -2088,14 +2088,39 @@ impl SampleStack {
 
         // Kernel frames, if any, should be at the top of the callchain stack.
         let kernel_len = self.callchain.iter().take_while(|f| f.is_kernel()).count();
-        let (kernel_stack, _fp_stack) = self.callchain.split_at(kernel_len);
+        let (kernel_stack, fp_stack) = self.callchain.split_at(kernel_len);
         self.merged.extend_from_slice(kernel_stack);
 
         // DWARF never has kernel frames, since it's extracted from user stack.
-        let dwarf_stack = &self.dwarf[..];
-        debug_assert!(dwarf_stack.iter().all(|f| !f.is_kernel()));
+        debug_assert!(self.dwarf.iter().all(|f| !f.is_kernel()));
 
-        self.merged.extend_from_slice(dwarf_stack);
+        // Check if DWARF unwinding was truncated.
+        let dwarf_truncated = self
+            .dwarf
+            .last()
+            .is_some_and(|f| matches!(f, StackFrame::TruncatedStackMarker));
+
+        if dwarf_truncated && fp_stack.len() > 1 {
+            // DWARF unwinding failed partway through. Use DWARF frames (minus the
+            // truncation marker), then append the deeper FP frames that DWARF missed.
+            let dwarf_len = self.dwarf.len() - 1;
+            self.merged.extend_from_slice(&self.dwarf[..dwarf_len]);
+
+            // Find where to splice: match the last real DWARF frame's address in the
+            // FP callchain, then append everything deeper from the FP walk.
+            let last_dwarf_addr = self.dwarf[..dwarf_len]
+                .last()
+                .map(|f| f.address());
+            let splice_idx = last_dwarf_addr
+                .and_then(|addr| fp_stack.iter().position(|f| f.address() == addr))
+                .map(|i| i + 1)
+                .unwrap_or(fp_stack.len());
+            if splice_idx < fp_stack.len() {
+                self.merged.extend_from_slice(&fp_stack[splice_idx..]);
+            }
+        } else {
+            self.merged.extend_from_slice(&self.dwarf);
+        }
     }
 
     fn get(&mut self) -> &mut Vec<StackFrame> {
