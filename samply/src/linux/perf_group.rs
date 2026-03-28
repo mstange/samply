@@ -132,66 +132,42 @@ impl PerfGroup {
         let mut perf_events = Vec::new();
         let threads = get_threads(pid)?;
 
-        let cpu_count = num_cpus::get();
-        for cpu in 0..cpu_count as u32 {
+        let open_perf = |pid: u32, cpu: Option<u32>| -> io::Result<Perf> {
             let mut builder = Perf::build()
                 .pid(pid)
-                .only_cpu(cpu as _)
                 .frequency(self.frequency as u64)
                 .sample_user_stack(self.stack_size)
                 .sample_user_regs(self.regs_mask)
                 .sample_kernel()
                 .gather_context_switches()
                 .event_source(self.event_source)
-                .inherit_to_children()
                 .start_disabled();
-
+            if let Some(cpu) = cpu {
+                builder = builder.only_cpu(cpu).inherit_to_children();
+            } else {
+                builder = builder.any_cpu();
+            }
             if attach_mode == AttachMode::AttachWithEnableOnExec {
                 builder = builder.enable_on_exec();
             }
+            builder.open()
+        };
 
-            let perf = builder.open()?;
-
+        let cpu_count = num_cpus::get();
+        for cpu in 0..cpu_count as u32 {
+            let perf = open_perf(pid, Some(cpu))?;
             perf_events.push((Some(cpu), perf));
         }
 
         if cpu_count * (threads.len() + 1) >= 1000 {
             for &tid in &threads {
-                let mut builder = Perf::build()
-                    .pid(tid)
-                    .any_cpu()
-                    .frequency(self.frequency as u64)
-                    .sample_user_stack(self.stack_size)
-                    .sample_user_regs(self.regs_mask)
-                    .sample_kernel()
-                    .event_source(self.event_source)
-                    .start_disabled();
-                if attach_mode == AttachMode::AttachWithEnableOnExec {
-                    builder = builder.enable_on_exec();
-                }
-                let perf = builder.open()?;
-
+                let perf = open_perf(tid, None)?;
                 perf_events.push((None, perf));
             }
         } else {
             for cpu in 0..cpu_count as u32 {
                 for &tid in &threads {
-                    let mut builder = Perf::build()
-                        .pid(tid)
-                        .only_cpu(cpu as _)
-                        .frequency(self.frequency as u64)
-                        .sample_user_stack(self.stack_size)
-                        .sample_user_regs(self.regs_mask)
-                        .sample_kernel()
-                        .gather_context_switches()
-                        .event_source(self.event_source)
-                        .inherit_to_children()
-                        .start_disabled();
-                    if attach_mode == AttachMode::AttachWithEnableOnExec {
-                        builder = builder.enable_on_exec();
-                    }
-                    let perf = builder.open()?;
-
+                    let perf = open_perf(tid, Some(cpu))?;
                     perf_events.push((Some(cpu), perf));
                 }
             }
