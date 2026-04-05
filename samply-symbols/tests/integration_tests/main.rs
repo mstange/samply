@@ -542,6 +542,37 @@ fn example_linux() {
 }
 
 #[test]
+fn example_linux_plt_stubs() {
+    // Regression test for #778: ELF PLT stubs should resolve to meaningful names
+    // instead of synthesized fun_XXXX placeholders.
+    let helper = Helper {
+        symbol_directory: fixtures_dir().join("other"),
+    };
+    let symbol_manager = SymbolManager::with_helper(helper);
+    let symbol_map = futures::executor::block_on(symbol_manager.load_symbol_map_from_location(
+        FileLocationType(fixtures_dir().join("other").join("example-linux")),
+        None,
+    ))
+    .unwrap();
+
+    let result = symbol_map
+        .lookup_sync(LookupAddress::Relative(0x1020))
+        .unwrap();
+    assert_eq!(
+        symbol_map.resolve_symbol_name(result.symbol.name),
+        "<PLT header>"
+    );
+
+    let result = symbol_map
+        .lookup_sync(LookupAddress::Relative(0x1030))
+        .unwrap();
+    assert_eq!(
+        symbol_map.resolve_symbol_name(result.symbol.name),
+        "printf@plt"
+    );
+}
+
+#[test]
 fn example_linux_fallback() {
     let helper = Helper {
         symbol_directory: fixtures_dir().join("other"),
