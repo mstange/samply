@@ -7,7 +7,8 @@ use addr2line::{LookupResult, SplitDwarfLoad};
 use debugid::DebugId;
 use gimli::{EndianSlice, RunTimeEndian};
 use object::{
-    ObjectMap, ObjectSection, ObjectSegment, SectionFlags, SectionIndex, SectionKind, SymbolKind,
+    ObjectMap, ObjectSection, ObjectSegment, ObjectSymbolTable, SectionFlags, SectionIndex,
+    SectionKind, SymbolKind,
 };
 use samply_object::relative_address_base;
 use yoke::Yoke;
@@ -36,6 +37,7 @@ enum FullSymbolListEntry<'a, Symbol> {
     SynthesizedEntryPoint,
     Symbol(Symbol),
     Export(object::Export<'a>),
+    PltStub(String),
     EndAddress,
 }
 
@@ -52,13 +54,14 @@ impl<'a, Symbol: object::ObjectSymbol<'a>> std::fmt::Debug for FullSymbolListEnt
                 .debug_tuple("Export")
                 .field(&std::str::from_utf8(arg0.name()).unwrap())
                 .finish(),
+            Self::PltStub(arg0) => f.debug_tuple("PltStub").field(arg0).finish(),
             Self::EndAddress => write!(f, "EndAddress"),
         }
     }
 }
 
 impl<'a, Symbol: object::ObjectSymbol<'a>> FullSymbolListEntry<'a, Symbol> {
-    fn name(&self, addr: u32) -> Option<Cow<'a, str>> {
+    fn name(&self, addr: u32) -> Option<Cow<'_, str>> {
         let name = match self {
             FullSymbolListEntry::EndAddress => return None,
             FullSymbolListEntry::Synthesized => format!("fun_{addr:x}").into(),
@@ -67,13 +70,16 @@ impl<'a, Symbol: object::ObjectSymbol<'a>> FullSymbolListEntry<'a, Symbol> {
                 String::from_utf8_lossy(symbol.name_bytes().ok()?)
             }
             FullSymbolListEntry::Export(export) => String::from_utf8_lossy(export.name()),
+            FullSymbolListEntry::PltStub(name) => Cow::Borrowed(name.as_str()),
         };
         Some(name)
     }
 
     fn counts_as_proper_symbol(&self) -> bool {
         match self {
-            FullSymbolListEntry::Symbol(_) | FullSymbolListEntry::Export(_) => true,
+            FullSymbolListEntry::Symbol(_)
+            | FullSymbolListEntry::Export(_)
+            | FullSymbolListEntry::PltStub(_) => true,
             FullSymbolListEntry::EndAddress
             | FullSymbolListEntry::Synthesized
             | FullSymbolListEntry::SynthesizedEntryPoint => false,
@@ -81,11 +87,120 @@ impl<'a, Symbol: object::ObjectSymbol<'a>> FullSymbolListEntry<'a, Symbol> {
     }
 }
 
+struct ElfPltInfo {
+    plt_start: u64,
+    plt_header_size: u64,
+    plt_entry_size: u64,
+    got_plt_start: u64,
+    got_entry_size: u64,
+    got_reserved_entries_size: u64,
+}
+
+impl ElfPltInfo {
+    fn for_object<'data, O: object::Object<'data>>(object_file: &O) -> Option<Self> {
+        let plt_section = object_file.section_by_name(".plt")?;
+        let got_plt_section = object_file.section_by_name(".got.plt")?;
+
+        let (plt_header_size, plt_entry_size) = match object_file.architecture() {
+            object::Architecture::X86_64
+            | object::Architecture::X86_64_X32
+            | object::Architecture::I386 => (16u64, 16u64),
+            object::Architecture::Aarch64 | object::Architecture::Aarch64_Ilp32 => (32u64, 16u64),
+            _ => return None,
+        };
+
+        let got_entry_size = if object_file.is_64() { 8u64 } else { 4u64 };
+
+        Some(Self {
+            plt_start: plt_section.address(),
+            plt_header_size,
+            plt_entry_size,
+            got_plt_start: got_plt_section.address(),
+            got_entry_size,
+            got_reserved_entries_size: 3 * got_entry_size,
+        })
+    }
+
+    fn header_relative_address(&self, base_address: u64) -> Option<u32> {
+        relative_address_u32(self.plt_start, base_address)
+    }
+
+    fn stub_relative_address(&self, base_address: u64, reloc_offset: u64) -> Option<u32> {
+        let got_slot_offset = reloc_offset
+            .checked_sub(self.got_plt_start)?
+            .checked_sub(self.got_reserved_entries_size)?;
+        if got_slot_offset % self.got_entry_size != 0 {
+            return None;
+        }
+
+        let slot_index = got_slot_offset / self.got_entry_size;
+        let plt_addr = self
+            .plt_start
+            .checked_add(self.plt_header_size + slot_index * self.plt_entry_size)?;
+        relative_address_u32(plt_addr, base_address)
+    }
+}
+
+fn relative_address_u32(address: u64, base_address: u64) -> Option<u32> {
+    u32::try_from(address.checked_sub(base_address)?).ok()
+}
+
+fn dynamic_symbol_name<'a, SymbolTable>(
+    symbol_table: Option<&SymbolTable>,
+    index: object::SymbolIndex,
+) -> Option<&'a str>
+where
+    SymbolTable: ObjectSymbolTable<'a>,
+{
+    let symbol = symbol_table?.symbol_by_index(index).ok()?;
+    object::ObjectSymbol::name(&symbol).ok()
+}
+
 struct SymbolList<'a, Symbol> {
     entries: Vec<(u32, FullSymbolListEntry<'a, Symbol>)>,
 }
 
 impl<'a, Symbol: object::ObjectSymbol<'a> + 'a> SymbolList<'a, Symbol> {
+    fn add_elf_plt_symbols<'file, O>(
+        entries: &mut Vec<(u32, FullSymbolListEntry<'a, Symbol>)>,
+        object_file: &'file O,
+        base_address: u64,
+    ) where
+        'a: 'file,
+        O: object::Object<'a, Symbol<'file> = Symbol>,
+    {
+        let Some(plt_info) = ElfPltInfo::for_object(object_file) else {
+            return;
+        };
+        let Some(dynamic_relocations) = object_file.dynamic_relocations() else {
+            return;
+        };
+
+        if let Some(header_rel) = plt_info.header_relative_address(base_address) {
+            entries.push((
+                header_rel,
+                FullSymbolListEntry::PltStub("<PLT header>".to_owned()),
+            ));
+        }
+
+        let dynsym_table = object_file.dynamic_symbol_table();
+        for (reloc_offset, reloc) in dynamic_relocations {
+            let object::RelocationTarget::Symbol(symbol_index) = reloc.target() else {
+                continue;
+            };
+            let Some(plt_rel) = plt_info.stub_relative_address(base_address, reloc_offset) else {
+                continue;
+            };
+            let Some(symbol_name) = dynamic_symbol_name(dynsym_table.as_ref(), symbol_index) else {
+                continue;
+            };
+            entries.push((
+                plt_rel,
+                FullSymbolListEntry::PltStub(format!("{symbol_name}@plt")),
+            ));
+        }
+    }
+
     pub fn new<'file, O>(
         object_file: &'file O,
         base_address: u64,
@@ -160,6 +275,13 @@ impl<'a, Symbol: object::ObjectSymbol<'a> + 'a> SymbolList<'a, Symbol> {
                     ))
                 }),
         );
+
+        // PLT stub symbols for ELF.
+        //
+        // PLT stubs can have unwind info but no symbol table entry at the stub address,
+        // which makes them show up as "fun_XXXX". Derive their names from .got.plt
+        // dynamic relocations instead.
+        Self::add_elf_plt_symbols(&mut entries, object_file, base_address);
 
         // 3. Exports (only used by exe / dll objects)
         if let Ok(exports) = object_file.exports() {
@@ -256,7 +378,7 @@ impl<'a, Symbol: object::ObjectSymbol<'a> + 'a> SymbolList<'a, Symbol> {
         Self { entries }
     }
 
-    pub fn lookup_relative_address(&self, address: u32) -> Option<(u32, u32, Cow<'a, str>)> {
+    pub fn lookup_relative_address(&self, address: u32) -> Option<(u32, u32, Cow<'_, str>)> {
         let index = match self
             .entries
             .binary_search_by_key(&address, |&(addr, _)| addr)
