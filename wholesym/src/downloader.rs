@@ -28,6 +28,8 @@ pub trait DownloaderObserver: Send + Sync + 'static {
     fn on_download_started(&self, download_id: u64);
 
     /// Called frequently during the download, whenever a new chunk has been read.
+    /// May be called even after on_download_canceled because cancelling doesn't
+    /// work very well at the moment.
     ///
     /// If the HTTP response is gzip-compressed, the number of bytes can refer to
     /// either the compressed or the uncompressed bytes - but it'll be consistent:
@@ -463,6 +465,9 @@ where
     // The producer calls stream.read(...).await. For compressed streams, this will
     // run the decompression. We want to run the chunk_consumer and the file writing
     // on a different thread, so we put that work into a consumer_task.
+    // Note: The producer task will keep reading from the stream even if the
+    // consume_stream_and_write_to_file future is cancelled! This is probably worth
+    // fixing at some point.
     let producer_task = async move {
         let mut uncompressed_size_in_bytes = 0;
         loop {
@@ -498,8 +503,8 @@ where
     };
 
     // Read the downloaded data from the buffers handed out by the producer.
-    // Doing this in a blocking tokio task allows the file writing and the
-    // chunk consumption to happen on different threads.
+    // Doing this in a blocking tokio task allows the decompression and the
+    // file writing / chunk consumption to happen on different threads.
     // Single-threaded profile: https://share.firefox.dev/46eUtwL
     // Multi-threaded profile: https://share.firefox.dev/3JP5zB0
     // This was when downloading https://symbols.mozilla.org/XUL/0165BCFB93BD3DC99DA5AC4F033C164B0/XUL.sym
