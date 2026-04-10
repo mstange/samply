@@ -400,6 +400,7 @@ impl Helper {
                 .breakpad_downloader
                 .get_file(&path)
                 .await
+                .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?
                 .ok_or("Not found on breakpad symbol server")?,
             WholesymFileLocation::BreakpadSymindexFile(rel_path) => {
                 let sym_path = self

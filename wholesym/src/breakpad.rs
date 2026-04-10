@@ -70,7 +70,14 @@ impl BreakpadSymbolDownloader {
         Arc::get_mut(&mut self.inner).unwrap().observer = observer;
     }
 
-    pub async fn get_file(&self, rel_path: &str) -> Option<PathBuf> {
+    /// Download (if needed) and return the local path to the breakpad symbol file at `rel_path`.
+    ///
+    /// Returns:
+    /// - `Ok(Some(path))` — file found locally or successfully downloaded
+    /// - `Ok(None)` — all servers returned 404; the file definitively does not exist
+    /// - `Err(e)` — at least one server returned a transient error (5xx, 429, network
+    ///   failure, etc.); the file may exist but was unreachable
+    pub async fn get_file(&self, rel_path: &str) -> Result<Option<PathBuf>, DownloadError> {
         self.inner.get_file(rel_path).await
     }
 
@@ -122,20 +129,27 @@ impl BreakpadSymbolDownloaderInner {
         None
     }
 
-    pub async fn get_file(&self, rel_path: &str) -> Option<PathBuf> {
+    pub async fn get_file(&self, rel_path: &str) -> Result<Option<PathBuf>, DownloadError> {
         if let Some(path) = self.get_file_no_download(rel_path).await {
-            return Some(path);
+            return Ok(Some(path));
         }
 
+        let mut transient_error: Option<DownloadError> = None;
         for (server_base_url, cache_dir) in &self.breakpad_servers {
-            if let Ok(path) = self
+            match self
                 .get_bp_sym_file_from_server(rel_path, server_base_url, cache_dir)
                 .await
             {
-                return Some(path);
+                Ok(path) => return Ok(Some(path)),
+                Err(DownloadError::StatusError(404)) => {}
+                Err(e) => transient_error = Some(e),
             }
         }
-        None
+
+        match transient_error {
+            Some(e) => Err(e),
+            None => Ok(None),
+        }
     }
 
     /// Return whether a file is found at `path`, and notify the observer if not.
@@ -426,8 +440,8 @@ mod tests {
             Some(Arc::new(Downloader::new_with_max_retries(0))),
         );
         let result = downloader.get_file(REL_PATH).await;
-        assert!(result.is_some());
-        assert!(result.unwrap().exists());
+        assert!(result.as_ref().unwrap().is_some());
+        assert!(result.unwrap().unwrap().exists());
     }
 
     #[tokio::test]
@@ -457,8 +471,8 @@ mod tests {
             None,
         );
         let result = downloader.get_file(REL_PATH).await;
-        assert!(result.is_some());
-        assert!(result.unwrap().exists());
+        assert!(result.as_ref().unwrap().is_some());
+        assert!(result.unwrap().unwrap().exists());
     }
 
     #[tokio::test]
@@ -488,6 +502,56 @@ mod tests {
             None,
         );
         let result = downloader.get_file(REL_PATH).await;
-        assert!(result.is_none());
+        assert!(matches!(result, Ok(None)));
+    }
+
+    #[tokio::test]
+    async fn get_file_returns_err_on_transient_server_error() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path(format!("/{REL_PATH}")))
+            .respond_with(ResponseTemplate::new(503))
+            .mount(&server)
+            .await;
+
+        let cache_dir = tempfile::tempdir().unwrap();
+        let downloader = BreakpadSymbolDownloader::new(
+            vec![],
+            vec![(server.uri(), cache_dir.path().to_path_buf())],
+            None,
+            Some(Arc::new(Downloader::new_with_max_retries(0))),
+        );
+        let result = downloader.get_file(REL_PATH).await;
+        assert!(matches!(result, Err(DownloadError::StatusError(503))));
+    }
+
+    #[tokio::test]
+    async fn get_file_returns_err_when_first_server_transient_second_server_404() {
+        let server1 = MockServer::start().await;
+        let server2 = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path(format!("/{REL_PATH}")))
+            .respond_with(ResponseTemplate::new(500))
+            .mount(&server1)
+            .await;
+        Mock::given(method("GET"))
+            .and(path(format!("/{REL_PATH}")))
+            .respond_with(ResponseTemplate::new(404))
+            .mount(&server2)
+            .await;
+
+        let cache_dir1 = tempfile::tempdir().unwrap();
+        let cache_dir2 = tempfile::tempdir().unwrap();
+        let downloader = BreakpadSymbolDownloader::new(
+            vec![],
+            vec![
+                (server1.uri(), cache_dir1.path().to_path_buf()),
+                (server2.uri(), cache_dir2.path().to_path_buf()),
+            ],
+            None,
+            Some(Arc::new(Downloader::new_with_max_retries(0))),
+        );
+        let result = downloader.get_file(REL_PATH).await;
+        assert!(matches!(result, Err(DownloadError::StatusError(500))));
     }
 }
