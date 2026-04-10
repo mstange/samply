@@ -576,11 +576,12 @@ impl FileAndPathHelper for Helper {
         }
 
         if let (Some(debug_name), Some(debug_id)) = (&info.debug_name, info.debug_id) {
+            let safe_debug_name = sanitize_breakpad_path_component(debug_name);
             let rel_path = format!(
                 "{}/{}/{}.sym",
-                debug_name,
+                safe_debug_name,
                 debug_id.breakpad(),
-                debug_name.trim_end_matches(".pdb")
+                safe_debug_name.trim_end_matches(".pdb")
             );
 
             // Search breakpad symbol directories.
@@ -1294,3 +1295,83 @@ impl DownloaderObserver for HelperDownloaderObserver {
 // I think it's ok if the logging here doesn't answer all those questions. Instead, the
 // questions can be answered by information in the response JSON... or I guess by something
 // that's stored on the SymbolMap.
+
+/// Sanitize a debug name so it is safe to use as a single directory component in a
+/// cache file path.
+///
+/// `debug_name` comes from profiled binaries and, in reliost, from untrusted
+/// user-submitted profiles. Without sanitization, a crafted name could escape the
+/// cache directory (path traversal).
+///
+/// Rules:
+/// - Any character outside `[A-Za-z0-9._-]` is replaced with `_`.  This removes
+///   directory separators (`/`, `\`) and other special characters.
+/// - The strings `.` and `..` are replaced with `_` to prevent single-component
+///   traversal after the character substitution above.
+/// - An empty result is replaced with `_`.
+fn sanitize_breakpad_path_component(name: &str) -> String {
+    let sanitized: String = name
+        .chars()
+        .map(|c| {
+            if c.is_alphanumeric() || matches!(c, '.' | '-' | '_') {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    if sanitized.is_empty() || sanitized == "." || sanitized == ".." {
+        return "_".to_string();
+    }
+    sanitized
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sanitize_normal_names_unchanged() {
+        assert_eq!(sanitize_breakpad_path_component("xul.pdb"), "xul.pdb");
+        assert_eq!(sanitize_breakpad_path_component("libxul.so"), "libxul.so");
+        assert_eq!(sanitize_breakpad_path_component("testproj"), "testproj");
+        assert_eq!(
+            sanitize_breakpad_path_component("libSystem.B.dylib"),
+            "libSystem.B.dylib"
+        );
+    }
+
+    #[test]
+    fn sanitize_replaces_slashes() {
+        assert_eq!(
+            sanitize_breakpad_path_component("../../etc/passwd.pdb"),
+            ".._.._etc_passwd.pdb"
+        );
+        assert_eq!(
+            sanitize_breakpad_path_component("/etc/passwd.pdb"),
+            "_etc_passwd.pdb"
+        );
+        assert_eq!(
+            sanitize_breakpad_path_component("\\windows\\ntdll.pdb"),
+            "_windows_ntdll.pdb"
+        );
+    }
+
+    #[test]
+    fn sanitize_replaces_dotdot_component() {
+        assert_eq!(sanitize_breakpad_path_component(".."), "_");
+        assert_eq!(sanitize_breakpad_path_component("."), "_");
+    }
+
+    #[test]
+    fn sanitize_replaces_empty() {
+        assert_eq!(sanitize_breakpad_path_component(""), "_");
+    }
+
+    #[test]
+    fn sanitize_replaces_other_bad_chars() {
+        assert_eq!(sanitize_breakpad_path_component("foo()*$bar"), "foo____bar");
+        assert_eq!(sanitize_breakpad_path_component("foo bar"), "foo_bar");
+        assert_eq!(sanitize_breakpad_path_component("foo\x00bar"), "foo_bar");
+    }
+}
