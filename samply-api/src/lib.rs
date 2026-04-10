@@ -202,6 +202,16 @@ impl<H: FileAndPathHelper> From<Error> for QueryApiJsonResult<H> {
     }
 }
 
+impl<H: FileAndPathHelper> QueryApiJsonResult<H> {
+    /// Returns the HTTP status code that best describes this result.
+    pub fn http_status(&self) -> u16 {
+        match self {
+            QueryApiJsonResult::Err(e) => e.http_status(),
+            _ => 200,
+        }
+    }
+}
+
 impl<H: FileAndPathHelper> Serialize for QueryApiJsonResult<H> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where

@@ -311,6 +311,14 @@ impl SymbolManager {
 pub struct QueryApiJsonResult(samply_api::QueryApiJsonResult<Helper>);
 
 #[cfg(feature = "api")]
+impl QueryApiJsonResult {
+    /// Returns the HTTP status code that best describes this result.
+    pub fn http_status(&self) -> u16 {
+        self.0.http_status()
+    }
+}
+
+#[cfg(feature = "api")]
 impl serde::Serialize for QueryApiJsonResult {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
