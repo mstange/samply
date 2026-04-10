@@ -332,6 +332,8 @@ impl ChunkConsumer for BreakpadIndexCreatorChunkConsumer {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use super::*;
     use wiremock::matchers::{method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -421,7 +423,7 @@ mod tests {
             vec![],
             vec![(server.uri(), cache_dir.path().to_path_buf())],
             None,
-            None,
+            Some(Arc::new(Downloader::new_with_max_retries(0))),
         );
         let result = downloader.get_file(REL_PATH).await;
         assert!(result.is_some());
