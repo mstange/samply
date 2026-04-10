@@ -543,3 +543,53 @@ where
         uncompressed_size_in_bytes,
     ))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use wiremock::matchers::method;
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    #[tokio::test]
+    async fn download_200_returns_bytes() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(b"abcde".as_ref()))
+            .mount(&server)
+            .await;
+
+        let downloader = Downloader::new();
+        let pending = downloader
+            .initiate_download(&server.uri(), None)
+            .await
+            .unwrap();
+        let bytes = pending.download_to_memory().await.unwrap();
+        assert_eq!(bytes, b"abcde");
+    }
+
+    #[tokio::test]
+    async fn download_404_returns_status_error() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .respond_with(ResponseTemplate::new(404))
+            .mount(&server)
+            .await;
+
+        let downloader = Downloader::new();
+        let result = downloader.initiate_download(&server.uri(), None).await;
+        assert!(matches!(result, Err(DownloadError::StatusError(404))));
+    }
+
+    #[tokio::test]
+    async fn download_500_returns_status_error() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .respond_with(ResponseTemplate::new(500))
+            .mount(&server)
+            .await;
+
+        let downloader = Downloader::new();
+        let result = downloader.initiate_download(&server.uri(), None).await;
+        assert!(matches!(result, Err(DownloadError::StatusError(500))));
+    }
+}
