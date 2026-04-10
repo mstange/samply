@@ -293,6 +293,9 @@ impl Helper {
             Some(downloader.clone()),
         );
         breakpad_downloader.set_observer(Some(observer.clone()));
+        if let Some(ttl) = config.breakpad_negative_cache_ttl {
+            breakpad_downloader.set_negative_cache_ttl(ttl);
+        }
         Self {
             downloader,
             symsrv_downloader,

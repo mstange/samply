@@ -1,6 +1,8 @@
+use std::collections::HashMap;
 use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use samply_symbols::{BreakpadIndex, BreakpadIndexCreator, BreakpadParseError, OwnedBreakpadIndex};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -54,6 +56,8 @@ impl BreakpadSymbolDownloader {
             breakpad_symindex_cache_dir,
             observer: None,
             downloader: downloader.unwrap_or_default(),
+            negative_cache_ttl: None,
+            negative_cache: Mutex::new(HashMap::new()),
         };
         Self {
             inner: Arc::new(inner),
@@ -68,6 +72,17 @@ impl BreakpadSymbolDownloader {
     /// See the [`DownloaderObserver`] trait for more information.
     pub fn set_observer(&mut self, observer: Option<Arc<dyn DownloaderObserver>>) {
         Arc::get_mut(&mut self.inner).unwrap().observer = observer;
+    }
+
+    /// Set the TTL for the in-memory negative cache.
+    ///
+    /// When set, `get_file` will remember paths for which all servers returned 404, and
+    /// return `Ok(None)` immediately for subsequent requests within the TTL, without
+    /// contacting the servers again. Transient errors are never cached.
+    ///
+    /// By default no negative caching is performed.
+    pub fn set_negative_cache_ttl(&mut self, ttl: Duration) {
+        Arc::get_mut(&mut self.inner).unwrap().negative_cache_ttl = Some(ttl);
     }
 
     /// Download (if needed) and return the local path to the breakpad symbol file at `rel_path`.
@@ -107,6 +122,8 @@ struct BreakpadSymbolDownloaderInner {
     breakpad_symindex_cache_dir: Option<PathBuf>,
     observer: Option<Arc<dyn DownloaderObserver>>,
     downloader: Arc<Downloader>,
+    negative_cache_ttl: Option<Duration>,
+    negative_cache: Mutex<HashMap<String, Instant>>,
 }
 
 impl BreakpadSymbolDownloaderInner {
@@ -134,6 +151,15 @@ impl BreakpadSymbolDownloaderInner {
             return Ok(Some(path));
         }
 
+        if let Some(ttl) = self.negative_cache_ttl {
+            let cached_at = self.negative_cache.lock().unwrap().get(rel_path).copied();
+            if let Some(cached_at) = cached_at {
+                if cached_at.elapsed() < ttl {
+                    return Ok(None);
+                }
+            }
+        }
+
         let mut transient_error: Option<DownloadError> = None;
         for (server_base_url, cache_dir) in &self.breakpad_servers {
             match self
@@ -148,7 +174,15 @@ impl BreakpadSymbolDownloaderInner {
 
         match transient_error {
             Some(e) => Err(e),
-            None => Ok(None),
+            None => {
+                if self.negative_cache_ttl.is_some() {
+                    self.negative_cache
+                        .lock()
+                        .unwrap()
+                        .insert(rel_path.to_owned(), Instant::now());
+                }
+                Ok(None)
+            }
         }
     }
 
@@ -553,5 +587,58 @@ mod tests {
         );
         let result = downloader.get_file(REL_PATH).await;
         assert!(matches!(result, Err(DownloadError::StatusError(500))));
+    }
+
+    #[tokio::test]
+    async fn negative_cache_suppresses_second_request_after_404() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path(format!("/{REL_PATH}")))
+            .respond_with(ResponseTemplate::new(404))
+            .expect(1) // must be called exactly once despite two get_file calls
+            .mount(&server)
+            .await;
+
+        let cache_dir = tempfile::tempdir().unwrap();
+        let mut downloader = BreakpadSymbolDownloader::new(
+            vec![],
+            vec![(server.uri(), cache_dir.path().to_path_buf())],
+            None,
+            Some(Arc::new(Downloader::new_with_max_retries(0))),
+        );
+        downloader.set_negative_cache_ttl(Duration::from_secs(60));
+
+        assert!(matches!(downloader.get_file(REL_PATH).await, Ok(None)));
+        assert!(matches!(downloader.get_file(REL_PATH).await, Ok(None)));
+        // wiremock will fail the test if the server was called more than once
+    }
+
+    #[tokio::test]
+    async fn negative_cache_does_not_suppress_request_after_transient_error() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path(format!("/{REL_PATH}")))
+            .respond_with(ResponseTemplate::new(503))
+            .expect(2) // must be called both times
+            .mount(&server)
+            .await;
+
+        let cache_dir = tempfile::tempdir().unwrap();
+        let mut downloader = BreakpadSymbolDownloader::new(
+            vec![],
+            vec![(server.uri(), cache_dir.path().to_path_buf())],
+            None,
+            Some(Arc::new(Downloader::new_with_max_retries(0))),
+        );
+        downloader.set_negative_cache_ttl(Duration::from_secs(60));
+
+        assert!(matches!(
+            downloader.get_file(REL_PATH).await,
+            Err(DownloadError::StatusError(503))
+        ));
+        assert!(matches!(
+            downloader.get_file(REL_PATH).await,
+            Err(DownloadError::StatusError(503))
+        ));
     }
 }

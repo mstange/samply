@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::time::Duration;
 
 use symsrv::{parse_nt_symbol_path, NtSymbolPathEntry};
 
@@ -14,6 +15,7 @@ pub struct SymbolManagerConfig {
     pub(crate) breakpad_directories_readonly: Vec<PathBuf>,
     pub(crate) breakpad_servers: Vec<(String, PathBuf)>,
     pub(crate) breakpad_symindex_cache_dir: Option<PathBuf>,
+    pub(crate) breakpad_negative_cache_ttl: Option<Duration>,
     pub(crate) windows_servers: Vec<(String, PathBuf)>,
     pub(crate) use_debuginfod: bool,
     pub(crate) use_spotlight: bool,
@@ -112,6 +114,19 @@ impl SymbolManagerConfig {
     /// reading and writing.
     pub fn breakpad_symindex_cache_dir(mut self, dir: impl Into<PathBuf>) -> Self {
         self.breakpad_symindex_cache_dir = Some(dir.into());
+        self
+    }
+
+    /// Set the TTL for the in-memory negative cache for breakpad symbol server lookups.
+    ///
+    /// When set, paths for which all servers returned 404 are remembered in memory, and
+    /// subsequent requests for the same path within the TTL return "not found" immediately
+    /// without contacting the servers. Paths that failed with transient errors (5xx, 429,
+    /// network failures) are never cached.
+    ///
+    /// By default no negative caching is performed.
+    pub fn breakpad_negative_cache_ttl(mut self, ttl: Duration) -> Self {
+        self.breakpad_negative_cache_ttl = Some(ttl);
         self
     }
 
