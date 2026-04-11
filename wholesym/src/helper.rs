@@ -265,7 +265,10 @@ struct KnownLibs {
 impl Helper {
     pub fn with_config(config: SymbolManagerConfig) -> Self {
         let observer = Arc::new(HelperDownloaderObserver::new());
-        let downloader = Arc::new(Downloader::new());
+        let downloader = Arc::new(match config.user_agent.as_deref() {
+            Some(ua) => Downloader::new_with_user_agent(ua),
+            None => Downloader::new(),
+        });
         let symsrv_downloader = match config.effective_nt_symbol_path() {
             Some(nt_symbol_path) => {
                 let mut downloader = SymsrvDownloader::new(nt_symbol_path);

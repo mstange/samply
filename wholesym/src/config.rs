@@ -23,6 +23,7 @@ pub struct SymbolManagerConfig {
     pub(crate) debuginfod_servers: Vec<(String, PathBuf)>,
     pub(crate) extra_symbol_directories: Vec<PathBuf>,
     pub(crate) simpleperf_binary_cache_directories: Vec<PathBuf>,
+    pub(crate) user_agent: Option<String>,
 }
 
 impl SymbolManagerConfig {
@@ -197,6 +198,14 @@ impl SymbolManagerConfig {
     /// The simpleperf scripts pull files from the Android device into this directory.
     pub fn simpleperf_binary_cache_dir(mut self, dir: impl Into<PathBuf>) -> Self {
         self.simpleperf_binary_cache_directories.push(dir.into());
+        self
+    }
+
+    /// Set the `User-Agent` header sent with all HTTP download requests.
+    ///
+    /// If not set, reqwest's default `User-Agent` is used.
+    pub fn user_agent(mut self, user_agent: impl Into<String>) -> Self {
+        self.user_agent = Some(user_agent.into());
         self
     }
 }

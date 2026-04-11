@@ -190,13 +190,24 @@ impl Default for Downloader {
 
 impl Downloader {
     pub fn new() -> Self {
-        Self::new_with_max_retries(5)
+        Self::new_internal(5, None)
+    }
+
+    /// Create a `Downloader` with the given `User-Agent` header string and the default
+    /// retry policy (5 retries with exponential backoff).
+    pub fn new_with_user_agent(user_agent: &str) -> Self {
+        Self::new_internal(5, Some(user_agent))
     }
 
     /// Create a `Downloader` that retries transient failures (5xx, 429, connection
     /// errors) up to `max_retries` additional times with exponential backoff.
     /// Pass `0` to disable retries — useful in tests.
-    pub fn new_with_max_retries(max_retries: u32) -> Self {
+    #[cfg(test)]
+    pub(crate) fn new_with_max_retries(max_retries: u32) -> Self {
+        Self::new_internal(max_retries, None)
+    }
+
+    fn new_internal(max_retries: u32, user_agent: Option<&str>) -> Self {
         let builder = reqwest::Client::builder();
 
         // Turn off HTTP 2, in order to work around https://github.com/seanmonstar/reqwest/issues/1761 .
@@ -208,8 +219,12 @@ impl Downloader {
         // Instead, we do the streaming decompression manually, see download.rs.
         let builder = builder.no_gzip().no_brotli().no_deflate();
 
-        // Create the client.
-        // TODO: Add timeouts, user agent, maybe other settings
+        let builder = match user_agent {
+            Some(ua) => builder.user_agent(ua),
+            None => builder,
+        };
+
+        // TODO: Add timeouts
         let reqwest_client = builder.build().map(|client| {
             let retry_policy = ExponentialBackoff::builder().build_with_max_retries(max_retries);
             reqwest_middleware::ClientBuilder::new(client)
