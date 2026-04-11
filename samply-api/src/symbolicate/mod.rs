@@ -68,7 +68,7 @@ impl<'a, H: FileAndPathHelper + 'static> SymbolicateApi<'a, H> {
         lib: &Lib,
         addresses: &[u32],
     ) -> Result<LibSymbols<H>, samply_symbols::Error> {
-        let debug_id = to_debug_id(&lib.breakpad_id)?;
+        let debug_id = to_debug_id(lib.breakpad_id.as_str())?;
 
         let info = LibraryInfo {
             debug_name: Some(lib.debug_name.to_string()),
