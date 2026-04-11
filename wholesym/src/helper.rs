@@ -309,6 +309,7 @@ impl Helper {
         self.observer.set_observer(observer);
     }
 
+    #[cfg(feature = "api")]
     pub fn add_known_lib(&self, lib_info: LibraryInfo) {
         let mut known_libs = self.known_libs.lock().unwrap();
         let lib_info = Arc::new(lib_info);
