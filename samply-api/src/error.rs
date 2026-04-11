@@ -51,6 +51,9 @@ impl Serialize for Error {
     where
         S: serde::Serializer,
     {
-        self.to_string().serialize(serializer)
+        use serde::ser::SerializeMap;
+        let mut map = serializer.serialize_map(Some(1))?;
+        map.serialize_entry("title", &self.to_string())?;
+        map.end()
     }
 }
