@@ -316,6 +316,13 @@ impl QueryApiJsonResult {
     pub fn http_status(&self) -> u16 {
         self.0.http_status()
     }
+
+    /// Returns observability statistics for `/symbolicate/v5` requests.
+    ///
+    /// Returns `None` for `/asm/v1`, `/source/v1`, and error responses.
+    pub fn symbolicate_stats(&self) -> Option<&samply_api::SymbolicateStats> {
+        self.0.symbolicate_stats()
+    }
 }
 
 #[cfg(feature = "api")]

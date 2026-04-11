@@ -30,6 +30,8 @@ pub struct LibSymbols<H: FileAndPathHelper> {
 pub struct Response<H: FileAndPathHelper> {
     pub request: Request,
     pub symbols_per_lib: HashMap<Lib, Result<LibSymbols<H>, samply_symbols::Error>>,
+    /// Observability data; not included in the serialized JSON output.
+    pub stats: crate::SymbolicateStats,
 }
 
 impl<H: FileAndPathHelper> serde::Serialize for Response<H> {

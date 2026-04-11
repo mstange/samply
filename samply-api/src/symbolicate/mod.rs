@@ -9,7 +9,7 @@ use samply_symbols::{
 use crate::error::Error;
 use crate::symbolicate::looked_up_addresses::{AddressResult, AddressResults};
 use crate::symbolicate::response_json::{LibSymbols, Response};
-use crate::to_debug_id;
+use crate::{to_debug_id, ModuleLoadOutcome, ModuleStat, SymbolicateStats};
 
 pub mod looked_up_addresses;
 pub mod request_json;
@@ -40,27 +40,56 @@ impl<'a, H: FileAndPathHelper + 'static> SymbolicateApi<'a, H> {
         request: request_json::Request,
     ) -> Result<response_json::Response<H>, Error> {
         let requested_addresses = gather_requested_addresses(&request)?;
-        let symbols_per_lib = self
+
+        let jobs_count = request.jobs().count();
+        let stacks_count = request.jobs().map(|j| j.stacks.len()).sum();
+        let frames_count = request
+            .jobs()
+            .map(|j| j.stacks.iter().map(|s| s.0.len()).sum::<usize>())
+            .sum();
+
+        let (symbols_per_lib, module_stats) = self
             .symbolicate_requested_addresses(requested_addresses)
             .await;
         Ok(Response {
             request,
             symbols_per_lib,
+            stats: SymbolicateStats {
+                jobs_count,
+                stacks_count,
+                frames_count,
+                module_stats,
+            },
         })
     }
 
     async fn symbolicate_requested_addresses(
         &self,
         requested_addresses: HashMap<Lib, Vec<u32>>,
-    ) -> HashMap<Lib, Result<LibSymbols<H>, samply_symbols::Error>> {
+    ) -> (
+        HashMap<Lib, Result<LibSymbols<H>, samply_symbols::Error>>,
+        Vec<ModuleStat>,
+    ) {
         let mut symbolicated_addresses = HashMap::new();
+        let mut module_stats = Vec::with_capacity(requested_addresses.len());
         for (lib, addresses) in requested_addresses.into_iter() {
             let address_results = self
                 .symbolicate_requested_addresses_for_lib(&lib, &addresses)
                 .await;
+            let outcome = match &address_results {
+                Ok(_) => ModuleLoadOutcome::Loaded,
+                Err(e) => ModuleLoadOutcome::Failed {
+                    error_name: e.enum_as_string(),
+                },
+            };
+            module_stats.push(ModuleStat {
+                debug_name: lib.debug_name.to_string(),
+                breakpad_id: lib.breakpad_id.to_string(),
+                outcome,
+            });
             symbolicated_addresses.insert(lib, address_results);
         }
-        symbolicated_addresses
+        (symbolicated_addresses, module_stats)
     }
 
     async fn symbolicate_requested_addresses_for_lib(
