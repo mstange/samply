@@ -6,7 +6,7 @@ use elsa::sync::FrozenVec;
 use gimli::{CieOrFde, Dwarf, EhFrame, EndianSlice, RunTimeEndian, UnwindSection};
 use object::{File, FileKind, Object, ObjectSection, ReadRef};
 use samply_debugid::ElfBuildId;
-use samply_object::debug_id_for_object;
+use samply_object::{debug_id_for_object, relative_address_base};
 use yoke::Yoke;
 use yoke_derive::Yokeable;
 
@@ -484,6 +484,7 @@ fn compute_function_addresses_elf<'data, O: object::Object<'data>>(
         Err(_) => return (None, None),
     };
 
+    let base_address = relative_address_base(object_file);
     let mut eh_frame = EhFrame::new(&eh_frame_data, endian);
     eh_frame.set_address_size(address_size);
     let mut cur_cie = None;
@@ -506,8 +507,23 @@ fn compute_function_addresses_elf<'data, O: object::Object<'data>>(
                     }
                     cie
                 }) {
-                    start_addresses.push(fde.initial_address() as u32);
-                    end_addresses.push((fde.initial_address() + fde.len()) as u32);
+                    let Some(start_address) = fde
+                        .initial_address()
+                        .checked_sub(base_address)
+                        .and_then(|address| u32::try_from(address).ok())
+                    else {
+                        continue;
+                    };
+                    let Some(end_address) = fde
+                        .initial_address()
+                        .checked_add(fde.len())
+                        .and_then(|address| address.checked_sub(base_address))
+                        .and_then(|address| u32::try_from(address).ok())
+                    else {
+                        continue;
+                    };
+                    start_addresses.push(start_address);
+                    end_addresses.push(end_address);
                 }
             }
         }

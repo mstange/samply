@@ -129,6 +129,10 @@ impl ProcessThreads {
                         if let Some(old_name) = old_name {
                             thread_recycler.add_to_pool(&old_name, old_thread_recycling_data);
                         }
+                    } else {
+                        // No recycled thread with this name exists yet, just rename normally
+                        let thread_label = make_thread_label(profile, Some(&name), self.pid, tid);
+                        thread.rename_without_recycling(name, thread_label, profile);
                     }
                 } else {
                     let thread_label = make_thread_label(profile, Some(&name), self.pid, tid);

@@ -216,9 +216,29 @@ impl ExternalFileMemberContext<'_> {
         offset_from_symbol: u32,
         string_interner: &mut SymbolMapStringInterner,
     ) -> Option<Vec<FrameDebugInfo>> {
-        let symbol_address = self.symbol_addresses.get(symbol_name)?;
+        let symbol_address = self
+            .symbol_addresses
+            .get(symbol_name)
+            .or_else(|| self.lookup_with_llvm_suffix_fallback(symbol_name))?;
         let address = symbol_address + offset_from_symbol as u64;
         get_frames(address, self.context.as_ref(), string_interner)
+    }
+
+    /// Fallback lookup for when the exact name match fails. ThinLTO / CGU
+    /// partitioning adds a `.llvm.<hash>` suffix to promoted local symbols in
+    /// .o files, but ld64 strips this suffix from stabs and the symbol table.
+    /// If the exact match failed, scan all symbols for one whose name matches
+    /// after stripping the suffix, following the same approach as dsymutil:
+    /// <https://github.com/llvm/llvm-project/blob/270e7b497ec893a43e60a0db35f10c0153200e38/llvm/tools/dsymutil/MachODebugMapParser.cpp#L741-L752>
+    fn lookup_with_llvm_suffix_fallback(&self, symbol_name: &[u8]) -> Option<&u64> {
+        self.symbol_addresses.iter().find_map(|(name, addr)| {
+            let suffix = name.strip_prefix(symbol_name)?;
+            if suffix.starts_with(b".llvm.") {
+                Some(addr)
+            } else {
+                None
+            }
+        })
     }
 }
 
