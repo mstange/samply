@@ -59,7 +59,9 @@ pub fn convert_stack_frame<R: gimli::Reader>(
         function,
         file_path,
         line_number: location.as_ref().and_then(|l| l.line),
-        column_number: location.as_ref().and_then(|l| l.column),
+        column_number: location
+            .as_ref()
+            .and_then(|l| l.column.map(|column| column.max(1))),
         ..Default::default()
     }
 }
