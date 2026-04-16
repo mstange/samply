@@ -59,8 +59,8 @@ use crate::shared::unresolved_samples::{
 };
 use crate::shared::utils::open_file_with_fallback;
 
-const PROT_READ: u32 = 1;
-const PROT_EXEC: u32 = 4;
+const PROT_READ: u32 = 0b001;
+const PROT_EXEC: u32 = 0b100;
 
 pub struct Converter<U>
 where
@@ -88,7 +88,7 @@ where
     jit_category_manager: JitCategoryManager,
     arg_count_to_include_in_process_name: usize,
     cpus: Option<Cpus>,
-    sample_stack: SampleStack,
+    stack_scratch: Vec<StackFrame>,
 
     /// Whether repeated frames at the base of the stack should be folded
     /// into one frame.
@@ -218,7 +218,7 @@ where
             arg_count_to_include_in_process_name: profile_creation_props
                 .arg_count_to_include_in_process_name,
             cpus,
-            sample_stack: SampleStack::default(),
+            stack_scratch: Vec::new(),
             call_chain_return_addresses_are_preadjusted,
             should_emit_jit_markers: profile_creation_props.should_emit_jit_markers,
             should_emit_cswitch_markers: profile_creation_props.should_emit_cswitch_markers,
@@ -271,11 +271,12 @@ where
             &self.timestamp_converter,
         );
 
-        let stack = Self::get_sample_stack::<C>(
+        let stack = &mut self.stack_scratch;
+        Self::get_sample_stack::<C>(
             e,
             &process.unwinder,
             &mut self.cache,
-            &mut self.sample_stack,
+            stack,
             self.fold_recursive_prefix,
             self.call_chain_return_addresses_are_preadjusted,
         );
@@ -399,11 +400,12 @@ where
             &self.timestamp_converter,
         );
 
-        let stack = Self::get_sample_stack::<C>(
+        let stack = &mut self.stack_scratch;
+        Self::get_sample_stack::<C>(
             e,
             &process.unwinder,
             &mut self.cache,
-            &mut self.sample_stack,
+            stack,
             self.fold_recursive_prefix,
             self.call_chain_return_addresses_are_preadjusted,
         );
@@ -426,7 +428,9 @@ where
         }
 
         if let (Some(cpu_index), Some(cpus)) = (e.cpu, &mut self.cpus) {
-            let stack_index = self.unresolved_stacks.convert(stack.iter().rev().cloned());
+            let stack_index = self
+                .unresolved_stacks
+                .convert(self.stack_scratch.iter().rev().cloned());
             let cpu = cpus.get_mut(cpu_index as usize, &mut self.profile);
             let timestamp = self.timestamp_converter.convert_time(timestamp_mono);
             let marker_handle = self.profile.add_marker(
@@ -510,11 +514,12 @@ where
             &self.timestamp_converter,
         );
 
-        let stack = Self::get_sample_stack::<C>(
+        let stack = &mut self.stack_scratch;
+        Self::get_sample_stack::<C>(
             e,
             &process.unwinder,
             &mut self.cache,
-            &mut self.sample_stack,
+            stack,
             self.fold_recursive_prefix,
             self.call_chain_return_addresses_are_preadjusted,
         );
@@ -560,11 +565,12 @@ where
             &self.timestamp_converter,
         );
 
-        let stack = Self::get_sample_stack::<C>(
+        let stack = &mut self.stack_scratch;
+        Self::get_sample_stack::<C>(
             e,
             &process.unwinder,
             &mut self.cache,
-            &mut self.sample_stack,
+            stack,
             self.fold_recursive_prefix,
             self.call_chain_return_addresses_are_preadjusted,
         );
@@ -615,14 +621,14 @@ where
     ///    bytes on the stack are just copied into the perf.data file, and we
     ///    need to do the unwinding now, based on the register values in
     ///    `e.user_regs` and the raw stack bytes in `e.user_stack`.
-    fn get_sample_stack<'s, C: ConvertRegs<UnwindRegs = U::UnwindRegs>>(
+    fn get_sample_stack<C: ConvertRegs<UnwindRegs = U::UnwindRegs>>(
         e: &SampleRecord,
         unwinder: &U,
         cache: &mut U::Cache,
-        stack: &'s mut SampleStack,
+        stack: &mut Vec<StackFrame>,
         fold_recursive_prefix: bool,
         call_chain_return_addresses_are_preadjusted: bool,
-    ) -> &'s mut Vec<StackFrame> {
+    ) {
         stack.clear();
 
         // Get the first fragment of the stack from e.callchain.
@@ -644,7 +650,7 @@ where
                         (false, false) => StackFrame::ReturnAddress(address, mode),
                         (false, true) => StackFrame::AdjustedReturnAddress(address, mode),
                     };
-                stack.push_callchain(stack_frame);
+                stack.push(stack_frame);
 
                 is_first_frame = false;
             }
@@ -668,7 +674,7 @@ where
                     Ok(Some(frame)) => frame,
                     Ok(None) => break,
                     Err(_) => {
-                        stack.push_dwarf(StackFrame::TruncatedStackMarker);
+                        stack.push(StackFrame::TruncatedStackMarker);
                         break;
                     }
                 };
@@ -680,28 +686,20 @@ where
                         StackFrame::ReturnAddress(addr.into(), StackMode::User)
                     }
                 };
-                stack.push_dwarf(stack_frame);
+                stack.push(stack_frame);
             }
         }
 
-        stack.merge();
-        let stack = stack.get();
-
-        if let Some(ip) = e.ip {
-            let ip_frame = StackFrame::InstructionPointer(ip, e.cpu_mode.into());
-            if stack.is_empty() || stack[0].address() != ip_frame.address() {
-                stack.insert(0, ip_frame);
+        if stack.is_empty() {
+            if let Some(ip) = e.ip {
+                stack.push(StackFrame::InstructionPointer(ip, e.cpu_mode.into()));
             }
-        }
-
-        if !stack.is_empty() && fold_recursive_prefix {
+        } else if fold_recursive_prefix {
             let last_frame = *stack.last().unwrap();
             while stack.len() >= 2 && stack[stack.len() - 2] == last_frame {
                 stack.pop();
             }
         }
-
-        stack
     }
 
     pub fn handle_mmap(&mut self, e: MmapRecord, timestamp: u64) {
@@ -2050,84 +2048,5 @@ impl Marker for MmapMarker {
 
     fn field_values(&self) -> StringHandle {
         self.0
-    }
-}
-
-#[derive(Default)]
-struct SampleStack {
-    callchain: Vec<StackFrame>,
-    dwarf: Vec<StackFrame>,
-    merged: Vec<StackFrame>,
-}
-
-impl SampleStack {
-    fn push_callchain(&mut self, frame: StackFrame) {
-        self.callchain.push(frame);
-    }
-
-    fn push_dwarf(&mut self, frame: StackFrame) {
-        self.dwarf.push(frame);
-    }
-
-    fn clear(&mut self) {
-        self.callchain.clear();
-        self.dwarf.clear();
-        self.merged.clear();
-    }
-
-    fn merge(&mut self) {
-        if !(self.used_callchain() && self.used_dwarf()) {
-            return;
-        }
-
-        // Kernel frames, if any, should be at the top of the callchain stack.
-        let kernel_len = self.callchain.iter().take_while(|f| f.is_kernel()).count();
-        let (kernel_stack, fp_stack) = self.callchain.split_at(kernel_len);
-        self.merged.extend_from_slice(kernel_stack);
-
-        // DWARF never has kernel frames, since it's extracted from user stack.
-        debug_assert!(self.dwarf.iter().all(|f| !f.is_kernel()));
-
-        // Check if DWARF unwinding was truncated.
-        let dwarf_truncated = self
-            .dwarf
-            .last()
-            .is_some_and(|f| matches!(f, StackFrame::TruncatedStackMarker));
-
-        if dwarf_truncated && fp_stack.len() > 1 {
-            // DWARF unwinding failed partway through. Use DWARF frames (minus the
-            // truncation marker), then append the deeper FP frames that DWARF missed.
-            let dwarf_len = self.dwarf.len() - 1;
-            self.merged.extend_from_slice(&self.dwarf[..dwarf_len]);
-
-            // Find where to splice: match the last real DWARF frame's address in the
-            // FP callchain, then append everything deeper from the FP walk.
-            let last_dwarf_addr = self.dwarf[..dwarf_len].last().map(|f| f.address());
-            let splice_idx = last_dwarf_addr
-                .and_then(|addr| fp_stack.iter().position(|f| f.address() == addr))
-                .map(|i| i + 1)
-                .unwrap_or(fp_stack.len());
-            if splice_idx < fp_stack.len() {
-                self.merged.extend_from_slice(&fp_stack[splice_idx..]);
-            }
-        } else {
-            self.merged.extend_from_slice(&self.dwarf);
-        }
-    }
-
-    fn get(&mut self) -> &mut Vec<StackFrame> {
-        match (self.used_callchain(), self.used_dwarf()) {
-            (true, false) => &mut self.callchain,
-            (false, true) => &mut self.dwarf,
-            (false, false) | (true, true) => &mut self.merged,
-        }
-    }
-
-    fn used_callchain(&self) -> bool {
-        !self.callchain.is_empty()
-    }
-
-    fn used_dwarf(&self) -> bool {
-        !self.dwarf.is_empty()
     }
 }
