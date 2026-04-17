@@ -102,10 +102,10 @@ impl ProfileBuilder {
     fn collect_marker_schemas(&self) -> HashMap<&'static str, MarkerSchema> {
         let mut marker_schemas = HashMap::new();
         for thread in self.threads.values() {
-            marker_schemas.extend(thread.marker_schemas.clone().into_iter());
+            marker_schemas.extend(thread.marker_schemas.clone());
         }
         for process in &self.subprocesses {
-            marker_schemas.extend(process.collect_marker_schemas().into_iter());
+            marker_schemas.extend(process.collect_marker_schemas());
         }
         marker_schemas
     }
