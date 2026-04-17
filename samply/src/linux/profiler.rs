@@ -14,7 +14,7 @@ use linux_perf_data::linux_perf_event_reader::{
 use nix::sys::wait::WaitStatus;
 use tokio::sync::oneshot;
 
-use super::perf_event::EventSource;
+use super::perf_event::{EventRef, EventSource};
 use super::perf_group::{AttachMode, PerfGroup};
 use super::proc_maps;
 use super::process::SuspendedLaunchedProcess;
@@ -545,6 +545,83 @@ fn run_profiler(
     let mut pending_lost_events = 0;
     let mut total_lost_events = 0;
     let mut last_timestamp = 0;
+    let mut handle_event = |event_ref: EventRef| {
+        let record = event_ref.get();
+        let parsed_record = record.parse().unwrap();
+        // debug!("Recording parsed_record: {:#?}", parsed_record);
+
+        if let Some(timestamp) = record.timestamp() {
+            if timestamp < last_timestamp {
+                // eprintln!(
+                //     "bad timestamp ordering; {timestamp} is earlier but arrived after {last_timestamp}"
+                // );
+            }
+            last_timestamp = timestamp;
+        }
+
+        match parsed_record {
+            EventRecord::Sample(e) => {
+                converter.handle_main_event_sample::<ConvertRegsNative>(&e);
+                /*
+                } else if interpretation.sched_switch_attr_index == Some(attr_index) {
+                    converter.handle_sched_switch_sample::<C>(e);
+                }*/
+            }
+            EventRecord::Fork(e) => {
+                converter.handle_fork(e);
+            }
+            EventRecord::Comm(e) => {
+                if e.is_execve {
+                    // Try to get the command line arguments for this process.
+                    let exec_name_and_cmdline =
+                        if let Some(initial) = initial_exec_name_and_cmdline.take() {
+                            // This COMM event is the first exec that we're processing. If we get
+                            // here, it means we're in the "launch process" case and we're seeing
+                            // the exec for that initial launched process.
+                            Some(initial)
+                        } else {
+                            // Attempt to get the process cmdline from /proc/{pid}/cmdline.
+                            // This isn't very reliable because we're processing the perf event records
+                            // in batches, with a delay, so the COMM record may be old enough that the
+                            // pid no longer exists, or the pid may even refer to a different process now.
+                            // Unfortunately there are no perf event records that give us the process
+                            // command line.
+                            get_process_cmdline(e.pid as u32).ok()
+                        };
+                    converter.handle_exec(e, record.timestamp(), exec_name_and_cmdline);
+                } else {
+                    converter.handle_thread_rename(e, record.timestamp());
+                }
+            }
+            EventRecord::Exit(e) => {
+                converter.handle_exit(e);
+            }
+            EventRecord::Mmap(e) => {
+                converter.handle_mmap(e, last_timestamp);
+            }
+            EventRecord::Mmap2(e) => {
+                converter.handle_mmap2(e, last_timestamp);
+            }
+            EventRecord::ContextSwitch(e) => {
+                let common = match record.common_data() {
+                    Ok(common) => common,
+                    Err(_) => return,
+                };
+                converter.handle_context_switch(e, common);
+            }
+            EventRecord::Lost(event) => {
+                pending_lost_events += event.count;
+                total_lost_events += event.count;
+                return;
+            }
+            _ => {}
+        }
+
+        if pending_lost_events > 0 {
+            // eprintln!("Pending lost events: {pending_lost_events}");
+            pending_lost_events = 0;
+        }
+    };
     loop {
         if stop_receiver.try_recv().is_ok() {
             break;
@@ -602,86 +679,14 @@ fn run_profiler(
             break;
         }
 
-        perf.consume_events(&mut |event_ref| {
-            let record = event_ref.get();
-            let parsed_record = record.parse().unwrap();
-            // debug!("Recording parsed_record: {:#?}", parsed_record);
-
-            if let Some(timestamp) = record.timestamp() {
-                if timestamp < last_timestamp {
-                    // eprintln!(
-                    //     "bad timestamp ordering; {timestamp} is earlier but arrived after {last_timestamp}"
-                    // );
-                }
-                last_timestamp = timestamp;
-            }
-
-            match parsed_record {
-                EventRecord::Sample(e) => {
-                    converter.handle_main_event_sample::<ConvertRegsNative>(&e);
-                    /*
-                    } else if interpretation.sched_switch_attr_index == Some(attr_index) {
-                        converter.handle_sched_switch_sample::<C>(e);
-                    }*/
-                }
-                EventRecord::Fork(e) => {
-                    converter.handle_fork(e);
-                }
-                EventRecord::Comm(e) => {
-                    if e.is_execve {
-                        // Try to get the command line arguments for this process.
-                        let exec_name_and_cmdline =
-                            if let Some(initial) = initial_exec_name_and_cmdline.take() {
-                                // This COMM event is the first exec that we're processing. If we get
-                                // here, it means we're in the "launch process" case and we're seeing
-                                // the exec for that initial launched process.
-                                Some(initial)
-                            } else {
-                                // Attempt to get the process cmdline from /proc/{pid}/cmdline.
-                                // This isn't very reliable because we're processing the perf event records
-                                // in batches, with a delay, so the COMM record may be old enough that the
-                                // pid no longer exists, or the pid may even refer to a different process now.
-                                // Unfortunately there are no perf event records that give us the process
-                                // command line.
-                                get_process_cmdline(e.pid as u32).ok()
-                            };
-                        converter.handle_exec(e, record.timestamp(), exec_name_and_cmdline);
-                    } else {
-                        converter.handle_thread_rename(e, record.timestamp());
-                    }
-                }
-                EventRecord::Exit(e) => {
-                    converter.handle_exit(e);
-                }
-                EventRecord::Mmap(e) => {
-                    converter.handle_mmap(e, last_timestamp);
-                }
-                EventRecord::Mmap2(e) => {
-                    converter.handle_mmap2(e, last_timestamp);
-                }
-                EventRecord::ContextSwitch(e) => {
-                    let common = match record.common_data() {
-                        Ok(common) => common,
-                        Err(_) => return,
-                    };
-                    converter.handle_context_switch(e, common);
-                }
-                EventRecord::Lost(event) => {
-                    pending_lost_events += event.count;
-                    total_lost_events += event.count;
-                    return;
-                }
-                _ => {}
-            }
-
-            if pending_lost_events > 0 {
-                // eprintln!("Pending lost events: {pending_lost_events}");
-                pending_lost_events = 0;
-            }
-        });
+        perf.consume_events(&mut handle_event);
 
         perf.wait();
     }
+
+    // Flush any events still buffered in the sorter's heap that were held back
+    // waiting for the next round that never came.
+    perf.flush_events(handle_event);
 
     if total_lost_events > 0 {
         eprintln!("Lost {total_lost_events} events.");
