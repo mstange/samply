@@ -994,7 +994,13 @@ impl SymsrvObserver for HelperDownloaderObserver {
         let Some(observer) = inner.observer.clone() else {
             return;
         };
-        let download_id = inner.symsrv_download_id_mapping[&symsrv_download_id];
+        let Some(download_id) = inner
+            .symsrv_download_id_mapping
+            .get(&symsrv_download_id)
+            .copied()
+        else {
+            return;
+        };
         drop(inner);
         observer.on_download_started(download_id);
     }
@@ -1009,7 +1015,13 @@ impl SymsrvObserver for HelperDownloaderObserver {
         let Some(observer) = inner.observer.clone() else {
             return;
         };
-        let download_id = inner.symsrv_download_id_mapping[&symsrv_download_id];
+        let Some(download_id) = inner
+            .symsrv_download_id_mapping
+            .get(&symsrv_download_id)
+            .copied()
+        else {
+            return;
+        };
         drop(inner);
         observer.on_download_progress(download_id, bytes_so_far, total_bytes);
     }
@@ -1022,10 +1034,9 @@ impl SymsrvObserver for HelperDownloaderObserver {
         time_until_completed: std::time::Duration,
     ) {
         let mut inner = self.inner.lock().unwrap();
-        let download_id = inner
-            .symsrv_download_id_mapping
-            .remove(&symsrv_download_id)
-            .unwrap();
+        let Some(download_id) = inner.symsrv_download_id_mapping.remove(&symsrv_download_id) else {
+            return;
+        };
         let Some(observer) = inner.observer.clone() else {
             return;
         };
@@ -1040,10 +1051,9 @@ impl SymsrvObserver for HelperDownloaderObserver {
 
     fn on_download_failed(&self, symsrv_download_id: u64, reason: symsrv::DownloadError) {
         let mut inner = self.inner.lock().unwrap();
-        let download_id = inner
-            .symsrv_download_id_mapping
-            .remove(&symsrv_download_id)
-            .unwrap();
+        let Some(download_id) = inner.symsrv_download_id_mapping.remove(&symsrv_download_id) else {
+            return;
+        };
         let Some(observer) = inner.observer.clone() else {
             return;
         };
@@ -1075,10 +1085,9 @@ impl SymsrvObserver for HelperDownloaderObserver {
 
     fn on_download_canceled(&self, symsrv_download_id: u64) {
         let mut inner = self.inner.lock().unwrap();
-        let download_id = inner
-            .symsrv_download_id_mapping
-            .remove(&symsrv_download_id)
-            .unwrap();
+        let Some(download_id) = inner.symsrv_download_id_mapping.remove(&symsrv_download_id) else {
+            return;
+        };
         let Some(observer) = inner.observer.clone() else {
             return;
         };
@@ -1141,7 +1150,13 @@ impl DownloaderObserver for HelperDownloaderObserver {
         let Some(observer) = inner.observer.clone() else {
             return;
         };
-        let download_id = inner.downloader_download_id_mapping[&downloader_download_id];
+        let Some(download_id) = inner
+            .downloader_download_id_mapping
+            .get(&downloader_download_id)
+            .copied()
+        else {
+            return;
+        };
         drop(inner);
         observer.on_download_started(download_id);
     }
@@ -1156,7 +1171,13 @@ impl DownloaderObserver for HelperDownloaderObserver {
         let Some(observer) = inner.observer.clone() else {
             return;
         };
-        let download_id = inner.downloader_download_id_mapping[&downloader_download_id];
+        let Some(download_id) = inner
+            .downloader_download_id_mapping
+            .get(&downloader_download_id)
+            .copied()
+        else {
+            return;
+        };
         drop(inner);
         observer.on_download_progress(download_id, bytes_so_far, total_bytes);
     }
@@ -1169,10 +1190,12 @@ impl DownloaderObserver for HelperDownloaderObserver {
         time_until_completed: std::time::Duration,
     ) {
         let mut inner = self.inner.lock().unwrap();
-        let download_id = inner
+        let Some(download_id) = inner
             .downloader_download_id_mapping
             .remove(&downloader_download_id)
-            .unwrap();
+        else {
+            return;
+        };
         let Some(observer) = inner.observer.clone() else {
             return;
         };
@@ -1187,10 +1210,12 @@ impl DownloaderObserver for HelperDownloaderObserver {
 
     fn on_download_failed(&self, downloader_download_id: u64, reason: DownloadError) {
         let mut inner = self.inner.lock().unwrap();
-        let download_id = inner
+        let Some(download_id) = inner
             .downloader_download_id_mapping
             .remove(&downloader_download_id)
-            .unwrap();
+        else {
+            return;
+        };
         let Some(observer) = inner.observer.clone() else {
             return;
         };
@@ -1200,10 +1225,12 @@ impl DownloaderObserver for HelperDownloaderObserver {
 
     fn on_download_canceled(&self, downloader_download_id: u64) {
         let mut inner = self.inner.lock().unwrap();
-        let download_id = inner
+        let Some(download_id) = inner
             .downloader_download_id_mapping
             .remove(&downloader_download_id)
-            .unwrap();
+        else {
+            return;
+        };
         let Some(observer) = inner.observer.clone() else {
             return;
         };

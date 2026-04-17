@@ -990,16 +990,10 @@ where
         } else {
             // New thread within the same process.
             // eprintln!("New thread: pid={}, old_tid={}, new_tid={}", e.pid, e.ptid, e.tid);
-            let parent_thread = parent_process
-                .threads
-                .get_thread_by_tid(e.ptid, &mut self.profile);
-            let parent_thread_name = parent_thread.name.clone();
-            parent_process.recycle_or_get_new_thread(
-                e.tid,
-                parent_thread_name,
-                start_time,
-                &mut self.profile,
-            );
+
+            // Don't use parent's name here - the thread will get its own name via
+            // a COMM event, and recycling happens there based on the actual name.
+            parent_process.recycle_or_get_new_thread(e.tid, None, start_time, &mut self.profile);
         }
     }
 
