@@ -13,7 +13,7 @@ readme = "README.md"
 
 fxprof-processed-profile = { version = "0.8", path = "../fxprof-processed-profile" }
 # framehop = { path = "../../framehop" }
-framehop = "0.15"
+framehop = "0.16"
 # linux-perf-data = { path = "../../linux-perf-data" }
 linux-perf-data = "0.12"
 
@@ -36,7 +36,7 @@ percent-encoding = "2.1.0"
 libc = "0.2"
 flate2 = "1.1"
 opener = { version = "0.8", default-features = false }
-rand = "0.9"
+rand = "0.10"
 nix-base32 = "0.2.0"
 serde_derive = "1.0.137"
 serde = "1.0.204"
@@ -112,4 +112,4 @@ features =  ["Win32",
 [dependencies.object]
 default-features = false
 features = ["std", "read_core", "elf", "pe", "unaligned", "write"]
-version = "0.38"
+version = "0.39"
