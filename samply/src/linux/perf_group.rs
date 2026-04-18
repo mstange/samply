@@ -221,7 +221,7 @@ impl PerfGroup {
         }
     }
 
-    pub fn consume_events(&mut self, cb: &mut impl FnMut(EventRef)) {
+    pub fn consume_events(&mut self, mut cb: impl FnMut(EventRef)) {
         let mut fds_to_remove = Vec::new();
         loop {
             for (&fd, member) in &mut self.members {
@@ -268,6 +268,15 @@ impl PerfGroup {
             if !self.event_sorter.has_more() {
                 break;
             }
+        }
+    }
+
+    /// Consume any remaining events from ring buffers, then flush all events
+    /// still held back in the sorter. Call this before finishing the profile.
+    pub fn flush_events(&mut self, mut cb: impl FnMut(EventRef)) {
+        self.consume_events(&mut cb);
+        while let Some(ev) = self.event_sorter.force_pop() {
+            cb(ev);
         }
     }
 }
