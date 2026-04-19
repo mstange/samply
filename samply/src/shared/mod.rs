@@ -15,6 +15,7 @@ pub mod process_sample_data;
 pub mod prop_types;
 pub mod recycling;
 pub mod save_profile;
+pub mod share;
 pub mod stack_converter;
 pub mod stack_depth_limiting_frame_iter;
 pub mod symbol_manager_observer;
