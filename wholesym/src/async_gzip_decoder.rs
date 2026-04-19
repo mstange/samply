@@ -44,7 +44,6 @@ impl<R: AsyncRead + Unpin> AsyncGzipDecoder<R> {
     }
 
     /// Total number of compressed bytes consumed from the inner stream so far.
-    #[allow(unused)]
     pub fn total_in(&self) -> u64 {
         self.inflate.total_in()
     }

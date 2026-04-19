@@ -1,9 +1,7 @@
 use std::pin::Pin;
-use std::sync::Mutex;
-use std::task::Poll;
 
-use futures_util::io::BufReader;
 use futures_util::{AsyncRead, TryStreamExt};
+
 use crate::async_gzip_decoder::AsyncGzipDecoder;
 use reqwest::header::{AsHeaderName, HeaderMap, CONTENT_ENCODING, CONTENT_LENGTH};
 
@@ -64,10 +62,73 @@ pub enum Error {
     UnexpectedContentEncoding(String),
 }
 
+pub struct UncompressedStream {
+    inner: UncompressedStreamInner,
+    total_compressed_size: Option<u64>,
+    total_uncompressed_size: Option<u64>,
+    consumed_compressed_bytes: u64,
+    produced_uncompressed_bytes: u64,
+    progress_callback: Box<dyn FnMut(u64, Option<u64>) + Send + Sync + 'static>,
+}
+
+#[allow(clippy::large_enum_variant)]
+enum UncompressedStreamInner {
+    Decoder(AsyncGzipDecoder<Pin<Box<dyn AsyncRead + Send + Sync>>>),
+    Stream(Pin<Box<dyn AsyncRead + Send + Sync>>),
+}
+
+impl UncompressedStream {
+    fn new(
+        inner: UncompressedStreamInner,
+        total_size: Option<TotalSize>,
+        progress_callback: Box<dyn FnMut(u64, Option<u64>) + Send + Sync + 'static>,
+    ) -> Self {
+        let (total_compressed_size, total_uncompressed_size) = match total_size {
+            Some(TotalSize::Compressed(s)) => (Some(s), None),
+            Some(TotalSize::Uncompressed(s)) => (None, Some(s)),
+            None => (None, None),
+        };
+        Self {
+            inner,
+            total_compressed_size,
+            total_uncompressed_size,
+            consumed_compressed_bytes: 0,
+            produced_uncompressed_bytes: 0,
+            progress_callback,
+        }
+    }
+
+    pub async fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        use futures_util::AsyncReadExt;
+        let (consumed_delta, produced) = match &mut self.inner {
+            UncompressedStreamInner::Decoder(decoder) => {
+                let prior_in = decoder.total_in();
+                let produced = decoder.read(buf).await?;
+                (decoder.total_in() - prior_in, produced)
+            }
+            UncompressedStreamInner::Stream(stream) => {
+                let produced = stream.read(buf).await?;
+                (produced as u64, produced)
+            }
+        };
+        self.consumed_compressed_bytes += consumed_delta;
+        self.produced_uncompressed_bytes += produced as u64;
+        if self.total_compressed_size.is_some() || self.total_uncompressed_size.is_none() {
+            (*self.progress_callback)(self.consumed_compressed_bytes, self.total_compressed_size);
+        } else {
+            (*self.progress_callback)(
+                self.produced_uncompressed_bytes,
+                self.total_uncompressed_size,
+            );
+        }
+        Ok(produced)
+    }
+}
+
 pub fn response_to_uncompressed_stream_with_progress<F>(
     response: reqwest::Response,
     progress: F,
-) -> Result<Pin<Box<dyn AsyncRead + Send + Sync>>, Error>
+) -> Result<UncompressedStream, Error>
 where
     F: FnMut(u64, Option<u64>) + Send + Sync + 'static,
 {
@@ -77,118 +138,19 @@ where
 
     let stream = response.bytes_stream();
     let async_read = stream.map_err(std::io::Error::other).into_async_read();
+    let async_read: Pin<Box<dyn AsyncRead + Send + Sync>> = Box::pin(async_read);
 
-    match (response_encoding.as_deref(), total_size) {
-        (Some("gzip"), Some(TotalSize::Uncompressed(len))) => {
-            let async_buf_read = BufReader::new(async_read);
-            let decoder = AsyncGzipDecoder::new(async_buf_read);
-            let decoder_with_progress = decoder.with_progress(progress, Some(len));
-            Ok(Box::pin(decoder_with_progress))
+    let inner = match response_encoding.as_deref() {
+        Some("gzip") => UncompressedStreamInner::Decoder(AsyncGzipDecoder::new(async_read)),
+        Some(other_encoding) => {
+            // Did we send a wrong Accept-Encoding header in the request? We only support gzip.
+            return Err(Error::UnexpectedContentEncoding(other_encoding.to_string()));
         }
-        (Some("gzip"), Some(TotalSize::Compressed(len))) => {
-            let async_read_with_progress = async_read.with_progress(progress, Some(len));
-            let async_buf_read = BufReader::new(async_read_with_progress);
-            let decoder = AsyncGzipDecoder::new(async_buf_read);
-            Ok(Box::pin(decoder))
-        }
-        (Some("gzip"), None) => {
-            let async_read_with_progress = async_read.with_progress(progress, None);
-            let async_buf_read = BufReader::new(async_read_with_progress);
-            let decoder = AsyncGzipDecoder::new(async_buf_read);
-            Ok(Box::pin(decoder))
-        }
-        (Some(other_encoding), _) => {
-            // TODO: Add support for brotli and deflate
-            Err(Error::UnexpectedContentEncoding(other_encoding.to_string()))
-        }
-        (None, Some(TotalSize::Uncompressed(len))) => {
-            Ok(Box::pin(async_read.with_progress(progress, Some(len))))
-        }
-        (None, _) => Ok(Box::pin(async_read.with_progress(progress, None))),
-    }
-}
-
-trait AsyncReadObserver {
-    fn did_read(&self, len: u64);
-}
-
-struct ProgressNotifierData<F: FnMut(u64, Option<u64>)> {
-    progress_fun: F,
-    total_size: Option<u64>,
-    accumulated_size: u64,
-}
-
-struct ProgressNotifier<F: FnMut(u64, Option<u64>)>(Mutex<ProgressNotifierData<F>>);
-
-impl<F: FnMut(u64, Option<u64>)> AsyncReadObserver for ProgressNotifier<F> {
-    fn did_read(&self, len: u64) {
-        let mut data = self.0.lock().unwrap();
-        data.accumulated_size += len;
-        let accum = data.accumulated_size;
-        let total_size = data.total_size;
-        match total_size {
-            Some(total_size) if accum <= total_size => (data.progress_fun)(accum, Some(total_size)),
-            _ => (data.progress_fun)(accum, None),
-        }
-    }
-}
-
-impl<F: FnMut(u64, Option<u64>)> ProgressNotifier<F> {
-    pub fn new(progress_fun: F, total_size: Option<u64>) -> Self {
-        Self(Mutex::new(ProgressNotifierData {
-            progress_fun,
-            total_size,
-            accumulated_size: 0,
-        }))
-    }
-}
-
-struct AsyncReadWrapper<I: AsyncRead> {
-    inner: Pin<Box<I>>,
-    observer: Pin<Box<dyn AsyncReadObserver + Send + Sync>>,
-}
-
-impl<I: AsyncRead> AsyncReadWrapper<I> {
-    pub fn new<O: AsyncReadObserver + Send + Sync + 'static>(inner: I, observer: O) -> Self {
-        Self {
-            inner: Box::pin(inner),
-            observer: Box::pin(observer),
-        }
-    }
-}
-
-impl<I: AsyncRead> AsyncRead for AsyncReadWrapper<I> {
-    fn poll_read(
-        mut self: std::pin::Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-        buf: &mut [u8],
-    ) -> Poll<std::io::Result<usize>> {
-        let res = Pin::new(&mut self.inner).poll_read(cx, buf);
-        match res {
-            Poll::Ready(Ok(len)) => {
-                self.observer.did_read(len as u64);
-                Poll::Ready(Ok(len))
-            }
-            Poll::Ready(Err(e)) => Poll::Ready(Err(e)),
-            Poll::Pending => Poll::Pending,
-        }
-    }
-}
-
-trait WithProgress: AsyncRead + Sized {
-    fn with_progress<F: FnMut(u64, Option<u64>) + Send + Sync + 'static>(
-        self,
-        progress_fun: F,
-        total_size: Option<u64>,
-    ) -> AsyncReadWrapper<Self>;
-}
-
-impl<AR: AsyncRead + Sized> WithProgress for AR {
-    fn with_progress<F: FnMut(u64, Option<u64>) + Send + Sync + 'static>(
-        self,
-        progress_fun: F,
-        total_size: Option<u64>,
-    ) -> AsyncReadWrapper<Self> {
-        AsyncReadWrapper::new(self, ProgressNotifier::new(progress_fun, total_size))
-    }
+        None => UncompressedStreamInner::Stream(async_read),
+    };
+    Ok(UncompressedStream::new(
+        inner,
+        total_size,
+        Box::new(progress),
+    ))
 }

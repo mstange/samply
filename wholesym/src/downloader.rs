@@ -1,13 +1,10 @@
 use std::io::Write;
 use std::path::Path;
-use std::pin::Pin;
 use std::sync::atomic::AtomicU64;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use futures_util::{AsyncRead, AsyncReadExt as _};
-
-use crate::download::response_to_uncompressed_stream_with_progress;
+use crate::download::{response_to_uncompressed_stream_with_progress, UncompressedStream};
 use crate::file_creation::{create_file_cleanly, CleanFileCreationError};
 use crate::{async_double_buffer, DownloadError};
 
@@ -294,7 +291,7 @@ impl Downloader {
 
 pub struct PendingDownload {
     reporter: DownloadStatusReporter,
-    stream: Pin<Box<dyn AsyncRead + Send + Sync>>,
+    stream: UncompressedStream,
     observer: Option<Arc<dyn DownloaderObserver>>,
     ts_after_status: Instant,
 }
@@ -450,7 +447,7 @@ impl PendingDownload {
 }
 
 async fn consume_stream_and_write_to_file<C, O>(
-    mut stream: Pin<Box<dyn AsyncRead + Send + Sync>>,
+    mut stream: UncompressedStream,
     mut chunk_consumer: C,
     mut dest_file: std::fs::File,
 ) -> Result<(FileDownloadOutcome<O>, u64), DownloadError>
