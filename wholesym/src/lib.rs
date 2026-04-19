@@ -133,6 +133,7 @@
 pub use debugid;
 
 mod async_double_buffer;
+mod async_gzip_decoder;
 mod breakpad;
 mod config;
 mod debuginfod;
