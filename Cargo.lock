@@ -3201,7 +3201,6 @@ dependencies = [
 name = "wholesym"
 version = "0.8.1"
 dependencies = [
- "async-compression",
  "bytes",
  "core-foundation",
  "core-foundation-sys",
@@ -3225,6 +3224,7 @@ dependencies = [
  "uuid",
  "yoke",
  "yoke-derive",
+ "zlib-rs",
 ]
 
 [[package]]

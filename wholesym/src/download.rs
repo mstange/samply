@@ -2,9 +2,9 @@ use std::pin::Pin;
 use std::sync::Mutex;
 use std::task::Poll;
 
-use async_compression::futures::bufread::GzipDecoder;
 use futures_util::io::BufReader;
 use futures_util::{AsyncRead, TryStreamExt};
+use crate::async_gzip_decoder::AsyncGzipDecoder;
 use reqwest::header::{AsHeaderName, HeaderMap, CONTENT_ENCODING, CONTENT_LENGTH};
 
 fn get_header<K: AsHeaderName>(headers: &HeaderMap, name: K) -> Option<String> {
@@ -81,20 +81,20 @@ where
     match (response_encoding.as_deref(), total_size) {
         (Some("gzip"), Some(TotalSize::Uncompressed(len))) => {
             let async_buf_read = BufReader::new(async_read);
-            let decoder = GzipDecoder::new(async_buf_read);
+            let decoder = AsyncGzipDecoder::new(async_buf_read);
             let decoder_with_progress = decoder.with_progress(progress, Some(len));
             Ok(Box::pin(decoder_with_progress))
         }
         (Some("gzip"), Some(TotalSize::Compressed(len))) => {
             let async_read_with_progress = async_read.with_progress(progress, Some(len));
             let async_buf_read = BufReader::new(async_read_with_progress);
-            let decoder = GzipDecoder::new(async_buf_read);
+            let decoder = AsyncGzipDecoder::new(async_buf_read);
             Ok(Box::pin(decoder))
         }
         (Some("gzip"), None) => {
             let async_read_with_progress = async_read.with_progress(progress, None);
             let async_buf_read = BufReader::new(async_read_with_progress);
-            let decoder = GzipDecoder::new(async_buf_read);
+            let decoder = AsyncGzipDecoder::new(async_buf_read);
             Ok(Box::pin(decoder))
         }
         (Some(other_encoding), _) => {
