@@ -38,6 +38,7 @@ pub fn convert_stack_frame<R: gimli::Reader>(
     frame: addr2line::Frame<R>,
     string_interner: &mut SymbolMapStringInterner,
 ) -> FrameDebugInfo {
+    let location = frame.location;
     let function = match frame.function {
         Some(function_name) => {
             if let Ok(name) = function_name.raw_name() {
@@ -49,8 +50,7 @@ pub fn convert_stack_frame<R: gimli::Reader>(
         }
         None => None,
     };
-    let file_path = frame
-        .location
+    let file_path = location
         .as_ref()
         .and_then(|l| l.file)
         .map(|file| string_interner.intern_owned(file).into());
@@ -58,8 +58,45 @@ pub fn convert_stack_frame<R: gimli::Reader>(
     FrameDebugInfo {
         function,
         file_path,
-        line_number: frame.location.and_then(|l| l.line),
+        line_number: location.as_ref().and_then(|l| l.line),
+        column_number: location
+            .as_ref()
+            .and_then(|l| l.column.map(|column| column.max(1))),
         ..Default::default()
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use addr2line::{Frame, Location};
+
+    use super::*;
+    use crate::generation::SymbolMapGeneration;
+
+    #[test]
+    fn convert_stack_frame_preserves_column_number() {
+        let frame = Frame::<EndianSlice<'static, RunTimeEndian>> {
+            dw_die_offset: None,
+            function: None,
+            location: Some(Location {
+                file: Some("src/example.c"),
+                line: Some(42),
+                column: Some(7),
+            }),
+        };
+        let mut string_interner = SymbolMapStringInterner::new(SymbolMapGeneration::new());
+
+        let converted = convert_stack_frame(frame, &mut string_interner);
+
+        assert_eq!(converted.line_number, Some(42));
+        assert_eq!(converted.column_number, Some(7));
+        assert_eq!(
+            string_interner
+                .resolve(converted.file_path.unwrap().into())
+                .unwrap()
+                .as_ref(),
+            "src/example.c"
+        );
     }
 }
 
