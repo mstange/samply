@@ -14,8 +14,8 @@ readme = "README.md"
 fxprof-processed-profile = { version = "0.8", path = "../fxprof-processed-profile" }
 # framehop = { path = "../../framehop" }
 framehop = "0.16"
-# linux-perf-data = { path = "../../linux-perf-data" }
-linux-perf-data = "0.12"
+# linux-perf-data = { path = "../../linux-perf-data", default-features = false }
+linux-perf-data = { version = "0.13", default-features = false }
 
 tokio = { version = "1.39", features = ["rt", "rt-multi-thread", "macros"] }
 tokio-util = "0.7.11"
