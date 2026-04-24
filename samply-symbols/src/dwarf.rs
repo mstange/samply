@@ -59,6 +59,9 @@ pub fn convert_stack_frame<R: gimli::Reader>(
         function,
         file_path,
         line_number: location.as_ref().and_then(|l| l.line),
+        // In DWARF, columns are 1-based when present. Column 0 is a special
+        // "left edge" marker and is also used when precise column info is absent,
+        // so normalize it to FrameDebugInfo's 1-based start-of-line column.
         column_number: location
             .as_ref()
             .and_then(|l| l.column.map(|column| column.max(1))),
@@ -74,7 +77,7 @@ mod test {
     use crate::generation::SymbolMapGeneration;
 
     #[test]
-    fn convert_stack_frame_preserves_column_number() {
+    fn convert_stack_frame_preserves_non_zero_column_number() {
         let frame = Frame::<EndianSlice<'static, RunTimeEndian>> {
             dw_die_offset: None,
             function: None,
@@ -97,6 +100,25 @@ mod test {
                 .as_ref(),
             "src/example.c"
         );
+    }
+
+    #[test]
+    fn convert_stack_frame_normalizes_zero_column_to_start_of_line() {
+        let frame = Frame::<EndianSlice<'static, RunTimeEndian>> {
+            dw_die_offset: None,
+            function: None,
+            location: Some(Location {
+                file: None,
+                line: Some(42),
+                column: Some(0),
+            }),
+        };
+        let mut string_interner = SymbolMapStringInterner::new(SymbolMapGeneration::new());
+
+        let converted = convert_stack_frame(frame, &mut string_interner);
+
+        assert_eq!(converted.line_number, Some(42));
+        assert_eq!(converted.column_number, Some(1));
     }
 }
 
