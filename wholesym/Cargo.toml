@@ -41,27 +41,16 @@ tokio = { version = "1.38", features = ["fs", "macros"] }
 futures-util = "0.3.30"
 fs4 = "0.13"
 thiserror = "2"
-async-compression = { version = "0.4", default-features = false, features = [
-    "tokio",
-    "futures-io",
-    "gzip"
-] }
 http = "1"
 scopeguard = { version = "1.2.0", default-features = false }
+zlib-rs = "0.6.3"
 
 # Needed for moria_mac_spotlight, to find dSYM files
 [target.'cfg(target_os = "macos")'.dependencies]
 core-foundation-sys = "0.8"
 core-foundation = "0.10"
 
-# Turn on the zlib-rs feature in flate2.
-# flate2 isn't used directly by wholesym; it's used via async-compression
-# So this is a (somewhat brittle) way to turn on the zlib-rs feature in
-# async-compression's use of flate2.
-[dependencies.flate2]
-version = "1.1.2"
-features = ["zlib-rs"]
-
 [dev-dependencies]
+flate2 = { version = "1.1.2", features = ["zlib-rs"] }
 futures = "0.3.5"
 tokio = { version = "1.38", features = ["macros", "rt", "rt-multi-thread"] } # Features for #[tokio::test]

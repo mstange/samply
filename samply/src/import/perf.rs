@@ -7,7 +7,7 @@ use std::time::SystemTime;
 use framehop::{Module, Unwinder};
 use fxprof_processed_profile::{Profile, ReferenceTimestamp};
 use linux_perf_data::{linux_perf_event_reader, DsoInfo, DsoKey, PerfFileReader, PerfFileRecord};
-use linux_perf_event_reader::EventRecord;
+use linux_perf_event_reader::{EventRecord, RecordType};
 
 use crate::linux_shared::{
     ConvertRegs, ConvertRegsAarch64, ConvertRegsX86_64, Converter, EventInterpretation, KnownEvent,
@@ -198,12 +198,18 @@ where
             PerfFileRecord::UserRecord(_) => continue,
         };
         if let Some(timestamp) = record.timestamp() {
-            if timestamp < last_timestamp {
-                eprintln!(
-                    "bad timestamp ordering; {timestamp} is earlier but arrived after {last_timestamp}"
-                );
+            if !matches!(record.record_type, RecordType::MMAP | RecordType::MMAP2) {
+                if timestamp < last_timestamp {
+                    eprintln!(
+                        "Bad timestamp ordering for record of type {:?}:",
+                        record.record_type
+                    );
+                    eprintln!("  Record with timestamp {timestamp} arrived after record with timestamp {last_timestamp}.");
+                    eprintln!("Ignoring record.");
+                    continue;
+                }
+                last_timestamp = timestamp;
             }
-            last_timestamp = timestamp;
         }
 
         match parsed_record {
