@@ -140,7 +140,7 @@ impl<'a> MarkerFieldValueConsumer for MarkerTableFieldValueConsumer<'a> {
 
     fn consume_flow_field(&mut self, flow: u64) {
         // Convert flow ID to hex string and store as StringHandle
-        let hex_string = format!("{flow:x}");
+        let hex_string = format!("{flow:016x}");
         let flow_string_handle = self.string_table.index_for_string(&hex_string);
         self.marker_field_flow_values.push(flow_string_handle);
     }
