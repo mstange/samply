@@ -581,7 +581,6 @@ impl TaskProfiler {
                     );
                 }
                 ProcessSpecificPath::MarkerFile(marker_file_path) => {
-                    // count the number of - characters in marker_file_path
                     let marker_info = marker_file::parse_marker_file_path(&marker_file_path);
                     let thread_handle = if marker_info.tid.is_some() {
                         self.live_threads
