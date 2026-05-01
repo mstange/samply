@@ -87,6 +87,7 @@ num-derive = "0.4"
 runas = "1.2.0"
 which = "8"
 winver = "1"
+winsafe = { version = "0.0.27", features = ["comctl", "gui"] }
 
 # etw-reader = { path = "../etw-reader" }
 
@@ -109,7 +110,14 @@ features =  ["Win32",
              "Win32_System_WindowsProgramming",
              "Win32_UI_WindowsAndMessaging"]
 
+[target.'cfg(windows)'.build-dependencies]
+winres = "0.1"
+
 [dependencies.object]
 default-features = false
 features = ["std", "read_core", "elf", "pe", "unaligned", "write"]
 version = "0.39"
+
+# We use cfg(gui) to change samply into a GUI application. Don't warn about it.
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(gui)'] }

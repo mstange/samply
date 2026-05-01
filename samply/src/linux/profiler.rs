@@ -26,6 +26,7 @@ use crate::shared::ctrl_c::CtrlC;
 use crate::shared::prop_types::{
     ProcessLaunchProps, ProfileCreationProps, RecordingMode, RecordingProps,
 };
+use crate::shared::StopCondition;
 
 #[cfg(target_arch = "x86_64")]
 pub type ConvertRegsNative = crate::linux_shared::ConvertRegsX86_64;
@@ -37,6 +38,7 @@ pub fn run(
     recording_mode: RecordingMode,
     recording_props: RecordingProps,
     profile_creation_props: ProfileCreationProps,
+    _stop_receiver: StopCondition,
 ) -> Result<(Profile, ExitStatus), ()> {
     let process_launch_props = match recording_mode {
         RecordingMode::All => {

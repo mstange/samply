@@ -131,6 +131,33 @@ jobs:
       - name: Clippy
         run: cross clippy --workspace --verbose --target=${{ matrix.target }} -- -Dwarnings
 
+  build-gui:
+    name: build gui (windows)
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Install sccache
+        uses: mozilla-actions/sccache-action@v0.0.10
+
+      - name: Cache Cargo dependencies
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-gui-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-gui-cargo-
+
+      - name: Install Rust
+        run: rustup update stable
+
+      - name: Build (gui)
+        run: cargo build --config 'build.rustflags=["--cfg", "gui"]' --verbose
+
   aarch64-win:
     name: windows aarch64
     strategy:

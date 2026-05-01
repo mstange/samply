@@ -16,11 +16,13 @@ use super::time::get_monotonic_timestamp;
 use crate::shared::prop_types::{
     ProcessLaunchProps, ProfileCreationProps, RecordingMode, RecordingProps,
 };
+use crate::shared::StopCondition;
 
 pub fn run(
     recording_mode: RecordingMode,
     recording_props: RecordingProps,
     mut profile_creation_props: ProfileCreationProps,
+    _stop_receiver: StopCondition,
 ) -> Result<(Profile, ExitStatus), MachError> {
     let mut task_accepter = TaskAccepter::new()?;
 
