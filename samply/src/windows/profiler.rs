@@ -40,6 +40,7 @@ pub fn run(
     recording_mode: RecordingMode,
     recording_props: RecordingProps,
     profile_creation_props: ProfileCreationProps,
+    stop_receiver: Option<std::sync::mpsc::Receiver<()>>,
 ) -> Result<(Profile, ExitStatus), i32> {
     let timebase = std::time::SystemTime::now();
     let timebase = ReferenceTimestamp::from_system_time(timebase);
@@ -59,22 +60,28 @@ pub fn run(
 
     let included_processes = match recording_mode {
         RecordingMode::All => {
-            let ctrl_c_receiver = CtrlC::observe_oneshot();
             eprintln!("Profiling all processes...");
-            eprintln!("Press Ctrl+C to stop.");
-            // TODO: Respect recording_props.time_limit, if specified
-            // Wait for Ctrl+C.
-            let _ = ctrl_c_receiver.blocking_recv();
+            if let Some(rx) = stop_receiver {
+                let _ = rx.recv();
+            } else {
+                let ctrl_c_receiver = CtrlC::observe_oneshot();
+                eprintln!("Press Ctrl+C to stop.");
+                // TODO: Respect recording_props.time_limit, if specified
+                let _ = ctrl_c_receiver.blocking_recv();
+            }
             None
         }
         RecordingMode::Pid(pid) => {
-            let ctrl_c_receiver = CtrlC::observe_oneshot();
             // TODO: check that process with this pid exists
             eprintln!("Profiling process with pid {pid}...");
-            eprintln!("Press Ctrl+C to stop.");
-            // TODO: Respect recording_props.time_limit, if specified
-            // Wait for Ctrl+C.
-            let _ = ctrl_c_receiver.blocking_recv();
+            if let Some(rx) = stop_receiver {
+                let _ = rx.recv();
+            } else {
+                let ctrl_c_receiver = CtrlC::observe_oneshot();
+                eprintln!("Press Ctrl+C to stop.");
+                // TODO: Respect recording_props.time_limit, if specified
+                let _ = ctrl_c_receiver.blocking_recv();
+            }
             Some(IncludedProcesses {
                 name_substrings: Vec::new(),
                 pids: vec![pid],
