@@ -67,7 +67,7 @@ mach2 = "0.6"
 lazy_static = "1.5.0"
 flate2 = "1.1"
 sysctl = "0.7.1"
-plist = "1.7.0"
+plist = "1.8.0"
 
 [target.'cfg(any(target_os = "android", target_os = "linux"))'.dependencies]
 

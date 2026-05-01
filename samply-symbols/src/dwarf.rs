@@ -69,59 +69,6 @@ pub fn convert_stack_frame<R: gimli::Reader>(
     }
 }
 
-#[cfg(test)]
-mod test {
-    use addr2line::{Frame, Location};
-
-    use super::*;
-    use crate::generation::SymbolMapGeneration;
-
-    #[test]
-    fn convert_stack_frame_preserves_non_zero_column_number() {
-        let frame = Frame::<EndianSlice<'static, RunTimeEndian>> {
-            dw_die_offset: None,
-            function: None,
-            location: Some(Location {
-                file: Some("src/example.c"),
-                line: Some(42),
-                column: Some(7),
-            }),
-        };
-        let mut string_interner = SymbolMapStringInterner::new(SymbolMapGeneration::new());
-
-        let converted = convert_stack_frame(frame, &mut string_interner);
-
-        assert_eq!(converted.line_number, Some(42));
-        assert_eq!(converted.column_number, Some(7));
-        assert_eq!(
-            string_interner
-                .resolve(converted.file_path.unwrap().into())
-                .unwrap()
-                .as_ref(),
-            "src/example.c"
-        );
-    }
-
-    #[test]
-    fn convert_stack_frame_normalizes_zero_column_to_start_of_line() {
-        let frame = Frame::<EndianSlice<'static, RunTimeEndian>> {
-            dw_die_offset: None,
-            function: None,
-            location: Some(Location {
-                file: None,
-                line: Some(42),
-                column: Some(0),
-            }),
-        };
-        let mut string_interner = SymbolMapStringInterner::new(SymbolMapGeneration::new());
-
-        let converted = convert_stack_frame(frame, &mut string_interner);
-
-        assert_eq!(converted.line_number, Some(42));
-        assert_eq!(converted.column_number, Some(1));
-    }
-}
-
 pub enum SingleSectionData<'data, T: ReadRef<'data>> {
     View {
         data: T,
@@ -288,5 +235,58 @@ impl Addr2lineContextData {
         let dwarf = gimli::Dwarf::load(|s| Ok(self.sect(data, obj, s, e, true)))
             .map_err(Error::Addr2lineContextCreationError)?;
         Ok(dwarf)
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use addr2line::{Frame, Location};
+
+    use super::*;
+    use crate::generation::SymbolMapGeneration;
+
+    #[test]
+    fn convert_stack_frame_preserves_non_zero_column_number() {
+        let frame = Frame::<EndianSlice<'static, RunTimeEndian>> {
+            dw_die_offset: None,
+            function: None,
+            location: Some(Location {
+                file: Some("src/example.c"),
+                line: Some(42),
+                column: Some(7),
+            }),
+        };
+        let mut string_interner = SymbolMapStringInterner::new(SymbolMapGeneration::new());
+
+        let converted = convert_stack_frame(frame, &mut string_interner);
+
+        assert_eq!(converted.line_number, Some(42));
+        assert_eq!(converted.column_number, Some(7));
+        assert_eq!(
+            string_interner
+                .resolve(converted.file_path.unwrap().into())
+                .unwrap()
+                .as_ref(),
+            "src/example.c"
+        );
+    }
+
+    #[test]
+    fn convert_stack_frame_normalizes_zero_column_to_start_of_line() {
+        let frame = Frame::<EndianSlice<'static, RunTimeEndian>> {
+            dw_die_offset: None,
+            function: None,
+            location: Some(Location {
+                file: None,
+                line: Some(42),
+                column: Some(0),
+            }),
+        };
+        let mut string_interner = SymbolMapStringInterner::new(SymbolMapGeneration::new());
+
+        let converted = convert_stack_frame(frame, &mut string_interner);
+
+        assert_eq!(converted.line_number, Some(42));
+        assert_eq!(converted.column_number, Some(1));
     }
 }
