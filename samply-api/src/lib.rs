@@ -161,6 +161,48 @@ mod symbolicate;
 
 pub use error::Error;
 
+/// The outcome of loading symbols for one module during a `/symbolicate/v5` request.
+#[derive(Debug, Clone)]
+pub enum ModuleLoadOutcome {
+    /// Symbols were loaded successfully.
+    Loaded,
+    /// Symbol loading failed.
+    ///
+    /// `error_name` is a stable identifier for the error kind (the enum variant name),
+    /// suitable for use as a metric tag or log field.
+    Failed { error_name: &'static str },
+}
+
+/// Per-module observability data collected during a `/symbolicate/v5` request.
+///
+/// The `load_duration` covers the full cost of making the module's symbols
+/// available: cache lookup, download (if needed), and parsing.  Download timing
+/// is also reported independently via [`wholesym::DownloaderObserver`] callbacks,
+/// which fire for every download regardless of which request triggered it.
+#[derive(Debug, Clone)]
+pub struct ModuleStat {
+    pub debug_name: String,
+    pub breakpad_id: String,
+    pub outcome: ModuleLoadOutcome,
+}
+
+/// Observability data for a `/symbolicate/v5` request.
+///
+/// Returned alongside the symbolication result so that callers can emit
+/// per-request metrics and structured log entries without having to parse the
+/// JSON response.  It is **not** included in the serialized JSON output.
+#[derive(Debug, Clone)]
+pub struct SymbolicateStats {
+    /// Number of jobs in the request.
+    pub jobs_count: usize,
+    /// Total number of stacks across all jobs.
+    pub stacks_count: usize,
+    /// Total number of frames across all jobs.
+    pub frames_count: usize,
+    /// One entry per unique (debug_name, breakpad_id) pair that was looked up.
+    pub module_stats: Vec<ModuleStat>,
+}
+
 pub(crate) fn to_debug_id(breakpad_id: &str) -> Result<DebugId, samply_symbols::Error> {
     // Only accept breakpad IDs with the right syntax, and which aren't all-zeros.
     match DebugId::from_breakpad(breakpad_id) {
@@ -199,6 +241,26 @@ impl<H: FileAndPathHelper> From<asm::response_json::Response> for QueryApiJsonRe
 impl<H: FileAndPathHelper> From<Error> for QueryApiJsonResult<H> {
     fn from(value: Error) -> Self {
         QueryApiJsonResult::Err(value)
+    }
+}
+
+impl<H: FileAndPathHelper> QueryApiJsonResult<H> {
+    /// Returns the HTTP status code that best describes this result.
+    pub fn http_status(&self) -> u16 {
+        match self {
+            QueryApiJsonResult::Err(e) => e.http_status(),
+            _ => 200,
+        }
+    }
+
+    /// Returns observability statistics for `/symbolicate/v5` requests.
+    ///
+    /// Returns `None` for `/asm/v1`, `/source/v1`, and error responses.
+    pub fn symbolicate_stats(&self) -> Option<&SymbolicateStats> {
+        match self {
+            QueryApiJsonResult::SymbolicateResponse(r) => Some(&r.stats),
+            _ => None,
+        }
     }
 }
 

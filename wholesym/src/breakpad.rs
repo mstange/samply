@@ -1,6 +1,8 @@
+use std::collections::HashMap;
 use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use samply_symbols::{BreakpadIndex, BreakpadIndexCreator, BreakpadParseError, OwnedBreakpadIndex};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -54,6 +56,8 @@ impl BreakpadSymbolDownloader {
             breakpad_symindex_cache_dir,
             observer: None,
             downloader: downloader.unwrap_or_default(),
+            negative_cache_ttl: None,
+            negative_cache: Mutex::new(HashMap::new()),
         };
         Self {
             inner: Arc::new(inner),
@@ -70,7 +74,25 @@ impl BreakpadSymbolDownloader {
         Arc::get_mut(&mut self.inner).unwrap().observer = observer;
     }
 
-    pub async fn get_file(&self, rel_path: &str) -> Option<PathBuf> {
+    /// Set the TTL for the in-memory negative cache.
+    ///
+    /// When set, `get_file` will remember paths for which all servers returned 404, and
+    /// return `Ok(None)` immediately for subsequent requests within the TTL, without
+    /// contacting the servers again. Transient errors are never cached.
+    ///
+    /// By default no negative caching is performed.
+    pub fn set_negative_cache_ttl(&mut self, ttl: Duration) {
+        Arc::get_mut(&mut self.inner).unwrap().negative_cache_ttl = Some(ttl);
+    }
+
+    /// Download (if needed) and return the local path to the breakpad symbol file at `rel_path`.
+    ///
+    /// Returns:
+    /// - `Ok(Some(path))` — file found locally or successfully downloaded
+    /// - `Ok(None)` — all servers returned 404; the file definitively does not exist
+    /// - `Err(e)` — at least one server returned a transient error (5xx, 429, network
+    ///   failure, etc.); the file may exist but was unreachable
+    pub async fn get_file(&self, rel_path: &str) -> Result<Option<PathBuf>, DownloadError> {
         self.inner.get_file(rel_path).await
     }
 
@@ -100,6 +122,8 @@ struct BreakpadSymbolDownloaderInner {
     breakpad_symindex_cache_dir: Option<PathBuf>,
     observer: Option<Arc<dyn DownloaderObserver>>,
     downloader: Arc<Downloader>,
+    negative_cache_ttl: Option<Duration>,
+    negative_cache: Mutex<HashMap<String, Instant>>,
 }
 
 impl BreakpadSymbolDownloaderInner {
@@ -122,20 +146,44 @@ impl BreakpadSymbolDownloaderInner {
         None
     }
 
-    pub async fn get_file(&self, rel_path: &str) -> Option<PathBuf> {
+    pub async fn get_file(&self, rel_path: &str) -> Result<Option<PathBuf>, DownloadError> {
         if let Some(path) = self.get_file_no_download(rel_path).await {
-            return Some(path);
+            return Ok(Some(path));
         }
 
+        if let Some(ttl) = self.negative_cache_ttl {
+            let cached_at = self.negative_cache.lock().unwrap().get(rel_path).copied();
+            if let Some(cached_at) = cached_at {
+                if cached_at.elapsed() < ttl {
+                    return Ok(None);
+                }
+            }
+        }
+
+        let mut transient_error: Option<DownloadError> = None;
         for (server_base_url, cache_dir) in &self.breakpad_servers {
-            if let Ok(path) = self
+            match self
                 .get_bp_sym_file_from_server(rel_path, server_base_url, cache_dir)
                 .await
             {
-                return Some(path);
+                Ok(path) => return Ok(Some(path)),
+                Err(DownloadError::StatusError(404)) => {}
+                Err(e) => transient_error = Some(e),
             }
         }
-        None
+
+        match transient_error {
+            Some(e) => Err(e),
+            None => {
+                if self.negative_cache_ttl.is_some() {
+                    self.negative_cache
+                        .lock()
+                        .unwrap()
+                        .insert(rel_path.to_owned(), Instant::now());
+                }
+                Ok(None)
+            }
+        }
     }
 
     /// Return whether a file is found at `path`, and notify the observer if not.
@@ -327,5 +375,270 @@ impl ChunkConsumer for BreakpadIndexCreatorChunkConsumer {
 
     fn finish(self) -> Self::Output {
         self.0.finish()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use super::*;
+    use wiremock::matchers::{method, path};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    // Minimal valid breakpad sym file.
+    const TESTPROJ_SYM: &[u8] = b"MODULE Linux x86_64 D48F191186D67E69DF025AD71FB91E1F0 testproj\nFILE 0 /home/user/main.rs\nFUNC 5380 44 0 testproj::main\n5380 9 1 0\n";
+    const REL_PATH: &str = "testproj/D48F191186D67E69DF025AD71FB91E1F0/testproj.sym";
+
+    #[tokio::test]
+    async fn get_file_no_download_finds_local_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let sym_path = dir.path().join(REL_PATH);
+        std::fs::create_dir_all(sym_path.parent().unwrap()).unwrap();
+        std::fs::write(&sym_path, TESTPROJ_SYM).unwrap();
+
+        let downloader =
+            BreakpadSymbolDownloader::new(vec![dir.path().to_path_buf()], vec![], None, None);
+        let result = downloader.get_file_no_download(REL_PATH).await;
+        assert_eq!(result, Some(sym_path));
+    }
+
+    #[tokio::test]
+    async fn get_file_no_download_returns_none_when_missing() {
+        let dir = tempfile::tempdir().unwrap();
+        let downloader =
+            BreakpadSymbolDownloader::new(vec![dir.path().to_path_buf()], vec![], None, None);
+        let result = downloader.get_file_no_download(REL_PATH).await;
+        assert!(result.is_none());
+    }
+
+    #[tokio::test]
+    async fn ensure_symindex_creates_valid_symindex() {
+        let sym_dir = tempfile::tempdir().unwrap();
+        let symindex_dir = tempfile::tempdir().unwrap();
+        let sym_path = sym_dir.path().join(REL_PATH);
+        std::fs::create_dir_all(sym_path.parent().unwrap()).unwrap();
+        std::fs::write(&sym_path, TESTPROJ_SYM).unwrap();
+
+        let downloader = BreakpadSymbolDownloader::new(
+            vec![sym_dir.path().to_path_buf()],
+            vec![],
+            Some(symindex_dir.path().to_path_buf()),
+            None,
+        );
+        let symindex_path = downloader
+            .ensure_symindex(&sym_path, REL_PATH)
+            .await
+            .unwrap();
+        assert!(symindex_path.exists());
+    }
+
+    #[tokio::test]
+    async fn ensure_symindex_errors_on_malformed_sym_file() {
+        let sym_dir = tempfile::tempdir().unwrap();
+        let symindex_dir = tempfile::tempdir().unwrap();
+        let sym_path = sym_dir.path().join(REL_PATH);
+        std::fs::create_dir_all(sym_path.parent().unwrap()).unwrap();
+        std::fs::write(&sym_path, b"this is junk").unwrap();
+
+        let downloader = BreakpadSymbolDownloader::new(
+            vec![sym_dir.path().to_path_buf()],
+            vec![],
+            Some(symindex_dir.path().to_path_buf()),
+            None,
+        );
+        let err = downloader
+            .ensure_symindex(&sym_path, REL_PATH)
+            .await
+            .unwrap_err();
+        assert!(
+            matches!(err, SymindexGenerationError::BreakpadParsing(_)),
+            "{err:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn get_file_downloads_from_server() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path(format!("/{REL_PATH}")))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(TESTPROJ_SYM))
+            .mount(&server)
+            .await;
+
+        let cache_dir = tempfile::tempdir().unwrap();
+        let downloader = BreakpadSymbolDownloader::new(
+            vec![],
+            vec![(server.uri(), cache_dir.path().to_path_buf())],
+            None,
+            Some(Arc::new(Downloader::new_with_max_retries(0))),
+        );
+        let result = downloader.get_file(REL_PATH).await;
+        assert!(result.as_ref().unwrap().is_some());
+        assert!(result.unwrap().unwrap().exists());
+    }
+
+    #[tokio::test]
+    async fn get_file_falls_back_to_second_server_on_404() {
+        let server1 = MockServer::start().await;
+        let server2 = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path(format!("/{REL_PATH}")))
+            .respond_with(ResponseTemplate::new(404))
+            .mount(&server1)
+            .await;
+        Mock::given(method("GET"))
+            .and(path(format!("/{REL_PATH}")))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(TESTPROJ_SYM))
+            .mount(&server2)
+            .await;
+
+        let cache_dir1 = tempfile::tempdir().unwrap();
+        let cache_dir2 = tempfile::tempdir().unwrap();
+        let downloader = BreakpadSymbolDownloader::new(
+            vec![],
+            vec![
+                (server1.uri(), cache_dir1.path().to_path_buf()),
+                (server2.uri(), cache_dir2.path().to_path_buf()),
+            ],
+            None,
+            None,
+        );
+        let result = downloader.get_file(REL_PATH).await;
+        assert!(result.as_ref().unwrap().is_some());
+        assert!(result.unwrap().unwrap().exists());
+    }
+
+    #[tokio::test]
+    async fn get_file_returns_none_when_all_servers_404() {
+        let server1 = MockServer::start().await;
+        let server2 = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path(format!("/{REL_PATH}")))
+            .respond_with(ResponseTemplate::new(404))
+            .mount(&server1)
+            .await;
+        Mock::given(method("GET"))
+            .and(path(format!("/{REL_PATH}")))
+            .respond_with(ResponseTemplate::new(404))
+            .mount(&server2)
+            .await;
+
+        let cache_dir1 = tempfile::tempdir().unwrap();
+        let cache_dir2 = tempfile::tempdir().unwrap();
+        let downloader = BreakpadSymbolDownloader::new(
+            vec![],
+            vec![
+                (server1.uri(), cache_dir1.path().to_path_buf()),
+                (server2.uri(), cache_dir2.path().to_path_buf()),
+            ],
+            None,
+            None,
+        );
+        let result = downloader.get_file(REL_PATH).await;
+        assert!(matches!(result, Ok(None)));
+    }
+
+    #[tokio::test]
+    async fn get_file_returns_err_on_transient_server_error() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path(format!("/{REL_PATH}")))
+            .respond_with(ResponseTemplate::new(503))
+            .mount(&server)
+            .await;
+
+        let cache_dir = tempfile::tempdir().unwrap();
+        let downloader = BreakpadSymbolDownloader::new(
+            vec![],
+            vec![(server.uri(), cache_dir.path().to_path_buf())],
+            None,
+            Some(Arc::new(Downloader::new_with_max_retries(0))),
+        );
+        let result = downloader.get_file(REL_PATH).await;
+        assert!(matches!(result, Err(DownloadError::StatusError(503))));
+    }
+
+    #[tokio::test]
+    async fn get_file_returns_err_when_first_server_transient_second_server_404() {
+        let server1 = MockServer::start().await;
+        let server2 = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path(format!("/{REL_PATH}")))
+            .respond_with(ResponseTemplate::new(500))
+            .mount(&server1)
+            .await;
+        Mock::given(method("GET"))
+            .and(path(format!("/{REL_PATH}")))
+            .respond_with(ResponseTemplate::new(404))
+            .mount(&server2)
+            .await;
+
+        let cache_dir1 = tempfile::tempdir().unwrap();
+        let cache_dir2 = tempfile::tempdir().unwrap();
+        let downloader = BreakpadSymbolDownloader::new(
+            vec![],
+            vec![
+                (server1.uri(), cache_dir1.path().to_path_buf()),
+                (server2.uri(), cache_dir2.path().to_path_buf()),
+            ],
+            None,
+            Some(Arc::new(Downloader::new_with_max_retries(0))),
+        );
+        let result = downloader.get_file(REL_PATH).await;
+        assert!(matches!(result, Err(DownloadError::StatusError(500))));
+    }
+
+    #[tokio::test]
+    async fn negative_cache_suppresses_second_request_after_404() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path(format!("/{REL_PATH}")))
+            .respond_with(ResponseTemplate::new(404))
+            .expect(1) // must be called exactly once despite two get_file calls
+            .mount(&server)
+            .await;
+
+        let cache_dir = tempfile::tempdir().unwrap();
+        let mut downloader = BreakpadSymbolDownloader::new(
+            vec![],
+            vec![(server.uri(), cache_dir.path().to_path_buf())],
+            None,
+            Some(Arc::new(Downloader::new_with_max_retries(0))),
+        );
+        downloader.set_negative_cache_ttl(Duration::from_secs(60));
+
+        assert!(matches!(downloader.get_file(REL_PATH).await, Ok(None)));
+        assert!(matches!(downloader.get_file(REL_PATH).await, Ok(None)));
+        // wiremock will fail the test if the server was called more than once
+    }
+
+    #[tokio::test]
+    async fn negative_cache_does_not_suppress_request_after_transient_error() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path(format!("/{REL_PATH}")))
+            .respond_with(ResponseTemplate::new(503))
+            .expect(2) // must be called both times
+            .mount(&server)
+            .await;
+
+        let cache_dir = tempfile::tempdir().unwrap();
+        let mut downloader = BreakpadSymbolDownloader::new(
+            vec![],
+            vec![(server.uri(), cache_dir.path().to_path_buf())],
+            None,
+            Some(Arc::new(Downloader::new_with_max_retries(0))),
+        );
+        downloader.set_negative_cache_ttl(Duration::from_secs(60));
+
+        assert!(matches!(
+            downloader.get_file(REL_PATH).await,
+            Err(DownloadError::StatusError(503))
+        ));
+        assert!(matches!(
+            downloader.get_file(REL_PATH).await,
+            Err(DownloadError::StatusError(503))
+        ));
     }
 }

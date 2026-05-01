@@ -164,3 +164,8 @@ pub use samply_symbols::{
 pub use symbol_manager::{SymbolFileOrigin, SymbolManager, SymbolMap};
 pub use symbol_manager_observer::SymbolManagerObserver;
 pub use verbose_symbol_manager_observer::VerboseSymbolManagerObserver;
+
+#[cfg(feature = "api")]
+pub use samply_api::{ModuleLoadOutcome, ModuleStat, SymbolicateStats};
+#[cfg(feature = "api")]
+pub use symbol_manager::QueryApiJsonResult;

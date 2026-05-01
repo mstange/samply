@@ -34,11 +34,26 @@ pub enum Error {
     ),
 }
 
+impl Error {
+    /// Returns the HTTP status code that best describes this error.
+    pub fn http_status(&self) -> u16 {
+        match self {
+            Error::ParseRequestErrorSerde(_) => 400,
+            Error::ParseRequestErrorContents(_) => 400,
+            Error::UnrecognizedUrl(_) => 404,
+            Error::Symbols(_) | Error::Source(_) | Error::Asm(_) => 500,
+        }
+    }
+}
+
 impl Serialize for Error {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
     {
-        self.to_string().serialize(serializer)
+        use serde::ser::SerializeMap;
+        let mut map = serializer.serialize_map(Some(1))?;
+        map.serialize_entry("title", &self.to_string())?;
+        map.end()
     }
 }

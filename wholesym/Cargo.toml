@@ -28,8 +28,9 @@ yoke = "0.8"
 yoke-derive = "0.8"
 libc = "0.2"
 uuid = "1"
-reqwest = { version = "0.12", default-features = false, features = [
-    "rustls-tls",
+reqwest-middleware = "0.5"
+reqwest-retry = "0.9"
+reqwest = { version = "0.13", default-features = false, features = [
     "stream",
     "gzip",
     "brotli",
@@ -53,4 +54,6 @@ core-foundation = "0.10"
 [dev-dependencies]
 flate2 = { version = "1.1.2", features = ["zlib-rs"] }
 futures = "0.3.5"
+tempfile = "3"
 tokio = { version = "1.38", features = ["macros", "rt", "rt-multi-thread"] } # Features for #[tokio::test]
+wiremock = "0.6"
