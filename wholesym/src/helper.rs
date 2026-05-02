@@ -402,9 +402,9 @@ impl Helper {
                     .get_file(&filename, &hash)
                     .await?
             }
-            WholesymFileLocation::BreakpadSymbolServerFile(path) => self
+            WholesymFileLocation::BreakpadSymbolServerFile(rel_path) => self
                 .breakpad_downloader
-                .get_file(&path)
+                .get_file(&rel_path)
                 .await
                 .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?
                 .ok_or("Not found on breakpad symbol server")?,
@@ -583,18 +583,27 @@ impl FileAndPathHelper for Helper {
         }
 
         if let (Some(debug_name), Some(debug_id)) = (&info.debug_name, info.debug_id) {
-            let safe_debug_name = sanitize_breakpad_path_component(debug_name);
-            let rel_path = format!(
-                "{}/{}/{}.sym",
-                safe_debug_name,
-                debug_id.breakpad(),
-                safe_debug_name.trim_end_matches(".pdb")
-            );
+            // Check Breakpad symbol sources, but only for debug names that are safe
+            // both as filenames and as URL segments.
+            if is_safe_filename_and_url_segment(debug_name) {
+                let rel_path = format!(
+                    "{debug_name}/{}/{}.sym",
+                    debug_id.breakpad(),
+                    debug_name.trim_end_matches(".pdb")
+                );
 
-            // Search breakpad symbol directories.
-            paths.push(CandidatePathInfo::SingleFile(
-                WholesymFileLocation::LocalBreakpadFile(rel_path.clone()),
-            ));
+                // Search breakpad symbol directories.
+                paths.push(CandidatePathInfo::SingleFile(
+                    WholesymFileLocation::LocalBreakpadFile(rel_path.clone()),
+                ));
+
+                if !might_be_fake_jit_file(&info) && !self.config.breakpad_servers.is_empty() {
+                    // We might find a .sym file on a symbol server.
+                    paths.push(CandidatePathInfo::SingleFile(
+                        WholesymFileLocation::BreakpadSymbolServerFile(rel_path),
+                    ));
+                }
+            }
 
             if debug_name.ends_with(".pdb") && self.symsrv_downloader.is_some() {
                 // We might find this pdb file with the help of a symbol server.
@@ -604,18 +613,8 @@ impl FileAndPathHelper for Helper {
                         debug_id.breakpad().to_string(),
                     ),
                 ));
-            }
 
-            if !might_be_fake_jit_file(&info) {
-                if !self.config.breakpad_servers.is_empty() {
-                    // We might find a .sym file on a symbol server.
-                    paths.push(CandidatePathInfo::SingleFile(
-                        WholesymFileLocation::BreakpadSymbolServerFile(rel_path),
-                    ));
-                }
-
-                if debug_name.ends_with(".pdb") && self.symsrv_downloader.is_some() {
-                    // We might find this pdb file with the help of a symbol server.
+                if !might_be_fake_jit_file(&info) {
                     paths.push(CandidatePathInfo::SingleFile(
                         WholesymFileLocation::SymsrvFile(
                             debug_name.clone(),
@@ -934,6 +933,43 @@ fn get_dyld_shared_cache_paths(arch: Option<&str>) -> Vec<WholesymFileLocation> 
 /// Used to filter out files like `jitted-12345-12.so`, to avoid hammering debuginfod servers.
 fn might_be_fake_jit_file(info: &LibraryInfo) -> bool {
     matches!(&info.name, Some(name) if (name.starts_with("jitted-") && name.ends_with(".so")) || name.contains("jit_app_cache:"))
+}
+
+/// Whether `debug_name` is safe to embed unchanged into both a single-component
+/// filesystem path and a single URL path segment.
+///
+/// Rules: ASCII alphanumeric plus `.`, `-`, `_`, `~`, `+`. Empty / `.` / `..`
+/// are rejected. The allow-list is intentionally constrained to characters
+/// that are valid both as filesystem name components and as URL path segments
+/// without percent-encoding:
+/// - `.`, `-`, `_`, `~` are RFC 3986 unreserved characters
+/// - `+` is a sub-delim, valid in a path segment unencoded — included so
+///   names like `libc++.1.dylib` and `libgallium-...~bpo12+rpt1.so` pass
+///   through unchanged
+///
+/// Names containing other characters (spaces, `{`, `}`, `<`, `>`, `@`, …) are
+/// rejected. We'd want to percent-encode them for the URL, and it's easier to
+/// skip the lookup than to thread a separate URL-encoded path through various
+/// layers. We also don't really want to have to deal with cached files that
+/// have different names than what we put in the URL.
+///
+/// Results from checking a few examples:
+/// - `libgallium-24.2.8-1~bpo12+rpt1.so` contains both `+` and `~`;
+///   `https://symbols.mozilla.org/libgallium-24.2.8-1~bpo12+rpt1.so/686E9835D66E381253D84E5E01FEFAD30/libgallium-24.2.8-1~bpo12+rpt1.so.sym`
+///   returns success for all combinations of raw and percent-encoded `~`/`%7E` and `+`/`%2B`.
+/// - `<unknown>` returns HTTP 400 (server actively rejects angle brackets).
+/// - Same for square brackets as in `[vdso]` - server rejects with HTTP 400.
+///
+/// As for spaces, in theory you could have binaries with spaces in them (and, for example,
+/// Firefox on macOS ships such binaries today, e.g. "Firefox Nightly GPU Helper"),
+/// but we currently don't seem to have symbol files on the server for them. We'd
+/// need to percent-encode spaces in the URL once we do.
+fn is_safe_filename_and_url_segment(name: &str) -> bool {
+    if name.is_empty() || name == "." || name == ".." {
+        return false;
+    }
+    name.bytes()
+        .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'-' | b'_' | b'~' | b'+'))
 }
 
 struct HelperDownloaderObserver {
@@ -1303,82 +1339,80 @@ impl DownloaderObserver for HelperDownloaderObserver {
 // questions can be answered by information in the response JSON... or I guess by something
 // that's stored on the SymbolMap.
 
-/// Sanitize a debug name so it is safe to use as a single directory component in a
-/// cache file path.
-///
-/// `debug_name` comes from profiled binaries and, in reliost, from untrusted
-/// user-submitted profiles. Without sanitization, a crafted name could escape the
-/// cache directory (path traversal).
-///
-/// Rules:
-/// - Any character outside `[A-Za-z0-9._-]` is replaced with `_`.  This removes
-///   directory separators (`/`, `\`) and other special characters.
-/// - The strings `.` and `..` are replaced with `_` to prevent single-component
-///   traversal after the character substitution above.
-/// - An empty result is replaced with `_`.
-fn sanitize_breakpad_path_component(name: &str) -> String {
-    let sanitized: String = name
-        .chars()
-        .map(|c| {
-            if c.is_alphanumeric() || matches!(c, '.' | '-' | '_') {
-                c
-            } else {
-                '_'
-            }
-        })
-        .collect();
-    if sanitized.is_empty() || sanitized == "." || sanitized == ".." {
-        return "_".to_string();
-    }
-    sanitized
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn sanitize_normal_names_unchanged() {
-        assert_eq!(sanitize_breakpad_path_component("xul.pdb"), "xul.pdb");
-        assert_eq!(sanitize_breakpad_path_component("libxul.so"), "libxul.so");
-        assert_eq!(sanitize_breakpad_path_component("testproj"), "testproj");
-        assert_eq!(
-            sanitize_breakpad_path_component("libSystem.B.dylib"),
-            "libSystem.B.dylib"
-        );
+    fn accepts_normal_names() {
+        assert!(is_safe_filename_and_url_segment("xul.pdb"));
+        assert!(is_safe_filename_and_url_segment("libxul.so"));
+        assert!(is_safe_filename_and_url_segment("testproj"));
+        assert!(is_safe_filename_and_url_segment("libSystem.B.dylib"));
     }
 
     #[test]
-    fn sanitize_replaces_slashes() {
-        assert_eq!(
-            sanitize_breakpad_path_component("../../etc/passwd.pdb"),
-            ".._.._etc_passwd.pdb"
-        );
-        assert_eq!(
-            sanitize_breakpad_path_component("/etc/passwd.pdb"),
-            "_etc_passwd.pdb"
-        );
-        assert_eq!(
-            sanitize_breakpad_path_component("\\windows\\ntdll.pdb"),
-            "_windows_ntdll.pdb"
-        );
+    fn accepts_real_world_names() {
+        // Examples lifted from eliot's `test_validate_modules_good`. These are
+        // names that have actually appeared in submitted profiles.
+        assert!(is_safe_filename_and_url_segment("TestTuple"));
+        assert!(is_safe_filename_and_url_segment(
+            "IAccessible2proxy.dll.pdb"
+        ));
+        assert!(is_safe_filename_and_url_segment("qipcap.dll"));
+        // `+` keeps libc++ working.
+        assert!(is_safe_filename_and_url_segment("libc++.1.dylib"));
+        assert!(is_safe_filename_and_url_segment("libstdc++.so.6"));
+        assert!(is_safe_filename_and_url_segment(
+            "libgmodule-2.0.so.0.6600.1"
+        ));
+        assert!(is_safe_filename_and_url_segment("ASMO_449.so"));
+        // `~` matters for Debian-style backport package names like Mesa drivers
+        // installed via apt.
+        assert!(is_safe_filename_and_url_segment(
+            "libgallium-24.2.8-1~bpo12+rpt1.so"
+        ));
     }
 
     #[test]
-    fn sanitize_replaces_dotdot_component() {
-        assert_eq!(sanitize_breakpad_path_component(".."), "_");
-        assert_eq!(sanitize_breakpad_path_component("."), "_");
+    fn rejects_real_world_names_needing_encoding() {
+        // Also from eliot's tests. These are valid debug_filenames at the
+        // input layer but contain characters that need URL percent-encoding,
+        // so we skip breakpad lookups for them rather than encode.
+        assert!(!is_safe_filename_and_url_segment("<unknown>"));
+        assert!(!is_safe_filename_and_url_segment(
+            "{e824f0e4-72f7-4295-8879-d8ff4bf348d2}.xpi"
+        ));
+        assert!(!is_safe_filename_and_url_segment(
+            "Font Awesome 5 Free-Solid-900.otf"
+        ));
     }
 
     #[test]
-    fn sanitize_replaces_empty() {
-        assert_eq!(sanitize_breakpad_path_component(""), "_");
+    fn rejects_path_separators() {
+        assert!(!is_safe_filename_and_url_segment("../../etc/passwd.pdb"));
+        assert!(!is_safe_filename_and_url_segment("/etc/passwd.pdb"));
+        assert!(!is_safe_filename_and_url_segment("\\windows\\ntdll.pdb"));
     }
 
     #[test]
-    fn sanitize_replaces_other_bad_chars() {
-        assert_eq!(sanitize_breakpad_path_component("foo()*$bar"), "foo____bar");
-        assert_eq!(sanitize_breakpad_path_component("foo bar"), "foo_bar");
-        assert_eq!(sanitize_breakpad_path_component("foo\x00bar"), "foo_bar");
+    fn rejects_dot_and_dotdot() {
+        assert!(!is_safe_filename_and_url_segment("."));
+        assert!(!is_safe_filename_and_url_segment(".."));
+    }
+
+    #[test]
+    fn rejects_empty() {
+        assert!(!is_safe_filename_and_url_segment(""));
+    }
+
+    #[test]
+    fn rejects_url_or_filesystem_unsafe_chars() {
+        assert!(!is_safe_filename_and_url_segment("foo bar"));
+        assert!(!is_safe_filename_and_url_segment("foo?bar"));
+        assert!(!is_safe_filename_and_url_segment("foo#bar"));
+        assert!(!is_safe_filename_and_url_segment("foo%bar"));
+        assert!(!is_safe_filename_and_url_segment("foo\x00bar"));
+        assert!(!is_safe_filename_and_url_segment("foo()*$bar"));
     }
 }

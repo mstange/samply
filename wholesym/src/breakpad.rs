@@ -479,6 +479,36 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn get_file_url_preserves_tilde_and_plus() {
+        // Real-world case: Mesa drivers shipped via Debian-style backports
+        // have names like `libgallium-24.2.8-1~bpo12+rpt1.so`.
+        // symbols.mozilla.org actually returns 200 for this exact path with
+        // raw `~` and `+`, so the round-trip must preserve them — sanitizing
+        // or percent-encoding either character would 404.
+        const DEBUG_NAME: &str = "libgallium-24.2.8-1~bpo12+rpt1.so";
+        const DEBUG_ID: &str = "686E9835D66E381253D84E5E01FEFAD30";
+        let rel_path = format!("{DEBUG_NAME}/{DEBUG_ID}/{DEBUG_NAME}.sym");
+
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path(format!("/{rel_path}")))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(TESTPROJ_SYM))
+            .mount(&server)
+            .await;
+
+        let cache_dir = tempfile::tempdir().unwrap();
+        let downloader = BreakpadSymbolDownloader::new(
+            vec![],
+            vec![(server.uri(), cache_dir.path().to_path_buf())],
+            None,
+            Some(Arc::new(Downloader::new_with_max_retries(0))),
+        );
+        let result = downloader.get_file(&rel_path).await;
+        assert!(result.as_ref().unwrap().is_some(), "{:?}", result);
+        assert!(result.unwrap().unwrap().exists());
+    }
+
+    #[tokio::test]
     async fn get_file_falls_back_to_second_server_on_404() {
         let server1 = MockServer::start().await;
         let server2 = MockServer::start().await;
