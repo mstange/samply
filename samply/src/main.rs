@@ -1,3 +1,5 @@
+#![cfg_attr(all(target_os = "windows", gui), windows_subsystem = "windows")]
+
 #[cfg(target_os = "macos")]
 mod mac;
 
@@ -42,6 +44,11 @@ use symbols::create_symbol_manager_and_quota_manager;
 fn main() {
     env_logger::init();
 
+    #[cfg(all(target_os = "windows", gui))]
+    {
+        windows::gui::run();
+        return;
+    }
     use clap::Parser;
     let opt = cli::Opt::parse();
     match opt.action {
@@ -62,7 +69,7 @@ fn main() {
         }
 
         #[cfg(target_os = "macos")]
-        cli::Action::Setup(cli::SetupArgs { yes }) => mac::codesign_setup::codesign_setup(yes),
+        cli::Action::Setup(cli::SetupArgs { yes }) => mac::codesign_setup::codesign_setup(yes)
     }
 }
 
@@ -125,7 +132,7 @@ fn do_record_action(record_args: cli::RecordArgs) {
     let presymbolicate = profile_creation_props.presymbolicate;
 
     let (mut profile, exit_status) =
-        match profiler::run(recording_mode, recording_props, profile_creation_props) {
+        match profiler::run(recording_mode, recording_props, profile_creation_props, None) {
             Ok(exit_status) => exit_status,
             Err(err) => {
                 eprintln!("Encountered an error during profiling: {err:?}");
