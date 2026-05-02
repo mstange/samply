@@ -31,6 +31,7 @@ uuid = "1"
 reqwest-middleware = "0.5"
 reqwest-retry = "0.9"
 reqwest = { version = "0.13", default-features = false, features = [
+    "rustls",
     "stream",
     "gzip",
     "brotli",
