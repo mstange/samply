@@ -41,7 +41,7 @@ bytes = "1.10"
 memmap2 = "0.9.9"
 tokio = { version = "1.38", features = ["fs", "macros"] }
 futures-util = "0.3.30"
-fs4 = "0.13"
+fs4 = "1.1"
 thiserror = "2"
 http = "1"
 scopeguard = { version = "1.2.0", default-features = false }
