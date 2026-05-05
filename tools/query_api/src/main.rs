@@ -8,8 +8,8 @@ use query_api::query_api;
 
 #[derive(Parser)]
 #[command(
-    name = "dump-table",
-    about = "Get the symbol table for a debugName + breakpadId identifier."
+    name = "query-api",
+    about = "Query the Tecken JSON symbolication API against a local symbol directory."
 )]
 struct Opt {
     /// Path to a directory that contains binaries and debug archives
@@ -30,8 +30,10 @@ fn main() -> anyhow::Result<()> {
     } else {
         opt.request_json_or_filename
     };
-    let response_json =
-        futures::executor::block_on(query_api(&opt.url, &request_json, opt.symbol_directory));
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()?;
+    let response_json = runtime.block_on(query_api(&opt.url, &request_json, opt.symbol_directory));
     let stdout_writer = stdout().lock();
     let stdout_writer = BufWriter::new(stdout_writer);
     serde_json::to_writer(stdout_writer, &response_json).unwrap();

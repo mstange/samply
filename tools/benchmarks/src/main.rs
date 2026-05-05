@@ -5,9 +5,10 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use bzip2::read::BzDecoder;
-use dump_table::get_table_for_debug_name_and_id;
+use dump_table::get_symbol_map_for_debug_name_and_id;
 use flate2::read::GzDecoder;
-use query_api::{query_api, DebugId};
+use query_api::debugid::DebugId;
+use query_api::query_api;
 use tar::Archive;
 use tempfile::tempdir;
 
@@ -218,8 +219,11 @@ fn run_api_query_benchmark(
 ) -> anyhow::Result<Duration> {
     eprintln!("Starting query API benchmark for {url}, {request_json_filename:?}.");
     let request_json = std::fs::read_to_string(request_json_filename)?;
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()?;
     let start = Instant::now();
-    let _result = futures::executor::block_on(query_api(url, &request_json, symbol_directory));
+    let _result = runtime.block_on(query_api(url, &request_json, symbol_directory));
     let duration = start.elapsed();
     eprintln!("Finished query API benchmark for {url}, {request_json_filename:?}.");
     eprintln!("Elapsed time: {duration:?}");
@@ -233,17 +237,23 @@ fn run_dump_table_benchmark(
 ) -> std::time::Duration {
     let debug_id = breakpad_id
         .as_deref()
-        .and_then(|debug_id| DebugId::from_breakpad(debug_id).ok());
+        .and_then(|debug_id| DebugId::from_breakpad(debug_id).ok())
+        .expect("breakpad_id is required for the dump_table benchmark");
     eprintln!(
         "Starting dump_table benchmark for {debug_name}, {breakpad_id:?}, {symbol_directory:?}."
     );
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
     let start = Instant::now();
-    let _result = futures::executor::block_on(get_table_for_debug_name_and_id(
-        debug_name,
-        debug_id,
-        symbol_directory.clone(),
-    ))
-    .unwrap();
+    let _result = runtime
+        .block_on(get_symbol_map_for_debug_name_and_id(
+            debug_name,
+            debug_id,
+            symbol_directory.clone(),
+        ))
+        .unwrap();
     let duration = start.elapsed();
     eprintln!(
         "Finished dump_table benchmark for {debug_name}, {breakpad_id:?}, {symbol_directory:?}."
