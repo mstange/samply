@@ -6,7 +6,7 @@ use std::sync::Mutex;
 use elsa::sync::FrozenVec;
 
 use crate::chunked_read_buffer_manager::{ChunkedReadBufferManager, RangeLocation, RangeSourcing};
-use crate::{FileAndPathHelperResult, FileContents};
+use crate::{FileContents, FileLoadResult};
 
 const CHUNK_SIZE: u64 = 32 * 1024;
 
@@ -14,12 +14,8 @@ pub trait FileByteSource: Send + Sync {
     /// Read `size` bytes at offset `offset` and append them to `buffer`.
     /// If successful, `buffer` must have had its len increased exactly by `size`,
     /// otherwise the caller may panic.
-    fn read_bytes_into(
-        &self,
-        buffer: &mut Vec<u8>,
-        offset: u64,
-        size: usize,
-    ) -> FileAndPathHelperResult<()>;
+    fn read_bytes_into(&self, buffer: &mut Vec<u8>, offset: u64, size: usize)
+        -> FileLoadResult<()>;
 }
 
 pub struct FileContentsWithChunkedCaching<S: FileByteSource> {
@@ -51,7 +47,7 @@ impl<S: FileByteSource> FileContentsWithChunkedCaching<S> {
 
     /// Must be called with a valid, non-empty range which does not exceed file_len.
     #[inline]
-    fn get_range_location(&self, range: Range<u64>) -> FileAndPathHelperResult<RangeLocation> {
+    fn get_range_location(&self, range: Range<u64>) -> FileLoadResult<RangeLocation> {
         let mut buffer_manager = self.buffer_manager.lock().unwrap();
         let read_range = match buffer_manager.determine_range_sourcing(range.clone()) {
             RangeSourcing::InExistingBuffer(l) => return Ok(l),
@@ -87,7 +83,7 @@ impl<S: FileByteSource> FileContents for FileContentsWithChunkedCaching<S> {
     }
 
     #[inline]
-    fn read_bytes_at(&self, offset: u64, size: u64) -> FileAndPathHelperResult<&[u8]> {
+    fn read_bytes_at(&self, offset: u64, size: u64) -> FileLoadResult<&[u8]> {
         if size == 0 {
             return Ok(&[]);
         }
@@ -110,11 +106,7 @@ impl<S: FileByteSource> FileContents for FileContentsWithChunkedCaching<S> {
     }
 
     #[inline]
-    fn read_bytes_at_until(
-        &self,
-        range: Range<u64>,
-        delimiter: u8,
-    ) -> FileAndPathHelperResult<&[u8]> {
+    fn read_bytes_at_until(&self, range: Range<u64>, delimiter: u8) -> FileLoadResult<&[u8]> {
         const MAX_LENGTH_INCLUDING_DELIMITER: u64 = 4096;
 
         if range.end < range.start {
@@ -159,7 +151,7 @@ impl<S: FileByteSource> FileContents for FileContentsWithChunkedCaching<S> {
         buffer: &mut Vec<u8>,
         offset: u64,
         size: usize,
-    ) -> FileAndPathHelperResult<()> {
+    ) -> FileLoadResult<()> {
         self.source.read_bytes_into(buffer, offset, size)
     }
 }

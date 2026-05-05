@@ -1,7 +1,7 @@
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::ops::Deref;
-use std::sync::{Arc, Mutex};
+use std::sync::Mutex;
 
 use debugid::DebugId;
 use object::{File, FileKind};
@@ -16,8 +16,8 @@ use crate::error::{Context, Error};
 use crate::generation::SymbolMapGeneration;
 use crate::mapped_path::UnparsedMappedPath;
 use crate::shared::{
-    FileAndPathHelper, FileContents, FileContentsWrapper, FileLocation, FrameDebugInfo,
-    FramesLookupResult, LookupAddress, SymbolInfo,
+    FileContents, FileContentsWrapper, FileLocation, FileTypes, FrameDebugInfo, FramesLookupResult,
+    LookupAddress, SymbolInfo,
 };
 use crate::symbol_map::{GetInnerSymbolMap, SymbolMap, SymbolMapTrait};
 use crate::symbol_map_object::{
@@ -28,53 +28,57 @@ use crate::{
     SymbolNameHandle, SyncAddressInfo,
 };
 
-pub async fn load_symbol_map_for_pdb_corresponding_to_binary<H: FileAndPathHelper>(
+/// Sniff a PE binary's `pdb_info` to derive the location of its companion PDB
+/// file. Returns the PDB file location plus the expected `DebugId` (taken from
+/// the PE itself, used to validate the loaded PDB matches the binary).
+pub fn pe_pdb_location<FT: FileTypes>(
     file_kind: FileKind,
-    file_contents: &FileContentsWrapper<H::F>,
-    file_location: H::FL,
-    helper: &H,
-) -> Result<SymbolMap<H>, Error> {
+    file_contents: &FileContentsWrapper<FT::F>,
+    file_location: &FT::FL,
+) -> Result<(FT::FL, DebugId), Error> {
     use object::Object;
     let pe =
         object::File::parse(file_contents).map_err(|e| Error::ObjectParseError(file_kind, e))?;
-
     let info = match pe.pdb_info() {
         Ok(Some(info)) => info,
         _ => return Err(Error::NoDebugInfoInPeBinary(file_location.to_string())),
     };
     let binary_debug_id = debug_id_for_object(&pe).expect("we checked pdb_info above");
-
     let pdb_path_str = std::str::from_utf8(info.path())
         .map_err(|_| Error::PdbPathNotUtf8(file_location.to_string()))?;
     let pdb_location = file_location
         .location_for_pdb_from_binary(pdb_path_str)
         .ok_or(Error::FileLocationRefusedPdbLocation)?;
-    let pdb_file = helper
-        .load_file(pdb_location)
-        .await
-        .map_err(|e| Error::HelperErrorDuringOpenFile(pdb_path_str.to_string(), e))?;
-    let symbol_map = get_symbol_map_for_pdb(FileContentsWrapper::new(pdb_file), file_location)?;
-    if symbol_map.debug_id() != binary_debug_id {
+    Ok((pdb_location, binary_debug_id))
+}
+
+/// Build a PDB-backed symbol map from already-loaded PDB bytes and verify that
+/// its `DebugId` matches `expected_debug_id`.
+pub fn build_pdb_symbol_map_with_debug_id_check<FT: FileTypes>(
+    pdb_contents: FileContentsWrapper<FT::F>,
+    debug_file_location: FT::FL,
+    expected_debug_id: DebugId,
+) -> Result<SymbolMap<FT>, Error> {
+    let symbol_map = get_symbol_map_for_pdb::<FT>(pdb_contents, debug_file_location)?;
+    if symbol_map.debug_id() != expected_debug_id {
         return Err(Error::UnmatchedDebugId(
-            binary_debug_id,
+            expected_debug_id,
             symbol_map.debug_id(),
         ));
     }
     Ok(symbol_map)
 }
 
-pub fn get_symbol_map_for_pe<H: FileAndPathHelper>(
-    file_contents: FileContentsWrapper<H::F>,
+pub fn get_symbol_map_for_pe<FT: FileTypes>(
+    file_contents: FileContentsWrapper<FT::F>,
     file_kind: FileKind,
-    file_location: H::FL,
-    helper: Arc<H>,
-) -> Result<SymbolMap<H>, Error> {
+    file_location: FT::FL,
+) -> Result<SymbolMap<FT>, Error> {
     let owner = PeSymbolMapDataAndObject::new(file_contents, file_kind)?;
     let symbol_map = ObjectSymbolMap::new(owner)?;
     Ok(SymbolMap::new_with_external_file_support(
         file_location,
         Box::new(symbol_map),
-        helper,
     ))
 }
 
@@ -452,10 +456,10 @@ impl<T: FileContents> SymbolMapTrait for PdbSymbolMap<T> {
     }
 }
 
-pub fn get_symbol_map_for_pdb<H: FileAndPathHelper>(
-    file_contents: FileContentsWrapper<H::F>,
-    debug_file_location: H::FL,
-) -> Result<SymbolMap<H>, Error> {
+pub fn get_symbol_map_for_pdb<FT: FileTypes>(
+    file_contents: FileContentsWrapper<FT::F>,
+    debug_file_location: FT::FL,
+) -> Result<SymbolMap<FT>, Error> {
     let file_data_and_object = PdbObjectWithFileData::new(PdbFileData(file_contents))?;
     let symbol_map = PdbSymbolMap::new(file_data_and_object)?;
     Ok(SymbolMap::new_plain(
