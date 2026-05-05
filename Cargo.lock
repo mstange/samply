@@ -200,11 +200,11 @@ dependencies = [
  "cab",
  "dump-table",
  "flate2",
- "futures",
  "query-api",
  "reqwest 0.13.2",
  "tar",
  "tempfile",
+ "tokio",
 ]
 
 [[package]]
@@ -632,9 +632,8 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
- "futures",
- "memmap2",
- "samply-symbols",
+ "tokio",
+ "wholesym",
 ]
 
 [[package]]
@@ -1995,10 +1994,9 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
- "futures",
- "memmap2",
- "samply-api",
  "serde_json",
+ "tokio",
+ "wholesym",
 ]
 
 [[package]]
@@ -2634,7 +2632,7 @@ dependencies = [
 
 [[package]]
 name = "samply-api"
-version = "0.24.0"
+version = "0.25.0"
 dependencies = [
  "anyhow",
  "assert-json-diff",
@@ -2685,7 +2683,7 @@ dependencies = [
 
 [[package]]
 name = "samply-symbols"
-version = "0.24.1"
+version = "0.25.0"
 dependencies = [
  "addr2line",
  "anyhow",
@@ -3544,7 +3542,7 @@ dependencies = [
 
 [[package]]
 name = "wholesym"
-version = "0.8.1"
+version = "0.9.0"
 dependencies = [
  "bytes",
  "core-foundation",

@@ -7,10 +7,7 @@ use std::sync::{Arc, Mutex};
 use bytes::Bytes;
 use debugid::DebugId;
 use samply_debugid::{CodeId, ElfBuildId, PeCodeId};
-use samply_symbols::{
-    CandidatePathInfo, FileAndPathHelper, FileAndPathHelperResult, FileLocation, LibraryInfo,
-    OptionallySendFuture, SymbolMapTrait,
-};
+use samply_symbols::{FileLoadResult, FileLocation, FileTypes, LibraryInfo, SymbolMapTrait};
 use symsrv::{SymsrvDownloader, SymsrvObserver};
 use uuid::Uuid;
 
@@ -46,6 +43,28 @@ impl std::ops::Deref for WholesymFileContents {
     }
 }
 
+/// The single [`FileTypes`] type bundle used throughout `wholesym`. Pairs
+/// [`WholesymFileContents`] and [`WholesymFileLocation`] under one type
+/// parameter for the sans-IO state machines exposed by `samply-symbols`.
+pub enum WholesymFileTypes {}
+
+impl FileTypes for WholesymFileTypes {
+    type F = WholesymFileContents;
+    type FL = WholesymFileLocation;
+}
+
+/// One element in the candidate-path list returned by
+/// [`FileResolver::get_candidate_paths_for_debug_file`] and
+/// [`FileResolver::get_candidate_paths_for_binary`].
+#[derive(Debug)]
+pub enum CandidatePathInfo {
+    SingleFile(WholesymFileLocation),
+    InDyldCache {
+        dyld_cache_path: WholesymFileLocation,
+        dylib_path: String,
+    },
+}
+
 #[derive(Debug, Clone)]
 pub enum WholesymFileLocation {
     LocalFile(PathBuf),
@@ -55,6 +74,8 @@ pub enum WholesymFileLocation {
     BreakpadSymbolServerFile(String),
     BreakpadSymindexFile(String),
     DebuginfodDebugFile(ElfBuildId),
+    // Only constructed when the `api` feature is on, but matched unconditionally.
+    #[cfg_attr(not(feature = "api"), allow(dead_code))]
     DebuginfodExecutable(ElfBuildId),
     UrlForSourceFile(String),
     VdsoLoadedIntoThisProcess,
@@ -186,15 +207,20 @@ impl std::fmt::Display for WholesymFileLocation {
     }
 }
 
-/// A simple helper which only exists to let samply_symbols::SymbolManager open
-/// local binary files for the binary_at_path functions.
-pub struct FileReadOnlyHelper;
+/// A minimal file fetcher that only opens local files (and walks the dyld
+/// shared cache).
+///
+/// Used by the static [`SymbolManager::library_info_for_binary_at_path`] API,
+/// which lets callers extract a `LibraryInfo` from a local binary without
+/// constructing a [`FileResolver`] (and the downloaders it brings with it).
+/// Panics if asked to load any non-local [`WholesymFileLocation`] variant.
+pub struct LocalFileFetcher;
 
-impl FileReadOnlyHelper {
-    async fn load_file_impl(
+impl LocalFileFetcher {
+    pub async fn load_file_impl(
         &self,
         location: WholesymFileLocation,
-    ) -> FileAndPathHelperResult<WholesymFileContents> {
+    ) -> FileLoadResult<WholesymFileContents> {
         match location {
             WholesymFileLocation::LocalFile(path) => {
                 let file = File::open(path)?;
@@ -203,47 +229,20 @@ impl FileReadOnlyHelper {
                 }))
             }
             _ => {
-                panic!("FileReadOnlyHelper should only be used for local files");
+                panic!("LocalFileFetcher should only be used for local files");
             }
         }
     }
-}
 
-impl FileAndPathHelper for FileReadOnlyHelper {
-    type F = WholesymFileContents;
-    type FL = WholesymFileLocation;
-
-    fn get_candidate_paths_for_debug_file(
-        &self,
-        _library_info: &LibraryInfo,
-    ) -> FileAndPathHelperResult<Vec<CandidatePathInfo<WholesymFileLocation>>> {
-        panic!("Should not be called");
-    }
-
-    fn get_candidate_paths_for_binary(
-        &self,
-        _library_info: &LibraryInfo,
-    ) -> FileAndPathHelperResult<Vec<CandidatePathInfo<WholesymFileLocation>>> {
-        panic!("Should not be called");
-    }
-
-    fn load_file(
-        &self,
-        location: WholesymFileLocation,
-    ) -> std::pin::Pin<Box<dyn OptionallySendFuture<Output = FileAndPathHelperResult<Self::F>> + '_>>
-    {
-        Box::pin(self.load_file_impl(location))
-    }
-
-    fn get_dyld_shared_cache_paths(
+    pub fn get_dyld_shared_cache_paths(
         &self,
         arch: Option<&str>,
-    ) -> FileAndPathHelperResult<Vec<WholesymFileLocation>> {
+    ) -> FileLoadResult<Vec<WholesymFileLocation>> {
         Ok(get_dyld_shared_cache_paths(arch))
     }
 }
 
-pub struct Helper {
+pub struct FileResolver {
     downloader: Arc<Downloader>,
     symsrv_downloader: Option<SymsrvDownloader>,
     breakpad_downloader: BreakpadSymbolDownloader,
@@ -251,7 +250,7 @@ pub struct Helper {
     known_libs: Mutex<KnownLibs>,
     config: SymbolManagerConfig,
     precog_symbol_data: Mutex<HashMap<DebugId, Arc<dyn SymbolMapTrait + Send + Sync>>>,
-    observer: Arc<HelperDownloaderObserver>,
+    observer: Arc<FileResolverDownloaderObserver>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -262,9 +261,9 @@ struct KnownLibs {
     by_mach_uuid: HashMap<Uuid, Arc<LibraryInfo>>,
 }
 
-impl Helper {
+impl FileResolver {
     pub fn with_config(config: SymbolManagerConfig) -> Self {
-        let observer = Arc::new(HelperDownloaderObserver::new());
+        let observer = Arc::new(FileResolverDownloaderObserver::new());
         let downloader = Arc::new(match config.user_agent.as_deref() {
             Some(ua) => Downloader::new_with_user_agent(ua),
             None => Downloader::new(),
@@ -363,10 +362,10 @@ impl Helper {
         file_exists
     }
 
-    async fn load_file_impl(
+    pub async fn load_file_impl(
         &self,
         location: WholesymFileLocation,
-    ) -> FileAndPathHelperResult<WholesymFileContents> {
+    ) -> FileLoadResult<WholesymFileContents> {
         let file_path = match location {
             WholesymFileLocation::LocalFile(path) => {
                 let path = self.config.redirect_paths.get(&path).unwrap_or(&path);
@@ -478,14 +477,11 @@ impl Helper {
     }
 }
 
-impl FileAndPathHelper for Helper {
-    type F = WholesymFileContents;
-    type FL = WholesymFileLocation;
-
-    fn get_candidate_paths_for_debug_file(
+impl FileResolver {
+    pub fn get_candidate_paths_for_debug_file(
         &self,
         library_info: &LibraryInfo,
-    ) -> FileAndPathHelperResult<Vec<CandidatePathInfo<WholesymFileLocation>>> {
+    ) -> FileLoadResult<Vec<CandidatePathInfo>> {
         let mut paths = vec![];
 
         let mut info = library_info.clone();
@@ -700,19 +696,20 @@ impl FileAndPathHelper for Helper {
         Ok(paths)
     }
 
-    fn get_candidate_paths_for_gnu_debug_link_dest(
+    pub fn get_candidate_paths_for_gnu_debug_link_dest(
         &self,
         original_file_location: &WholesymFileLocation,
         debug_link_name: &str,
-    ) -> FileAndPathHelperResult<Vec<WholesymFileLocation>> {
-        let absolute_original_file_parent = match original_file_location {
-            WholesymFileLocation::LocalFile(path) => {
-                let parent = path
-                    .parent()
-                    .ok_or("Original file should point to a file")?;
-                fs::canonicalize(parent)?
-            }
-            _ => return Err("Only local files have a .gnu_debuglink".into()),
+    ) -> Vec<WholesymFileLocation> {
+        let WholesymFileLocation::LocalFile(path) = original_file_location else {
+            // Only local files have a .gnu_debuglink.
+            return Vec::new();
+        };
+        let Some(parent) = path.parent() else {
+            return Vec::new();
+        };
+        let Ok(absolute_original_file_parent) = fs::canonicalize(parent) else {
+            return Vec::new();
         };
 
         // https://www-zeuthen.desy.de/unix/unixguide/infohtml/gdb/Separate-Debug-Files.html
@@ -731,13 +728,14 @@ impl FileAndPathHelper for Helper {
                     .join(debug_link_name),
             ));
         }
-        Ok(candidates)
+        candidates
     }
 
-    fn get_candidate_paths_for_binary(
+    #[cfg(feature = "api")]
+    pub fn get_candidate_paths_for_binary(
         &self,
         library_info: &LibraryInfo,
-    ) -> FileAndPathHelperResult<Vec<CandidatePathInfo<WholesymFileLocation>>> {
+    ) -> FileLoadResult<Vec<CandidatePathInfo>> {
         let mut info = library_info.clone();
         self.fill_in_library_info_details(&mut info);
 
@@ -818,27 +816,12 @@ impl FileAndPathHelper for Helper {
         Ok(paths)
     }
 
-    fn get_dyld_shared_cache_paths(
-        &self,
-        arch: Option<&str>,
-    ) -> FileAndPathHelperResult<Vec<WholesymFileLocation>> {
-        Ok(get_dyld_shared_cache_paths(arch))
-    }
-
-    fn load_file(
-        &self,
-        location: WholesymFileLocation,
-    ) -> std::pin::Pin<Box<dyn OptionallySendFuture<Output = FileAndPathHelperResult<Self::F>> + '_>>
-    {
-        Box::pin(self.load_file_impl(location))
-    }
-
-    fn get_candidate_paths_for_supplementary_debug_file(
+    pub fn get_candidate_paths_for_supplementary_debug_file(
         &self,
         original_file_path: &WholesymFileLocation,
         sup_file_path: &str,
         sup_file_build_id: &ElfBuildId,
-    ) -> FileAndPathHelperResult<Vec<WholesymFileLocation>> {
+    ) -> Vec<WholesymFileLocation> {
         let mut paths = Vec::new();
 
         if let WholesymFileLocation::LocalFile(original_file_path) = original_file_path {
@@ -870,13 +853,13 @@ impl FileAndPathHelper for Helper {
             }
         }
 
-        Ok(paths)
+        paths
     }
 
-    fn get_symbol_map_for_library(
+    pub fn get_symbol_map_for_library(
         &self,
         info: &LibraryInfo,
-    ) -> Option<(Self::FL, Arc<dyn SymbolMapTrait + Send + Sync>)> {
+    ) -> Option<(WholesymFileLocation, Arc<dyn SymbolMapTrait + Send + Sync>)> {
         let precog_symbol_data = self.precog_symbol_data.lock().unwrap();
         let symbol_map = precog_symbol_data.get(&info.debug_id?)?;
         let location = WholesymFileLocation::LocalFile(
@@ -972,19 +955,19 @@ fn is_safe_filename_and_url_segment(name: &str) -> bool {
         .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'-' | b'_' | b'~' | b'+'))
 }
 
-struct HelperDownloaderObserver {
-    inner: Mutex<HelperDownloaderObserverInner>,
+struct FileResolverDownloaderObserver {
+    inner: Mutex<FileResolverDownloaderObserverInner>,
 }
 
-struct HelperDownloaderObserverInner {
+struct FileResolverDownloaderObserverInner {
     observer: Option<Arc<dyn SymbolManagerObserver>>,
     symsrv_download_id_mapping: HashMap<u64, u64>,
     downloader_download_id_mapping: HashMap<u64, u64>,
 }
 
-impl HelperDownloaderObserver {
+impl FileResolverDownloaderObserver {
     pub fn new() -> Self {
-        let inner = HelperDownloaderObserverInner {
+        let inner = FileResolverDownloaderObserverInner {
             observer: None,
             symsrv_download_id_mapping: HashMap::new(),
             downloader_download_id_mapping: HashMap::new(),
@@ -1020,7 +1003,7 @@ impl HelperDownloaderObserver {
 
 static NEXT_DOWNLOAD_ID: AtomicU64 = AtomicU64::new(0);
 
-impl SymsrvObserver for HelperDownloaderObserver {
+impl SymsrvObserver for FileResolverDownloaderObserver {
     fn on_new_download_before_connect(&self, symsrv_download_id: u64, url: &str) {
         let download_id = NEXT_DOWNLOAD_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let mut inner = self.inner.lock().unwrap();
@@ -1176,7 +1159,7 @@ impl SymsrvObserver for HelperDownloaderObserver {
     }
 }
 
-impl DownloaderObserver for HelperDownloaderObserver {
+impl DownloaderObserver for FileResolverDownloaderObserver {
     fn on_new_download_before_connect(&self, downloader_download_id: u64, url: &str) {
         let download_id = NEXT_DOWNLOAD_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let mut inner = self.inner.lock().unwrap();

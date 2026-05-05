@@ -4,13 +4,60 @@ use std::path::{Path, PathBuf};
 
 use samply_symbols::debugid::DebugId;
 use samply_symbols::{
-    self, CandidatePathInfo, CompactSymbolTable, Error, FileAndPathHelper, FileAndPathHelperResult,
-    FileLocation, LibraryInfo, LookupAddress, MultiArchDisambiguator, OptionallySendFuture,
-    SymbolManager, SymbolMap,
+    self, CompactSymbolTable, Error, FileLoadResult, FileLocation, FileTypes, LookupAddress,
+    MultiArchDisambiguator, SymbolMap, SymbolMapLoadStep,
 };
 
+async fn drive_helper(sm: &mut samply_symbols::LoadSymbolMap<Helper>, helper: &Helper) {
+    loop {
+        match sm.poll() {
+            SymbolMapLoadStep::NeedFile { location, .. } => {
+                let location = location.clone();
+                let result = helper.load_file(location).await;
+                sm.provide(result);
+            }
+            SymbolMapLoadStep::NeedDebugLinkCandidates {
+                original_location,
+                debug_link_name,
+            } => {
+                let candidates = helper
+                    .get_candidate_paths_for_gnu_debug_link_dest(original_location, debug_link_name)
+                    .unwrap_or_default();
+                sm.provide_candidates(candidates);
+            }
+            SymbolMapLoadStep::NeedSupplementaryCandidates {
+                original_location,
+                sup_path,
+                sup_build_id,
+            } => {
+                let candidates = helper
+                    .get_candidate_paths_for_supplementary_debug_file(
+                        original_location,
+                        sup_path,
+                        sup_build_id,
+                    )
+                    .unwrap_or_default();
+                sm.provide_candidates(candidates);
+            }
+            SymbolMapLoadStep::Done => return,
+        }
+    }
+}
+
+/// Synchronously drive a [`samply_symbols::LoadSymbolMap`] state machine to
+/// completion, blocking on each `helper.load_file` future.
+fn block_on_load_symbol_map_from_location(
+    helper: &Helper,
+    location: FileLocationType,
+    disambiguator: Option<MultiArchDisambiguator>,
+) -> Result<SymbolMap<Helper>, Error> {
+    let mut sm = samply_symbols::LoadSymbolMap::<Helper>::new(location, disambiguator);
+    futures::executor::block_on(drive_helper(&mut sm, helper));
+    sm.finish()
+}
+
 async fn get_symbol_map_with_dyld_cache_fallback(
-    symbol_manager: &SymbolManager<Helper>,
+    helper: &Helper,
     path: &Path,
     debug_id: Option<DebugId>,
 ) -> Result<SymbolMap<Helper>, Error> {
@@ -19,17 +66,41 @@ async fn get_symbol_map_with_dyld_cache_fallback(
     let disambiguator = debug_id.map(MultiArchDisambiguator::DebugId);
     let location = FileLocationType(path.to_owned());
 
-    match symbol_manager
-        .load_symbol_map_from_location(location, disambiguator.clone())
-        .await
-    {
+    let mut sm = samply_symbols::LoadSymbolMap::<Helper>::new(location, disambiguator.clone());
+    drive_helper(&mut sm, helper).await;
+    match sm.finish() {
         Ok(symbol_map) => Ok(symbol_map),
         Err(Error::HelperErrorDuringOpenFile(_, _)) if might_be_in_dyld_shared_cache => {
-            // The file at the given path could not be opened, so it probably doesn't exist.
-            // Check the dyld cache.
-            symbol_manager
-                .load_symbol_map_for_dyld_cache_image(&path.to_string_lossy(), disambiguator)
-                .await
+            // Fall back to enumerating dyld shared cache locations.
+            let dylib_path = path.to_string_lossy().into_owned();
+            let dyld_cache_paths = helper.get_dyld_shared_cache_paths(None).unwrap();
+            let expected_debug_id = match &disambiguator {
+                Some(MultiArchDisambiguator::DebugId(id)) => Some(*id),
+                _ => None,
+            };
+            let mut last_err: Option<Error> = None;
+            for dyld_cache_path in dyld_cache_paths {
+                let mut sm = samply_symbols::LoadSymbolMap::<Helper>::for_dyld_cache(
+                    dyld_cache_path,
+                    dylib_path.clone(),
+                );
+                drive_helper(&mut sm, helper).await;
+                match sm.finish() {
+                    Ok(symbol_map) => {
+                        if let Some(expected) = expected_debug_id {
+                            if symbol_map.debug_id() == expected {
+                                return Ok(symbol_map);
+                            }
+                            last_err =
+                                Some(Error::UnmatchedDebugId(symbol_map.debug_id(), expected));
+                        } else {
+                            return Ok(symbol_map);
+                        }
+                    }
+                    Err(e) => last_err = Some(e),
+                }
+            }
+            Err(last_err.unwrap_or(Error::NoCandidatePathForDyldCache))
         }
         Err(e) => Err(e),
     }
@@ -39,13 +110,9 @@ pub async fn get_table(
     symbol_file_path: &Path,
     debug_id: Option<DebugId>,
 ) -> anyhow::Result<CompactSymbolTable> {
-    let helper = Helper {
-        symbol_directory: symbol_file_path.parent().unwrap().to_path_buf(),
-    };
-    let symbol_manager = SymbolManager::with_helper(helper);
+    let helper = Helper;
     let symbol_map =
-        get_symbol_map_with_dyld_cache_fallback(&symbol_manager, symbol_file_path, debug_id)
-            .await?;
+        get_symbol_map_with_dyld_cache_fallback(&helper, symbol_file_path, debug_id).await?;
     if let Some(expected_debug_id) = debug_id {
         if symbol_map.debug_id() != expected_debug_id {
             return Err(Error::UnmatchedDebugId(symbol_map.debug_id(), expected_debug_id).into());
@@ -76,8 +143,19 @@ pub fn dump_table(w: &mut impl Write, table: CompactSymbolTable, full: bool) -> 
     Ok(())
 }
 
-struct Helper {
-    symbol_directory: PathBuf,
+struct Helper;
+
+impl Helper {
+    async fn load_file(
+        &self,
+        location: <Self as FileTypes>::FL,
+    ) -> FileLoadResult<<Self as FileTypes>::F> {
+        let path = location.0;
+        eprintln!("Opening file {:?}", &path);
+        let file = File::open(&path)?;
+        let mmap = unsafe { memmap2::MmapOptions::new().map(&file)? };
+        Ok(mmap_to_file_contents(mmap))
+    }
 }
 
 type FileContentsType = memmap2::Mmap;
@@ -135,108 +213,38 @@ fn mmap_to_file_contents(m: memmap2::Mmap) -> FileContentsType {
     m
 }
 
-impl FileAndPathHelper for Helper {
+impl FileTypes for Helper {
     type F = FileContentsType;
     type FL = FileLocationType;
+}
 
-    fn get_candidate_paths_for_debug_file(
-        &self,
-        library_info: &LibraryInfo,
-    ) -> FileAndPathHelperResult<Vec<CandidatePathInfo<Self::FL>>> {
-        let debug_name = match library_info.debug_name.as_deref() {
-            Some(debug_name) => debug_name,
-            None => return Ok(Vec::new()),
-        };
-
-        let mut paths = vec![];
-
-        // Also consider .so.dbg files in the symbol directory.
-        if debug_name.ends_with(".so") {
-            let debug_debug_name = format!("{debug_name}.dbg");
-            paths.push(CandidatePathInfo::SingleFile(FileLocationType(
-                self.symbol_directory.join(debug_debug_name),
-            )));
-        }
-
-        // And dSYM packages.
-        if !debug_name.ends_with(".pdb") {
-            paths.push(CandidatePathInfo::SingleFile(FileLocationType(
-                self.symbol_directory
-                    .join(format!("{debug_name}.dSYM"))
-                    .join("Contents")
-                    .join("Resources")
-                    .join("DWARF")
-                    .join(debug_name),
-            )));
-        }
-
-        // Finally, the file itself.
-        paths.push(CandidatePathInfo::SingleFile(FileLocationType(
-            self.symbol_directory.join(debug_name),
-        )));
-
-        Ok(paths)
-    }
-
-    fn load_file(
-        &self,
-        location: Self::FL,
-    ) -> std::pin::Pin<Box<dyn OptionallySendFuture<Output = FileAndPathHelperResult<Self::F>> + '_>>
-    {
-        Box::pin(async {
-            let path = location.0;
-            eprintln!("Opening file {:?}", &path);
-            let file = File::open(&path)?;
-            let mmap = unsafe { memmap2::MmapOptions::new().map(&file)? };
-            Ok(mmap_to_file_contents(mmap))
-        })
-    }
-
-    fn get_candidate_paths_for_binary(
-        &self,
-        library_info: &LibraryInfo,
-    ) -> FileAndPathHelperResult<Vec<CandidatePathInfo<Self::FL>>> {
-        let name = match library_info.name.as_deref() {
-            Some(name) => name,
-            None => return Ok(Vec::new()),
-        };
-
-        let mut paths = vec![];
-
-        // Start with the file itself.
-        paths.push(CandidatePathInfo::SingleFile(FileLocationType(
-            self.symbol_directory.join(name),
-        )));
-
-        // For macOS system libraries, also consult the dyld shared cache.
-        if self.symbol_directory.starts_with("/usr/")
-            || self.symbol_directory.starts_with("/System/")
-        {
-            if let Some(dylib_path) = self.symbol_directory.join(name).to_str() {
-                paths.extend(
-                    self.get_dyld_shared_cache_paths(None)
-                        .unwrap()
-                        .into_iter()
-                        .map(|dyld_cache_path| CandidatePathInfo::InDyldCache {
-                            dyld_cache_path,
-                            dylib_path: dylib_path.to_string(),
-                        }),
-                );
-            }
-        }
-
-        Ok(paths)
-    }
-
+impl Helper {
     fn get_dyld_shared_cache_paths(
         &self,
         _arch: Option<&str>,
-    ) -> FileAndPathHelperResult<Vec<FileLocationType>> {
+    ) -> FileLoadResult<Vec<FileLocationType>> {
         Ok(vec![
             FileLocationType::new("/System/Library/dyld/dyld_shared_cache_arm64e"),
             FileLocationType::new("/System/Library/dyld/dyld_shared_cache_x86_64h"),
             FileLocationType::new("/System/Library/dyld/dyld_shared_cache_x86_64"),
         ])
+    }
+
+    fn get_candidate_paths_for_gnu_debug_link_dest(
+        &self,
+        _original_file_location: &FileLocationType,
+        _debug_link_name: &str,
+    ) -> FileLoadResult<Vec<FileLocationType>> {
+        Ok(Vec::new())
+    }
+
+    fn get_candidate_paths_for_supplementary_debug_file(
+        &self,
+        _original_file_path: &FileLocationType,
+        _supplementary_file_path: &str,
+        _supplementary_file_build_id: &samply_symbols::ElfBuildId,
+    ) -> FileLoadResult<Vec<FileLocationType>> {
+        Ok(Vec::new())
     }
 }
 
@@ -422,14 +430,12 @@ fn fat_arch_2() {
 
 #[test]
 fn linux_nonzero_base_address() {
-    let helper = Helper {
-        symbol_directory: fixtures_dir().join("linux64-ci"),
-    };
-    let symbol_manager = SymbolManager::with_helper(helper);
-    let symbol_map = futures::executor::block_on(symbol_manager.load_symbol_map_from_location(
+    let helper = Helper;
+    let symbol_map = block_on_load_symbol_map_from_location(
+        &helper,
         FileLocationType(fixtures_dir().join("linux64-ci").join("firefox")),
         None,
-    ))
+    )
     .unwrap();
     assert_eq!(
         symbol_map.debug_id(),
@@ -492,14 +498,10 @@ fn nonpie_elf_fde_symbols_do_not_shadow_real_symbols() {
     let fixture_path = fixtures_dir()
         .join("other")
         .join("issue-776-nonpie-aarch64");
-    let helper = Helper {
-        symbol_directory: fixture_path.parent().unwrap().to_path_buf(),
-    };
-    let symbol_manager = SymbolManager::with_helper(helper);
-    let symbol_map = futures::executor::block_on(
-        symbol_manager.load_symbol_map_from_location(FileLocationType(fixture_path), None),
-    )
-    .unwrap();
+    let helper = Helper;
+    let symbol_map =
+        block_on_load_symbol_map_from_location(&helper, FileLocationType(fixture_path), None)
+            .unwrap();
 
     let result = symbol_map
         .lookup_sync(LookupAddress::Relative(0x4580))
@@ -513,14 +515,12 @@ fn nonpie_elf_fde_symbols_do_not_shadow_real_symbols() {
 
 #[test]
 fn example_linux() {
-    let helper = Helper {
-        symbol_directory: fixtures_dir().join("other"),
-    };
-    let symbol_manager = SymbolManager::with_helper(helper);
-    let symbol_map = futures::executor::block_on(symbol_manager.load_symbol_map_from_location(
+    let helper = Helper;
+    let symbol_map = block_on_load_symbol_map_from_location(
+        &helper,
         FileLocationType(fixtures_dir().join("other").join("example-linux")),
         None,
-    ))
+    )
     .unwrap();
     assert_eq!(
         symbol_map.debug_id(),
@@ -545,14 +545,12 @@ fn example_linux() {
 fn example_linux_plt_stubs() {
     // Regression test for #778: ELF PLT stubs should resolve to meaningful names
     // instead of synthesized fun_XXXX placeholders.
-    let helper = Helper {
-        symbol_directory: fixtures_dir().join("other"),
-    };
-    let symbol_manager = SymbolManager::with_helper(helper);
-    let symbol_map = futures::executor::block_on(symbol_manager.load_symbol_map_from_location(
+    let helper = Helper;
+    let symbol_map = block_on_load_symbol_map_from_location(
+        &helper,
         FileLocationType(fixtures_dir().join("other").join("example-linux")),
         None,
-    ))
+    )
     .unwrap();
 
     let result = symbol_map
@@ -574,14 +572,12 @@ fn example_linux_plt_stubs() {
 
 #[test]
 fn example_linux_fallback() {
-    let helper = Helper {
-        symbol_directory: fixtures_dir().join("other"),
-    };
-    let symbol_manager = SymbolManager::with_helper(helper);
-    let symbol_map = futures::executor::block_on(symbol_manager.load_symbol_map_from_location(
+    let helper = Helper;
+    let symbol_map = block_on_load_symbol_map_from_location(
+        &helper,
         FileLocationType(fixtures_dir().join("other").join("example-linux-fallback")),
         None,
-    ))
+    )
     .unwrap();
     assert_eq!(
         symbol_map.debug_id(),

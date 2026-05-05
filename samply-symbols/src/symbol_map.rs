@@ -4,9 +4,8 @@ use std::sync::Arc;
 use debugid::DebugId;
 
 use crate::{
-    AddressInfo, ExternalFileAddressRef, ExternalFileRef, FileAndPathHelper, FileLocation,
-    FrameDebugInfo, FramesLookupResult, FunctionNameHandle, LookupAddress, SourceFilePath,
-    SourceFilePathHandle, SymbolNameHandle, SyncAddressInfo,
+    ExternalFileAddressRef, FileTypes, FramesLookupResult, FunctionNameHandle, LookupAddress,
+    SourceFilePath, SourceFilePathHandle, SymbolNameHandle, SyncAddressInfo,
 };
 
 pub trait SymbolMapTrait {
@@ -70,13 +69,12 @@ enum InnerSymbolMap<FC> {
     Direct(Arc<dyn SymbolMapTrait + Send + Sync>),
 }
 
-pub struct SymbolMap<H: FileAndPathHelper> {
+pub struct SymbolMap<H: FileTypes> {
     debug_file_location: H::FL,
     inner: InnerSymbolMap<H::F>,
-    helper: Option<Arc<H>>,
 }
 
-impl<H: FileAndPathHelper> SymbolMap<H> {
+impl<H: FileTypes> SymbolMap<H> {
     pub(crate) fn new_plain(
         debug_file_location: H::FL,
         inner: Box<dyn GetInnerSymbolMap + Send + Sync>,
@@ -84,19 +82,16 @@ impl<H: FileAndPathHelper> SymbolMap<H> {
         Self {
             debug_file_location,
             inner: InnerSymbolMap::WithoutAddFile(inner),
-            helper: None,
         }
     }
 
     pub(crate) fn new_with_external_file_support(
         debug_file_location: H::FL,
         inner: Box<dyn GetInnerSymbolMapWithLookupFramesExt<H::F> + Send + Sync>,
-        helper: Arc<H>,
     ) -> Self {
         Self {
             debug_file_location,
             inner: InnerSymbolMap::WithAddFile(inner),
-            helper: Some(helper),
         }
     }
 
@@ -107,7 +102,6 @@ impl<H: FileAndPathHelper> SymbolMap<H> {
         Self {
             debug_file_location,
             inner: InnerSymbolMap::Direct(inner),
-            helper: None,
         }
     }
 
@@ -119,102 +113,37 @@ impl<H: FileAndPathHelper> SymbolMap<H> {
         }
     }
 
-    pub fn debug_file_location(&self) -> &H::FL {
-        &self.debug_file_location
-    }
-
-    pub async fn lookup(&self, address: LookupAddress) -> Option<AddressInfo> {
-        let address_info = self.inner().lookup_sync(address)?;
-        let symbol = address_info.symbol;
-        let (mut external, inner) = match (address_info.frames, &self.inner) {
-            (Some(FramesLookupResult::Available(frames)), _) => {
-                return Some(AddressInfo {
-                    symbol,
-                    frames: Some(frames),
-                });
-            }
-            (None, _) | (_, InnerSymbolMap::WithoutAddFile(_)) | (_, InnerSymbolMap::Direct(_)) => {
-                return Some(AddressInfo {
-                    symbol,
-                    frames: None,
-                });
-            }
-            (Some(FramesLookupResult::External(external)), InnerSymbolMap::WithAddFile(inner)) => {
-                (external, inner.get_inner_symbol_map())
-            }
-        };
-        let helper = self.helper.as_deref()?;
-        loop {
-            let maybe_file_location = match &external.file_ref {
-                ExternalFileRef::MachoExternalObject { file_path } => self
-                    .debug_file_location
-                    .location_for_external_object_file(file_path),
-                ExternalFileRef::ElfExternalDwo { comp_dir, path } => {
-                    self.debug_file_location.location_for_dwo(comp_dir, path)
-                }
-            };
-            let file_contents = match maybe_file_location {
-                Some(location) => helper.load_file(location).await.ok(),
-                None => None,
-            };
-            let lookup_result =
-                inner.try_lookup_external_with_file_contents(&external, file_contents);
-            external = match lookup_result {
-                Some(FramesLookupResult::Available(frames)) => {
-                    return Some(AddressInfo {
-                        symbol,
-                        frames: Some(frames),
-                    });
-                }
-                None => {
-                    return Some(AddressInfo {
-                        symbol,
-                        frames: None,
-                    });
-                }
-                Some(FramesLookupResult::External(external)) => external,
-            };
+    /// Returns a reference to the inner symbol map trait that supports external
+    /// file lookups, if this symbol map was constructed with that capability.
+    /// Used by the sans-IO lookup state machine.
+    pub fn external_lookup_inner(
+        &self,
+    ) -> Option<&(dyn SymbolMapTraitWithExternalFileSupport<H::F> + Send + Sync)> {
+        match &self.inner {
+            InnerSymbolMap::WithAddFile(inner) => Some(inner.get_inner_symbol_map()),
+            InnerSymbolMap::WithoutAddFile(_) | InnerSymbolMap::Direct(_) => None,
         }
     }
 
-    /// Resolve a debug info lookup for which `SymbolMap::lookup_*` returned a
-    /// `FramesLookupResult::External`.
+    /// Apply newly-fetched file contents to a `FramesLookupResult::External`
+    /// reference. The result is `None` if this `SymbolMap` doesn't support
+    /// external lookups (or the lookup yielded no info), otherwise the next
+    /// `FramesLookupResult` (which may itself be `External` if the chain
+    /// continues).
     ///
-    /// This method is asynchronous because it may load a new external file.
-    ///
-    /// This keeps the most recent external file cached, so that repeated lookups
-    /// for the same external file are fast.
-    pub async fn lookup_external(
+    /// Pass `file_contents = None` if the file fetch failed; the symbol map
+    /// will fall back to whatever it has cached.
+    pub fn try_lookup_external_with_file_contents(
         &self,
         external: &ExternalFileAddressRef,
-    ) -> Option<Vec<FrameDebugInfo>> {
-        let helper = self.helper.as_deref()?;
-        let inner = match &self.inner {
-            InnerSymbolMap::WithoutAddFile(_) | InnerSymbolMap::Direct(_) => return None,
-            InnerSymbolMap::WithAddFile(inner) => inner.get_inner_symbol_map(),
-        };
+        file_contents: Option<H::F>,
+    ) -> Option<FramesLookupResult> {
+        self.external_lookup_inner()?
+            .try_lookup_external_with_file_contents(external, file_contents)
+    }
 
-        let mut lookup_result: Option<FramesLookupResult> = inner.try_lookup_external(external);
-        loop {
-            let external = match lookup_result {
-                Some(FramesLookupResult::Available(frames)) => return Some(frames),
-                None => return None,
-                Some(FramesLookupResult::External(external)) => external,
-            };
-            let maybe_file_location = match &external.file_ref {
-                ExternalFileRef::MachoExternalObject { file_path } => self
-                    .debug_file_location
-                    .location_for_external_object_file(file_path),
-                ExternalFileRef::ElfExternalDwo { comp_dir, path } => {
-                    self.debug_file_location.location_for_dwo(comp_dir, path)
-                }
-            };
-            let file_contents = match maybe_file_location {
-                Some(location) => helper.load_file(location).await.ok(),
-                None => None,
-            };
-            lookup_result = inner.try_lookup_external_with_file_contents(&external, file_contents);
-        }
+    pub fn debug_file_location(&self) -> &H::FL {
+        &self.debug_file_location
     }
 
     pub fn debug_id(&self) -> debugid::DebugId {
@@ -250,7 +179,7 @@ impl<H: FileAndPathHelper> SymbolMap<H> {
     }
 }
 
-impl<H: FileAndPathHelper> SymbolMapTrait for SymbolMap<H> {
+impl<H: FileTypes> SymbolMapTrait for SymbolMap<H> {
     fn debug_id(&self) -> debugid::DebugId {
         self.debug_id()
     }

@@ -1,4 +1,4 @@
-use crate::{FileAndPathHelper, SymbolMap};
+use crate::{FileTypes, SymbolMap};
 
 /// A "compact" representation of a symbol table.
 /// This is a legacy concept used by the Firefox profiler and kept for
@@ -22,7 +22,7 @@ pub struct CompactSymbolTable {
 }
 
 impl CompactSymbolTable {
-    pub fn from_symbol_map<H: FileAndPathHelper>(map: &SymbolMap<H>) -> Self {
+    pub fn from_symbol_map<H: FileTypes>(map: &SymbolMap<H>) -> Self {
         let total_str_len = map.iter_symbols().map(|(_, s)| s.len()).sum();
         let mut addr = Vec::with_capacity(map.symbol_count());
         let mut index = Vec::with_capacity(map.symbol_count() + 1);

@@ -1,10 +1,9 @@
 use std::io::Cursor;
-use std::sync::Arc;
 
 use debugid::DebugId;
 use elsa::sync::FrozenVec;
 use gimli::{CieOrFde, Dwarf, EhFrame, EndianSlice, RunTimeEndian, UnwindSection};
-use object::{File, FileKind, Object, ObjectSection, ReadRef};
+use object::{File, FileKind, Object, ObjectSection};
 use samply_debugid::ElfBuildId;
 use samply_object::{debug_id_for_object, relative_address_base};
 use yoke::Yoke;
@@ -12,144 +11,139 @@ use yoke_derive::Yokeable;
 
 use crate::dwarf::Addr2lineContextData;
 use crate::error::Error;
-use crate::shared::{FileAndPathHelper, FileContents, FileContentsWrapper, FileLocation};
+use crate::shared::{FileContents, FileContentsWrapper, FileTypes};
 use crate::symbol_map::SymbolMap;
 use crate::symbol_map_object::{
     DwoDwarfMaker, ObjectSymbolMap, ObjectSymbolMapInnerWrapper, ObjectSymbolMapOuter,
 };
 
-pub async fn load_symbol_map_for_elf<H: FileAndPathHelper>(
-    file_location: H::FL,
-    file_contents: FileContentsWrapper<H::F>,
+/// Information extracted from the primary ELF file's headers, sufficient to
+/// drive the rest of the load without keeping the parsed object alive.
+#[derive(Debug, Clone)]
+pub(crate) struct ElfPrimaryInfo {
+    pub debug_id: Option<DebugId>,
+    pub debuglink: Option<ElfDebugLinkInfo>,
+    pub debugaltlink: Option<ElfDebugAltLinkInfo>,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct ElfDebugLinkInfo {
+    pub name: String,
+    pub crc: u32,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct ElfDebugAltLinkInfo {
+    pub path: String,
+    pub build_id: ElfBuildId,
+}
+
+/// Sniff a primary ELF file once and capture the bits the loader needs later
+/// (debug ID, debuglink, debugaltlink).
+pub(crate) fn analyze_elf_primary<F: FileContents>(
+    file_contents: &FileContentsWrapper<F>,
     file_kind: FileKind,
-    helper: Arc<H>,
-) -> Result<SymbolMap<H>, Error> {
-    let elf_file =
-        File::parse(&file_contents).map_err(|e| Error::ObjectParseError(file_kind, e))?;
+) -> Result<ElfPrimaryInfo, Error> {
+    let elf_file = File::parse(file_contents).map_err(|e| Error::ObjectParseError(file_kind, e))?;
+    let debug_id = debug_id_for_object(&elf_file);
+    let debuglink = elf_file
+        .gnu_debuglink()
+        .ok()
+        .flatten()
+        .and_then(|(name, crc)| {
+            std::str::from_utf8(name).ok().map(|n| ElfDebugLinkInfo {
+                name: n.to_owned(),
+                crc,
+            })
+        });
+    let debugaltlink = elf_file
+        .gnu_debugaltlink()
+        .ok()
+        .flatten()
+        .and_then(|(path, build_id)| {
+            std::str::from_utf8(path).ok().map(|p| ElfDebugAltLinkInfo {
+                path: p.to_owned(),
+                build_id: ElfBuildId(build_id.to_owned()),
+            })
+        });
+    Ok(ElfPrimaryInfo {
+        debug_id,
+        debuglink,
+        debugaltlink,
+    })
+}
 
-    if let Some(symbol_map) =
-        try_to_get_symbol_map_from_debug_link(&file_location, &elf_file, file_kind, &*helper).await
-    {
-        return Ok(symbol_map);
-    }
+/// Compute the GNU debuglink CRC of an entire `FileContentsWrapper`.
+pub(crate) fn debuglink_crc<F: FileContents>(data: &FileContentsWrapper<F>) -> Result<u32, Error> {
+    compute_debug_link_crc_of_file_contents(data)
+}
 
-    let dwp_file_contents = if let Some(dwp_file_location) = file_location.location_for_dwp() {
-        helper
-            .load_file(dwp_file_location)
-            .await
-            .ok()
-            .map(FileContentsWrapper::new)
-    } else {
-        None
+/// If the candidate file at `bytes` has the right `build_id`, return it; else None.
+pub(crate) fn supplementary_build_id_matches<F: FileContents>(
+    bytes: &FileContentsWrapper<F>,
+    expected_build_id: &ElfBuildId,
+) -> bool {
+    let elf_file = match File::parse(bytes) {
+        Ok(f) => f,
+        Err(_) => return false,
     };
+    elf_file.build_id().ok().flatten() == Some(&expected_build_id.0)
+}
 
-    if let Some(supplementary_file) =
-        try_to_load_supplementary_file(&file_location, &elf_file, &*helper).await
-    {
-        let owner = ElfSymbolMapDataAndObjects::new(
-            file_contents,
-            Some(supplementary_file),
-            dwp_file_contents,
-            file_kind,
-            None,
-        )?;
-        let symbol_map = ObjectSymbolMap::new(owner)?;
-        return Ok(SymbolMap::new_plain(file_location, Box::new(symbol_map)));
-    }
-
-    // If this file has a .gnu_debugdata section, use the uncompressed object from that section instead.
+/// Build a symbol map for the case where we have only the primary ELF (and
+/// optionally a DWP). Tries `.gnu_debugdata` mini-debug-info first; otherwise
+/// builds a full symbol map with external-file support so dwarf lookups can
+/// reach `.dwo` files.
+pub(crate) fn build_elf_symbol_map_no_supplementary<H: FileTypes>(
+    file_location: H::FL,
+    primary: FileContentsWrapper<H::F>,
+    dwp: Option<FileContentsWrapper<H::F>>,
+    file_kind: FileKind,
+) -> Result<SymbolMap<H>, Error> {
     if let Some(symbol_map) =
-        try_get_symbol_map_from_mini_debug_info(&elf_file, file_kind, &file_location)
+        try_get_symbol_map_from_mini_debug_info::<H>(&primary, file_kind, &file_location)
     {
         return Ok(symbol_map);
     }
-
-    let owner =
-        ElfSymbolMapDataAndObjects::new(file_contents, None, dwp_file_contents, file_kind, None)?;
+    let owner = ElfSymbolMapDataAndObjects::new(primary, None, dwp, file_kind, None)?;
     let symbol_map = ObjectSymbolMap::new(owner)?;
     Ok(SymbolMap::new_with_external_file_support(
         file_location,
         Box::new(symbol_map),
-        helper,
     ))
 }
 
-async fn try_to_get_symbol_map_from_debug_link<'data, H, R>(
-    original_file_location: &H::FL,
-    elf_file: &File<'data, R>,
+/// Build a symbol map from primary + supplementary (debugaltlink) + optional DWP.
+pub(crate) fn build_elf_symbol_map_with_supplementary<H: FileTypes>(
+    file_location: H::FL,
+    primary: FileContentsWrapper<H::F>,
+    supplementary: FileContentsWrapper<H::F>,
+    dwp: Option<FileContentsWrapper<H::F>>,
     file_kind: FileKind,
-    helper: &H,
-) -> Option<SymbolMap<H>>
-where
-    R: ReadRef<'data>,
-    H: FileAndPathHelper,
-{
-    let (name, crc) = elf_file.gnu_debuglink().ok().flatten()?;
-    let debug_id = debug_id_for_object(elf_file)?;
-    let name = std::str::from_utf8(name).ok()?;
-    let candidate_paths = helper
-        .get_candidate_paths_for_gnu_debug_link_dest(original_file_location, name)
-        .ok()?;
-
-    for candidate_path in candidate_paths {
-        let symbol_map = get_symbol_map_for_debug_link_candidate(
-            original_file_location,
-            &candidate_path,
-            debug_id,
-            crc,
-            file_kind,
-            helper,
-        )
-        .await;
-        if let Ok(symbol_map) = symbol_map {
-            return Some(symbol_map);
-        }
-    }
-
-    None
+) -> Result<SymbolMap<H>, Error> {
+    let owner =
+        ElfSymbolMapDataAndObjects::new(primary, Some(supplementary), dwp, file_kind, None)?;
+    let symbol_map = ObjectSymbolMap::new(owner)?;
+    Ok(SymbolMap::new_with_external_file_support(
+        file_location,
+        Box::new(symbol_map),
+    ))
 }
 
-async fn get_symbol_map_for_debug_link_candidate<H>(
-    original_file_location: &H::FL,
-    path: &H::FL,
-    debug_id: DebugId,
-    expected_crc: u32,
+/// Build a symbol map for a debuglink-matched candidate. The candidate's bytes
+/// are the primary content, but we override the debug id with that of the
+/// original binary the debuglink points away from.
+pub(crate) fn build_elf_symbol_map_for_debuglink_match<H: FileTypes>(
+    original_file_location: H::FL,
+    candidate: FileContentsWrapper<H::F>,
+    dwp: Option<FileContentsWrapper<H::F>>,
     file_kind: FileKind,
-    helper: &H,
-) -> Result<SymbolMap<H>, Error>
-where
-    H: FileAndPathHelper,
-{
-    let file_contents = helper
-        .load_file(path.clone())
-        .await
-        .map_err(|e| Error::HelperErrorDuringOpenFile(path.to_string(), e))?;
-    let file_contents = FileContentsWrapper::new(file_contents);
-    let actual_crc = compute_debug_link_crc_of_file_contents(&file_contents)?;
-
-    if actual_crc != expected_crc {
-        return Err(Error::DebugLinkCrcMismatch(actual_crc, expected_crc));
-    }
-
-    let dwp_file_contents = if let Some(dwp_file_location) = path.location_for_dwp() {
-        helper
-            .load_file(dwp_file_location)
-            .await
-            .ok()
-            .map(FileContentsWrapper::new)
-    } else {
-        None
-    };
-    let owner = ElfSymbolMapDataAndObjects::new(
-        file_contents,
-        None,
-        dwp_file_contents,
-        file_kind,
-        Some(debug_id),
-    )?;
+    debug_id: DebugId,
+) -> Result<SymbolMap<H>, Error> {
+    let owner = ElfSymbolMapDataAndObjects::new(candidate, None, dwp, file_kind, Some(debug_id))?;
     let symbol_map = ObjectSymbolMap::new(owner)?;
     Ok(SymbolMap::new_plain(
-        original_file_location.clone(),
+        original_file_location,
         Box::new(symbol_map),
     ))
 }
@@ -200,49 +194,12 @@ fn compute_debug_link_crc_of_file_contents<T: FileContents>(
     Ok(hasher.finalize())
 }
 
-async fn try_to_load_supplementary_file<'data, H, F, R>(
-    original_file_location: &H::FL,
-    elf_file: &File<'data, R>,
-    helper: &H,
-) -> Option<FileContentsWrapper<F>>
-where
-    H: FileAndPathHelper<F = F>,
-    R: ReadRef<'data>,
-    F: FileContents + 'static,
-{
-    let (path, supplementary_build_id) = {
-        let (path, build_id) = elf_file.gnu_debugaltlink().ok().flatten()?;
-        let supplementary_build_id = ElfBuildId(build_id.to_owned());
-        let path = std::str::from_utf8(path).ok()?.to_string();
-        (path, supplementary_build_id)
-    };
-    let candidate_paths = helper
-        .get_candidate_paths_for_supplementary_debug_file(
-            original_file_location,
-            &path,
-            &supplementary_build_id,
-        )
-        .ok()?;
-
-    for candidate_path in candidate_paths {
-        if let Ok(file_contents) = helper.load_file(candidate_path).await {
-            let file_contents = FileContentsWrapper::new(file_contents);
-            if let Ok(elf_file) = File::parse(&file_contents) {
-                if elf_file.build_id().ok().flatten() == Some(&supplementary_build_id.0) {
-                    return Some(file_contents);
-                }
-            }
-        }
-    }
-
-    None
-}
-
-fn try_get_symbol_map_from_mini_debug_info<'data, R: ReadRef<'data>, H: FileAndPathHelper>(
-    elf_file: &File<'data, R>,
+fn try_get_symbol_map_from_mini_debug_info<H: FileTypes>(
+    primary: &FileContentsWrapper<H::F>,
     file_kind: FileKind,
     debug_file_location: &H::FL,
 ) -> Option<SymbolMap<H>> {
+    let elf_file = File::parse(primary).ok()?;
     let debugdata = elf_file.section_by_name(".gnu_debugdata")?;
     let data = debugdata.data().ok()?;
     let mut cursor = Cursor::new(data);

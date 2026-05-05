@@ -4,6 +4,49 @@
 
 ## Unreleased - ReleaseDate
 
+### Breaking changes for library consumers
+
+The `samply-symbols` and `samply-api` crates are now sans-IO. They no longer
+contain any `async fn`, `.await`, `Future` returns, or async wrappers. Instead,
+they expose state machines whose `poll → provide` interface a driver
+satisfies. `wholesym` continues to provide an async API on top of these state
+machines and is the recommended entry point for most callers.
+
+Concretely:
+
+  - `FileAndPathHelper` is now a pure type bundle: it has only the two
+    associated types `F: FileContents` and `FL: FileLocation` and no methods.
+    All file-loading and candidate-path methods (`load_file`,
+    `get_candidate_paths_for_debug_file`,
+    `get_candidate_paths_for_binary`, `get_dyld_shared_cache_paths`,
+    `get_candidate_paths_for_gnu_debug_link_dest`,
+    `get_candidate_paths_for_supplementary_debug_file`,
+    `get_symbol_map_for_library`) are removed and live entirely in the driver
+    layer (e.g. `wholesym::FileResolver`).
+  - `OptionallySendFuture` and the `send_futures` cargo feature are removed.
+  - `samply_symbols::SymbolManager` is removed entirely. Construct the
+    sans-IO state machines directly (`LoadSymbolMap::new`, `LoadBinary::new`,
+    `LoadSourceFile::new`, `LoadExternalFile::new`). The candidate-iterating
+    state machines (`LoadSymbolMapForLibraryInfo`, `LoadBinaryForLibraryInfo`,
+    `Load{SymbolMap,Binary}ForDyldCacheImage`) are removed too; equivalent
+    logic now lives in `wholesym` as plain async helpers.
+  - `LoadSymbolMap::new` no longer takes a `helper: Arc<H>`; it takes only the
+    file location and the multi-arch disambiguator.
+  - There are two step enums: `LoadStep` (used by `LoadBinary`, `LoadSourceFile`,
+    `LoadExternalFile`, `LookupQuery`, `DyldCacheLoad`) only has `NeedFile`
+    and `Done` variants. `SymbolMapLoadStep` (used by `LoadSymbolMap` and
+    `ElfLoad`) additionally has `NeedDebugLinkCandidates` and
+    `NeedSupplementaryCandidates`, which surface the previous mid-load
+    `get_candidate_paths_for_*` calls. The corresponding state machines have a
+    new `provide_candidates(Vec<FL>)` method.
+  - `SymbolMap::lookup` and `SymbolMap::lookup_external` (the async ones) are
+    removed. Use `LookupQuery::for_address` / `LookupQuery::for_external` and
+    drive the resulting state machine via your own helper.
+  - `samply-api`'s `Api::query_api` is replaced by `Api::build_query`, which
+    returns a `Box<dyn ApiQueryState<H> + Send>` for the driver to run.
+
+`wholesym`'s public API is unchanged.
+
 ## 0.13.1 - 2025-02-01
 
 ## 0.13.0 - 2025-02-01

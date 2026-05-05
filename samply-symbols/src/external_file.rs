@@ -9,26 +9,9 @@ use yoke_derive::Yokeable;
 use crate::dwarf::{get_frames, Addr2lineContextData};
 use crate::error::Error;
 use crate::shared::{
-    ExternalFileAddressInFileRef, FileAndPathHelper, FileContents, FileContentsWrapper,
-    FrameDebugInfo,
+    ExternalFileAddressInFileRef, FileContents, FileContentsWrapper, FrameDebugInfo,
 };
 use crate::SymbolMapStringInterner;
-
-pub async fn load_external_file<H>(
-    helper: &H,
-    external_file_location: H::FL,
-    external_file_path: &str,
-) -> Result<ExternalFileSymbolMap<H::F>, Error>
-where
-    H: FileAndPathHelper,
-{
-    let file = helper
-        .load_file(external_file_location)
-        .await
-        .map_err(|e| Error::HelperErrorDuringOpenFile(external_file_path.to_string(), e))?;
-    let symbol_map = ExternalFileSymbolMap::new(external_file_path, file)?;
-    Ok(symbol_map)
-}
 
 struct ExternalFileOuter<F: FileContents> {
     file_path: String,

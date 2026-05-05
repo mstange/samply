@@ -1,9 +1,9 @@
 use std::path::{Path, PathBuf};
 
 use clap::Parser;
-use dump_table::{dump_table, get_table_for_binary};
-use samply_symbols::debugid::DebugId;
-use samply_symbols::Error;
+use dump_table::{dump_symbol_map, get_symbol_map_for_binary};
+use wholesym::debugid::DebugId;
+use wholesym::Error;
 
 #[derive(Parser)]
 #[command(
@@ -24,8 +24,10 @@ struct Opt {
 
 fn main() -> anyhow::Result<()> {
     let opt = Opt::parse();
-    let result =
-        futures::executor::block_on(main_impl(&opt.binary_path, opt.breakpad_id, opt.full));
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()?;
+    let result = runtime.block_on(main_impl(&opt.binary_path, opt.breakpad_id, opt.full));
     match result {
         Ok(()) => Ok(()),
         Err(Error::NoDisambiguatorForFatArchive(members)) => {
@@ -51,8 +53,8 @@ async fn main_impl(
     let debug_id = breakpad_id
         .as_deref()
         .and_then(|debug_id| DebugId::from_breakpad(debug_id).ok());
-    let table = get_table_for_binary(binary_path, debug_id).await?;
-    dump_table(&mut std::io::stdout(), table, full).unwrap();
+    let symbol_map = get_symbol_map_for_binary(binary_path, debug_id).await?;
+    dump_symbol_map(&mut std::io::stdout(), &symbol_map, full).unwrap();
     Ok(())
 }
 

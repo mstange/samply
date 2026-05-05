@@ -1,6 +1,6 @@
 [package]
 name = "wholesym"
-version = "0.8.1"
+version = "0.9.0"
 authors = ["Markus Stange <mstange.moz@gmail.com>"]
 edition = "2021"
 rust-version = "1.75" # needed by fs4
@@ -18,9 +18,9 @@ api = ["samply-api", "serde"]
 
 [dependencies]
 debugid = "0.8.0"
-samply-api = { version = "0.24.0", path = "../samply-api", features = ["send_futures"], optional = true }
+samply-api = { version = "0.25.0", path = "../samply-api", optional = true }
 samply-debugid = { version = "0.1.0", path = "../samply-debugid" }
-samply-symbols = { version = "0.24.1", path = "../samply-symbols", features = ["send_futures"] }
+samply-symbols = { version = "0.25.0", path = "../samply-symbols" }
 serde = { version = "1", optional = true }
 # symsrv = { path = "../../symsrv" }
 symsrv = "0.5.2"

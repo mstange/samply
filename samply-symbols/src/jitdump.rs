@@ -20,7 +20,7 @@ use crate::shared::{
     LookupAddress, SymbolInfo,
 };
 use crate::symbol_map::{GetInnerSymbolMap, SymbolMap, SymbolMapTrait};
-use crate::{FileAndPathHelper, SourceFilePath, SourceFilePathHandle, SyncAddressInfo};
+use crate::{FileTypes, SourceFilePath, SourceFilePathHandle, SyncAddressInfo};
 use crate::{FunctionNameHandle, SymbolMapStringInterner, SymbolNameHandle};
 
 pub fn is_jitdump_file<T: FileContents>(file_contents: &FileContentsWrapper<T>) -> bool {
@@ -165,7 +165,7 @@ pub struct JitDumpIndexEntry {
     pub code_bytes_len: u64,
 }
 
-pub fn get_symbol_map_for_jitdump<H: FileAndPathHelper>(
+pub fn get_symbol_map_for_jitdump<H: FileTypes>(
     file_contents: FileContentsWrapper<H::F>,
     file_location: H::FL,
 ) -> Result<SymbolMap<H>, Error> {

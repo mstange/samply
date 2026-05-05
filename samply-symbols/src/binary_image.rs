@@ -9,9 +9,7 @@ use samply_object::{code_id_for_object, debug_id_for_object, relative_address_ba
 use crate::error::Error;
 use crate::jitdump::{debug_id_and_code_id_for_jitdump, JitDumpIndex};
 use crate::macho::{DyldCacheFileData, MachOData, MachOFatArchiveMemberData};
-use crate::shared::{
-    FileAndPathHelperError, FileContents, FileContentsWrapper, LibraryInfo, RangeReadRef,
-};
+use crate::shared::{FileContents, FileContentsWrapper, FileLoadError, LibraryInfo, RangeReadRef};
 
 #[derive(thiserror::Error, Debug)]
 pub enum CodeByteReadingError {
@@ -25,7 +23,7 @@ pub enum CodeByteReadingError {
     ByteRangeNotInSection,
 
     #[error("Could not read the requested address range from the file: {0}")]
-    FileIO(#[from] FileAndPathHelperError),
+    FileIO(#[from] FileLoadError),
 }
 
 pub struct BinaryImage<F: FileContents + 'static> {
