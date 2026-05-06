@@ -188,6 +188,20 @@ impl Default for Downloader {
     }
 }
 
+/// Install rustls's `ring` crypto provider as the process-wide default.
+///
+/// We use reqwest's `rustls-no-provider` feature, so a provider must be
+/// installed before building any `reqwest::Client`. `install_default` only
+/// succeeds for the first caller, but if some other code in the process
+/// already installed a provider that's fine — we just want one to exist.
+fn ensure_crypto_provider_installed() {
+    use std::sync::Once;
+    static INSTALL: Once = Once::new();
+    INSTALL.call_once(|| {
+        let _ = rustls::crypto::ring::default_provider().install_default();
+    });
+}
+
 impl Downloader {
     pub fn new() -> Self {
         Self::new_internal(5, None)
@@ -208,6 +222,8 @@ impl Downloader {
     }
 
     fn new_internal(max_retries: u32, user_agent: Option<&str>) -> Self {
+        ensure_crypto_provider_installed();
+
         let builder = reqwest::Client::builder();
 
         // Turn off HTTP 2, in order to work around https://github.com/seanmonstar/reqwest/issues/1761 .
@@ -658,6 +674,7 @@ mod tests {
                 std::time::Duration::from_millis(10),
             )
             .build_with_max_retries(2);
+        ensure_crypto_provider_installed();
         let client = reqwest::Client::builder()
             .http1_only()
             .no_gzip()
