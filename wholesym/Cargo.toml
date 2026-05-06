@@ -31,12 +31,13 @@ uuid = "1"
 reqwest-middleware = "0.5"
 reqwest-retry = "0.9"
 reqwest = { version = "0.13", default-features = false, features = [
-    "rustls",
+    "rustls-no-provider",
     "stream",
     "gzip",
     "brotli",
     "deflate"
 ] }
+rustls = { version = "0.23", default-features = false, features = ["ring"] } # So that reqwest uses rustls with ring
 bytes = "1.10"
 memmap2 = "0.9.9"
 tokio = { version = "1.38", features = ["fs", "macros"] }
