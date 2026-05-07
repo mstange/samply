@@ -40,7 +40,7 @@ reqwest = { version = "0.13", default-features = false, features = [
 rustls = { version = "0.23", default-features = false, features = ["ring"] } # So that reqwest uses rustls with ring
 bytes = "1.10"
 memmap2 = "0.9.9"
-tokio = { version = "1.38", features = ["fs", "macros"] }
+tokio = { version = "1.52", features = ["fs", "macros"] }
 futures-util = "0.3.30"
 fs4 = "0.13"
 thiserror = "2"
@@ -57,5 +57,5 @@ core-foundation = "0.10"
 flate2 = { version = "1.1.2", features = ["zlib-rs"] }
 futures = "0.3.5"
 tempfile = "3"
-tokio = { version = "1.38", features = ["macros", "rt", "rt-multi-thread"] } # Features for #[tokio::test]
+tokio = { version = "1.52", features = ["macros", "rt", "rt-multi-thread"] } # Features for #[tokio::test]
 wiremock = "0.6"
