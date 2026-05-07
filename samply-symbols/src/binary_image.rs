@@ -1,5 +1,5 @@
 use debugid::DebugId;
-use linux_perf_data::jitdump::JitDumpHeader;
+use linux_perf_data::jitdump::{JitDumpHeader, JitDumpReader};
 use linux_perf_data::linux_perf_event_reader::RawData;
 use object::read::pe::{ImageNtHeaders, ImageOptionalHeader, PeFile, PeFile32, PeFile64};
 use object::{FileKind, Object, ReadRef};
@@ -7,10 +7,12 @@ use samply_debugid::{CodeId, ElfBuildId, PeCodeId};
 use samply_object::{code_id_for_object, debug_id_for_object, relative_address_base};
 
 use crate::error::Error;
-use crate::jitdump::{debug_id_and_code_id_for_jitdump, JitDumpIndex};
-use crate::macho::{DyldCacheFileData, MachOData, MachOFatArchiveMemberData};
+use crate::jitdump::{self, debug_id_and_code_id_for_jitdump, JitDumpIndex};
+use crate::macho::{self, DyldCacheFileData, DyldCacheLoad, MachOData, MachOFatArchiveMemberData};
+use crate::sans_io::{LoadStep, NeedsFiles};
 use crate::shared::{
-    FileAndPathHelperError, FileContents, FileContentsWrapper, LibraryInfo, RangeReadRef,
+    FileContents, FileContentsCursor, FileContentsWrapper, FileLoadError, FileTypes, LibraryInfo,
+    MultiArchDisambiguator, RangeReadRef,
 };
 
 #[derive(thiserror::Error, Debug)]
@@ -25,7 +27,7 @@ pub enum CodeByteReadingError {
     ByteRangeNotInSection,
 
     #[error("Could not read the requested address range from the file: {0}")]
-    FileIO(#[from] FileAndPathHelperError),
+    FileIO(#[from] FileLoadError),
 }
 
 pub struct BinaryImage<F: FileContents + 'static> {
@@ -34,7 +36,7 @@ pub struct BinaryImage<F: FileContents + 'static> {
 }
 
 impl<F: FileContents + 'static> BinaryImage<F> {
-    pub(crate) fn new(
+    fn new(
         inner: BinaryImageInner<F>,
         name: Option<String>,
         path: Option<String>,
@@ -93,7 +95,7 @@ impl<F: FileContents + 'static> BinaryImage<F> {
     }
 }
 
-pub enum BinaryImageInner<F: FileContents + 'static> {
+enum BinaryImageInner<F: FileContents + 'static> {
     Normal(FileContentsWrapper<F>, FileKind),
     MemberOfFatArchive(MachOFatArchiveMemberData<F>, FileKind),
     MemberOfDyldSharedCache(DyldCacheFileData<F>),
@@ -161,11 +163,9 @@ impl<F: FileContents> BinaryImageInner<F> {
                 (debug_id, code_id, debug_path, debug_name, arch)
             }
             BinaryImageInner::JitDump(file, _index) => {
-                let header_bytes =
-                    file.read_bytes_at(0, JitDumpHeader::SIZE as u64)
-                        .map_err(|e| {
-                            Error::HelperErrorDuringFileReading(path.clone().unwrap_or_default(), e)
-                        })?;
+                let header_bytes = file
+                    .read_bytes_at(0, JitDumpHeader::SIZE as u64)
+                    .map_err(|e| Error::FileReading(path.clone().unwrap_or_default(), e))?;
                 let header = JitDumpHeader::parse(RawData::Single(header_bytes))
                     .map_err(Error::JitDumpParsing)?;
                 let (debug_id, code_id_bytes) = debug_id_and_code_id_for_jitdump(
@@ -360,4 +360,169 @@ fn elf_machine_arch_to_string(elf_machine_arch: u32) -> Option<&'static str> {
         _ => return None,
     };
     Some(s)
+}
+
+/// State machine for `SymbolManager::load_binary*`. Loads a single primary file
+/// (or a dyld cache + subcaches) and produces a [`BinaryImage`].
+pub struct LoadBinary<FT: FileTypes> {
+    state: LoadBinaryState<FT>,
+}
+
+enum LoadBinaryState<FT: FileTypes> {
+    AwaitingPrimary {
+        file_location: FT::FL,
+        name: Option<String>,
+        path: Option<String>,
+        disambiguator: Option<MultiArchDisambiguator>,
+        pending: FT::FL,
+    },
+    DyldCache {
+        sm: DyldCacheLoad<FT>,
+        dylib_path: String,
+    },
+    Done(Result<BinaryImage<FT::F>, Error>),
+    Poisoned,
+}
+
+impl<FT: FileTypes> LoadBinary<FT> {
+    /// Construct a state machine for loading a binary from a single file path.
+    pub fn new(
+        file_location: FT::FL,
+        name: Option<String>,
+        path: Option<String>,
+        disambiguator: Option<MultiArchDisambiguator>,
+    ) -> Self {
+        let pending = file_location.clone();
+        Self {
+            state: LoadBinaryState::AwaitingPrimary {
+                file_location,
+                name,
+                path,
+                disambiguator,
+                pending,
+            },
+        }
+    }
+
+    /// Construct a state machine for loading a binary that lives inside a dyld
+    /// shared cache.
+    pub fn for_dyld_cache(dyld_cache_path: FT::FL, dylib_path: String) -> Self {
+        let sm = DyldCacheLoad::<FT>::new(dyld_cache_path, dylib_path.clone());
+        Self {
+            state: LoadBinaryState::DyldCache { sm, dylib_path },
+        }
+    }
+
+    pub fn finish(self) -> Result<BinaryImage<FT::F>, Error> {
+        match self.state {
+            LoadBinaryState::Done(result) => result,
+            _ => panic!("LoadBinary::finish called before reaching Done"),
+        }
+    }
+}
+
+impl<FT: FileTypes> NeedsFiles<FT> for LoadBinary<FT> {
+    fn poll(&self) -> LoadStep<'_, FT::FL> {
+        match &self.state {
+            LoadBinaryState::AwaitingPrimary { pending, .. } => LoadStep::NeedFile {
+                location: pending,
+                required: true,
+            },
+            LoadBinaryState::DyldCache { sm, .. } => sm.poll(),
+            LoadBinaryState::Done(_) => LoadStep::Done,
+            LoadBinaryState::Poisoned => unreachable!("invalid LoadBinary state"),
+        }
+    }
+
+    fn provide(&mut self, result: Result<FT::F, FileLoadError>) {
+        let state = std::mem::replace(&mut self.state, LoadBinaryState::Poisoned);
+        match state {
+            LoadBinaryState::AwaitingPrimary {
+                file_location,
+                name,
+                path,
+                disambiguator,
+                pending,
+            } => {
+                let file = match result {
+                    Ok(f) => f,
+                    Err(e) => {
+                        self.state =
+                            LoadBinaryState::Done(Err(Error::OpenFile(pending.to_string(), e)));
+                        return;
+                    }
+                };
+                let _ = file_location;
+                self.state = LoadBinaryState::Done(build_binary_image::<FT>(
+                    FileContentsWrapper::new(file),
+                    name,
+                    path,
+                    disambiguator,
+                ));
+            }
+            LoadBinaryState::DyldCache { mut sm, dylib_path } => {
+                sm.provide(result);
+                match sm.poll() {
+                    LoadStep::Done => {
+                        self.state = LoadBinaryState::Done(sm.finish().and_then(|file_data| {
+                            let inner = BinaryImageInner::MemberOfDyldSharedCache(file_data);
+                            let name = match dylib_path.rfind('/') {
+                                Some(idx) => dylib_path[idx + 1..].to_owned(),
+                                None => dylib_path.clone(),
+                            };
+                            BinaryImage::new(inner, Some(name), Some(dylib_path))
+                        }));
+                    }
+                    _ => {
+                        self.state = LoadBinaryState::DyldCache { sm, dylib_path };
+                    }
+                }
+            }
+            LoadBinaryState::Done(_) | LoadBinaryState::Poisoned => {
+                panic!("LoadBinary::provide called when not awaiting a file")
+            }
+        }
+    }
+}
+
+fn build_binary_image<FT: FileTypes>(
+    file_contents: FileContentsWrapper<FT::F>,
+    name: Option<String>,
+    path: Option<String>,
+    disambiguator: Option<MultiArchDisambiguator>,
+) -> Result<BinaryImage<FT::F>, Error> {
+    let file_kind = match FileKind::parse(&file_contents) {
+        Ok(file_kind) => file_kind,
+        Err(_) if jitdump::is_jitdump_file(&file_contents) => {
+            let cursor = FileContentsCursor::new(&file_contents);
+            let reader = JitDumpReader::new(cursor)?;
+            let index = JitDumpIndex::from_reader(reader).map_err(Error::JitDumpFileReading)?;
+            let inner = BinaryImageInner::JitDump(file_contents, index);
+            return BinaryImage::new(inner, name, path);
+        }
+        Err(_) => {
+            return Err(Error::InvalidInputError("Unrecognized file"));
+        }
+    };
+    let inner = match file_kind {
+        FileKind::Elf32
+        | FileKind::Elf64
+        | FileKind::MachO32
+        | FileKind::MachO64
+        | FileKind::Pe32
+        | FileKind::Pe64 => BinaryImageInner::Normal(file_contents, file_kind),
+        FileKind::MachOFat32 | FileKind::MachOFat64 => {
+            let member = macho::get_fat_archive_member(&file_contents, file_kind, disambiguator)?;
+            let (offset, size) = member.offset_and_size;
+            let arch = member.arch;
+            let data = macho::MachOFatArchiveMemberData::new(file_contents, offset, size, arch);
+            BinaryImageInner::MemberOfFatArchive(data, file_kind)
+        }
+        _ => {
+            return Err(Error::InvalidInputError(
+                "Input was Archive, Coff or Wasm format, which are unsupported for now",
+            ))
+        }
+    };
+    BinaryImage::new(inner, name, path)
 }

@@ -1,5 +1,4 @@
 use std::marker::PhantomData;
-use std::sync::Arc;
 
 use debugid::DebugId;
 use macho_unwind_info::UnwindInfo;
@@ -14,12 +13,12 @@ use uuid::Uuid;
 use yoke::Yoke;
 use yoke_derive::Yokeable;
 
-use crate::binary_image::{BinaryImage, BinaryImageInner};
 use crate::dwarf::Addr2lineContextData;
 use crate::error::Error;
+use crate::sans_io::{LoadStep, NeedsFiles};
 use crate::shared::{
-    FileAndPathHelper, FileContents, FileContentsWrapper, FileLocation, MultiArchDisambiguator,
-    RangeReadRef,
+    FileContents, FileContentsWrapper, FileLoadError, FileLocation, FileTypes,
+    MultiArchDisambiguator, RangeReadRef,
 };
 use crate::symbol_map::SymbolMap;
 use crate::symbol_map_object::{
@@ -200,92 +199,12 @@ pub fn get_fat_archive_members(
     }
 }
 
-struct DyldCacheLoader<'a, H>
-where
-    H: FileAndPathHelper,
-{
-    helper: &'a H,
-    dyld_cache_path: &'a H::FL,
-}
-
-impl<'a, H, F> DyldCacheLoader<'a, H>
-where
-    H: FileAndPathHelper<F = F>,
-{
-    pub fn new(helper: &'a H, dyld_cache_path: &'a H::FL) -> Self {
-        Self {
-            helper,
-            dyld_cache_path,
-        }
-    }
-
-    pub async fn load_cache(&self) -> Result<F, Error> {
-        self.helper
-            .load_file(self.dyld_cache_path.clone())
-            .await
-            .map_err(|e| Error::HelperErrorDuringOpenFile(self.dyld_cache_path.to_string(), e))
-    }
-
-    pub async fn load_subcache(&self, suffix: &str) -> Result<F, Error> {
-        let subcache_location = self
-            .dyld_cache_path
-            .location_for_dyld_subcache(suffix)
-            .ok_or(Error::FileLocationRefusedSubcacheLocation)?;
-        self.helper
-            .load_file(subcache_location)
-            .await
-            .map_err(|e| Error::HelperErrorDuringOpenFile(self.dyld_cache_path.to_string(), e))
-    }
-}
-
-async fn load_file_data_for_dyld_cache<H, F>(
-    dyld_cache_path: H::FL,
-    dylib_path: String,
-    helper: &H,
-) -> Result<DyldCacheFileData<F>, Error>
-where
-    H: FileAndPathHelper<F = F>,
-    F: FileContents + 'static,
-{
-    let dcl = DyldCacheLoader::new(helper, &dyld_cache_path);
-    let root_contents = dcl.load_cache().await?;
-    let root_contents = FileContentsWrapper::new(root_contents);
-
-    let mut subcache_contents = Vec::new();
-    for subcache_index in 1.. {
-        // Find the subcache at dyld_shared_cache_arm64e.1 or dyld_shared_cache_arm64e.01
-        let suffix = format!(".{subcache_index}");
-        let suffix2 = format!(".{subcache_index:02}");
-        let subcache = match dcl.load_subcache(&suffix).await {
-            Ok(subcache) => subcache,
-            Err(_) => match dcl.load_subcache(&suffix2).await {
-                Ok(subcache) => subcache,
-                Err(_) => break,
-            },
-        };
-        subcache_contents.push(FileContentsWrapper::new(subcache));
-    }
-    if let Ok(subcache) = dcl.load_subcache(".symbols").await {
-        subcache_contents.push(FileContentsWrapper::new(subcache));
-    };
-
-    Ok(DyldCacheFileData::new(
-        root_contents,
-        subcache_contents,
-        dylib_path,
-    ))
-}
-
-pub async fn load_symbol_map_for_dyld_cache<H>(
-    dyld_cache_path: H::FL,
-    dylib_path: String,
-    helper: &H,
-) -> Result<SymbolMap<H>, Error>
-where
-    H: FileAndPathHelper,
-{
-    let owner = load_file_data_for_dyld_cache(dyld_cache_path.clone(), dylib_path, helper).await?;
-    let owner = FileDataAndObject::new(Box::new(owner))?;
+/// Synchronously assemble a `SymbolMap` from already-loaded dyld cache data.
+pub(crate) fn build_symbol_map_from_dyld_cache_file_data<FT: FileTypes>(
+    dyld_cache_path: FT::FL,
+    file_data: DyldCacheFileData<FT::F>,
+) -> Result<SymbolMap<FT>, Error> {
+    let owner = FileDataAndObject::new(Box::new(file_data))?;
     let symbol_map = ObjectSymbolMap::new(owner)?;
     Ok(SymbolMap::new_plain(dyld_cache_path, Box::new(symbol_map)))
 }
@@ -423,26 +342,23 @@ impl<T: FileContents + 'static> ObjectSymbolMapOuter<T> for FileDataAndObject<T>
     }
 }
 
-pub fn get_symbol_map_for_macho<H: FileAndPathHelper>(
-    debug_file_location: H::FL,
-    file_contents: FileContentsWrapper<H::F>,
-    helper: Arc<H>,
-) -> Result<SymbolMap<H>, Error> {
+pub fn get_symbol_map_for_macho<FT: FileTypes>(
+    debug_file_location: FT::FL,
+    file_contents: FileContentsWrapper<FT::F>,
+) -> Result<SymbolMap<FT>, Error> {
     let owner = FileDataAndObject::new(Box::new(MachSymbolMapData(file_contents)))?;
     let symbol_map = ObjectSymbolMap::new(owner)?;
     Ok(SymbolMap::new_with_external_file_support(
         debug_file_location,
         Box::new(symbol_map),
-        helper,
     ))
 }
 
-pub fn get_symbol_map_for_fat_archive_member<H: FileAndPathHelper>(
-    debug_file_location: H::FL,
-    file_contents: FileContentsWrapper<H::F>,
+pub fn get_symbol_map_for_fat_archive_member<FT: FileTypes>(
+    debug_file_location: FT::FL,
+    file_contents: FileContentsWrapper<FT::F>,
     member: FatArchiveMember,
-    helper: Arc<H>,
-) -> Result<SymbolMap<H>, Error> {
+) -> Result<SymbolMap<FT>, Error> {
     let (start_offset, range_size) = member.offset_and_size;
     let owner =
         MachOFatArchiveMemberData::new(file_contents, start_offset, range_size, member.arch);
@@ -451,7 +367,6 @@ pub fn get_symbol_map_for_fat_archive_member<H: FileAndPathHelper>(
     Ok(SymbolMap::new_with_external_file_support(
         debug_file_location,
         Box::new(symbol_map),
-        helper,
     ))
 }
 
@@ -512,26 +427,6 @@ impl<T: FileContents + 'static> MakeMachObject<T> for MachOFatArchiveMemberData<
         let macho_data = MachOData::new(self.file_data(), 0, object.is_64());
         Ok(ObjectAndMachOData::new(object, macho_data))
     }
-}
-
-pub async fn load_binary_from_dyld_cache<F, H>(
-    dyld_cache_path: H::FL,
-    dylib_path: String,
-    helper: &H,
-) -> Result<BinaryImage<F>, Error>
-where
-    F: FileContents + 'static,
-    H: FileAndPathHelper<F = F>,
-{
-    let file_data =
-        load_file_data_for_dyld_cache(dyld_cache_path, dylib_path.clone(), helper).await?;
-    let inner = BinaryImageInner::MemberOfDyldSharedCache(file_data);
-    let name = match dylib_path.rfind('/') {
-        Some(index) => dylib_path[index + 1..].to_owned(),
-        None => dylib_path.to_owned(),
-    };
-    let image = BinaryImage::new(inner, Some(name), Some(dylib_path))?;
-    Ok(image)
 }
 
 fn compute_function_addresses_macho<'data, O, R>(
@@ -678,4 +573,240 @@ fn read_uleb128(mut bytes: &[u8]) -> Option<(u64, &[u8])> {
         shift += 7;
     }
     None
+}
+
+/// State machine for loading a dyld shared cache and its numeric/`.symbols`
+/// subcaches.
+pub struct DyldCacheLoad<FT: FileTypes> {
+    state: DyldCacheLoadState<FT>,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum SuffixAttempt {
+    Plain,
+    ZeroPadded,
+}
+
+enum DyldCacheLoadState<FT: FileTypes> {
+    /// Awaiting the root cache file. Required.
+    AwaitingRoot {
+        dyld_cache_path: FT::FL,
+        dylib_path: String,
+        pending: FT::FL,
+    },
+    /// Awaiting the bytes for `.{N}` or `.{NN}` numeric subcache.
+    AwaitingNumericSubcache {
+        root: FileContentsWrapper<FT::F>,
+        dyld_cache_path: FT::FL,
+        dylib_path: String,
+        collected: Vec<FileContentsWrapper<FT::F>>,
+        index: usize,
+        attempt: SuffixAttempt,
+        pending: FT::FL,
+    },
+    /// Awaiting the optional `.symbols` subcache.
+    AwaitingSymbolsSubcache {
+        root: FileContentsWrapper<FT::F>,
+        dyld_cache_path: FT::FL,
+        dylib_path: String,
+        collected: Vec<FileContentsWrapper<FT::F>>,
+        pending: FT::FL,
+    },
+    Done(Result<DyldCacheFileData<FT::F>, Error>),
+    Poisoned,
+}
+
+impl<FT: FileTypes> DyldCacheLoad<FT> {
+    pub fn new(dyld_cache_path: FT::FL, dylib_path: String) -> Self {
+        let pending = dyld_cache_path.clone();
+        Self {
+            state: DyldCacheLoadState::AwaitingRoot {
+                dyld_cache_path,
+                dylib_path,
+                pending,
+            },
+        }
+    }
+
+    pub fn finish(self) -> Result<DyldCacheFileData<FT::F>, Error> {
+        match self.state {
+            DyldCacheLoadState::Done(result) => result,
+            _ => panic!("DyldCacheLoad::finish called before reaching Done"),
+        }
+    }
+
+    fn advance_to_next_subcache(
+        &mut self,
+        root: FileContentsWrapper<FT::F>,
+        dyld_cache_path: FT::FL,
+        dylib_path: String,
+        collected: Vec<FileContentsWrapper<FT::F>>,
+        index: usize,
+        mut attempt: SuffixAttempt,
+    ) {
+        loop {
+            let suffix = match attempt {
+                SuffixAttempt::Plain => format!(".{index}"),
+                SuffixAttempt::ZeroPadded => format!(".{index:02}"),
+            };
+            match dyld_cache_path.location_for_dyld_subcache(&suffix) {
+                Some(pending) => {
+                    self.state = DyldCacheLoadState::AwaitingNumericSubcache {
+                        root,
+                        dyld_cache_path,
+                        dylib_path,
+                        collected,
+                        index,
+                        attempt,
+                        pending,
+                    };
+                    return;
+                }
+                None => match attempt {
+                    SuffixAttempt::Plain => {
+                        attempt = SuffixAttempt::ZeroPadded;
+                    }
+                    SuffixAttempt::ZeroPadded => {
+                        self.advance_to_symbols_or_finalize(
+                            root,
+                            dyld_cache_path,
+                            dylib_path,
+                            collected,
+                        );
+                        return;
+                    }
+                },
+            }
+        }
+    }
+
+    fn advance_to_symbols_or_finalize(
+        &mut self,
+        root: FileContentsWrapper<FT::F>,
+        dyld_cache_path: FT::FL,
+        dylib_path: String,
+        collected: Vec<FileContentsWrapper<FT::F>>,
+    ) {
+        match dyld_cache_path.location_for_dyld_subcache(".symbols") {
+            Some(pending) => {
+                self.state = DyldCacheLoadState::AwaitingSymbolsSubcache {
+                    root,
+                    dyld_cache_path,
+                    dylib_path,
+                    collected,
+                    pending,
+                };
+            }
+            None => {
+                self.state = DyldCacheLoadState::Done(Ok(DyldCacheFileData::new(
+                    root, collected, dylib_path,
+                )));
+                let _ = dyld_cache_path;
+            }
+        }
+    }
+}
+
+impl<FT: FileTypes> NeedsFiles<FT> for DyldCacheLoad<FT> {
+    fn poll(&self) -> LoadStep<'_, FT::FL> {
+        match &self.state {
+            DyldCacheLoadState::AwaitingRoot { pending, .. } => LoadStep::NeedFile {
+                location: pending,
+                required: true,
+            },
+            DyldCacheLoadState::AwaitingNumericSubcache { pending, .. }
+            | DyldCacheLoadState::AwaitingSymbolsSubcache { pending, .. } => LoadStep::NeedFile {
+                location: pending,
+                required: false,
+            },
+            DyldCacheLoadState::Done(_) => LoadStep::Done,
+            DyldCacheLoadState::Poisoned => unreachable!("invalid DyldCacheLoad state"),
+        }
+    }
+
+    fn provide(&mut self, result: Result<FT::F, FileLoadError>) {
+        let state = std::mem::replace(&mut self.state, DyldCacheLoadState::Poisoned);
+        match state {
+            DyldCacheLoadState::AwaitingRoot {
+                dyld_cache_path,
+                dylib_path,
+                pending,
+            } => match result {
+                Ok(file) => {
+                    let root = FileContentsWrapper::new(file);
+                    self.advance_to_next_subcache(
+                        root,
+                        dyld_cache_path,
+                        dylib_path,
+                        Vec::new(),
+                        1,
+                        SuffixAttempt::Plain,
+                    );
+                }
+                Err(e) => {
+                    self.state =
+                        DyldCacheLoadState::Done(Err(Error::OpenFile(pending.to_string(), e)));
+                }
+            },
+            DyldCacheLoadState::AwaitingNumericSubcache {
+                root,
+                dyld_cache_path,
+                dylib_path,
+                mut collected,
+                index,
+                attempt,
+                pending: _pending,
+            } => match result {
+                Ok(file) => {
+                    collected.push(FileContentsWrapper::new(file));
+                    self.advance_to_next_subcache(
+                        root,
+                        dyld_cache_path,
+                        dylib_path,
+                        collected,
+                        index + 1,
+                        SuffixAttempt::Plain,
+                    );
+                }
+                Err(_) => match attempt {
+                    SuffixAttempt::Plain => {
+                        self.advance_to_next_subcache(
+                            root,
+                            dyld_cache_path,
+                            dylib_path,
+                            collected,
+                            index,
+                            SuffixAttempt::ZeroPadded,
+                        );
+                    }
+                    SuffixAttempt::ZeroPadded => {
+                        self.advance_to_symbols_or_finalize(
+                            root,
+                            dyld_cache_path,
+                            dylib_path,
+                            collected,
+                        );
+                    }
+                },
+            },
+            DyldCacheLoadState::AwaitingSymbolsSubcache {
+                root,
+                dyld_cache_path,
+                dylib_path,
+                mut collected,
+                pending: _pending,
+            } => {
+                if let Ok(file) = result {
+                    collected.push(FileContentsWrapper::new(file));
+                }
+                self.state = DyldCacheLoadState::Done(Ok(DyldCacheFileData::new(
+                    root, collected, dylib_path,
+                )));
+                let _ = dyld_cache_path; // intentionally dropped
+            }
+            DyldCacheLoadState::Done(_) | DyldCacheLoadState::Poisoned => {
+                panic!("DyldCacheLoad::provide called when not awaiting a file")
+            }
+        }
+    }
 }

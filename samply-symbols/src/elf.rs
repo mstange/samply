@@ -1,10 +1,10 @@
+use std::collections::VecDeque;
 use std::io::Cursor;
-use std::sync::Arc;
 
 use debugid::DebugId;
 use elsa::sync::FrozenVec;
 use gimli::{CieOrFde, Dwarf, EhFrame, EndianSlice, RunTimeEndian, UnwindSection};
-use object::{File, FileKind, Object, ObjectSection, ReadRef};
+use object::{File, FileKind, Object, ObjectSection};
 use samply_debugid::ElfBuildId;
 use samply_object::{debug_id_for_object, relative_address_base};
 use yoke::Yoke;
@@ -12,144 +12,140 @@ use yoke_derive::Yokeable;
 
 use crate::dwarf::Addr2lineContextData;
 use crate::error::Error;
-use crate::shared::{FileAndPathHelper, FileContents, FileContentsWrapper, FileLocation};
+use crate::sans_io::SymbolMapLoadStep;
+use crate::shared::{FileContents, FileContentsWrapper, FileLoadError, FileLocation, FileTypes};
 use crate::symbol_map::SymbolMap;
 use crate::symbol_map_object::{
     DwoDwarfMaker, ObjectSymbolMap, ObjectSymbolMapInnerWrapper, ObjectSymbolMapOuter,
 };
 
-pub async fn load_symbol_map_for_elf<H: FileAndPathHelper>(
-    file_location: H::FL,
-    file_contents: FileContentsWrapper<H::F>,
+/// Information extracted from the primary ELF file's headers, sufficient to
+/// drive the rest of the load without keeping the parsed object alive.
+#[derive(Debug, Clone)]
+struct ElfPrimaryInfo {
+    pub debug_id: Option<DebugId>,
+    pub debuglink: Option<ElfDebugLinkInfo>,
+    pub debugaltlink: Option<ElfDebugAltLinkInfo>,
+}
+
+#[derive(Debug, Clone)]
+struct ElfDebugLinkInfo {
+    pub name: String,
+    pub crc: u32,
+}
+
+#[derive(Debug, Clone)]
+struct ElfDebugAltLinkInfo {
+    pub path: String,
+    pub build_id: ElfBuildId,
+}
+
+/// Sniff a primary ELF file once and capture the bits the loader needs later
+/// (debug ID, debuglink, debugaltlink).
+fn analyze_elf_primary<F: FileContents>(
+    file_contents: &FileContentsWrapper<F>,
     file_kind: FileKind,
-    helper: Arc<H>,
-) -> Result<SymbolMap<H>, Error> {
-    let elf_file =
-        File::parse(&file_contents).map_err(|e| Error::ObjectParseError(file_kind, e))?;
+) -> Result<ElfPrimaryInfo, Error> {
+    let elf_file = File::parse(file_contents).map_err(|e| Error::ObjectParseError(file_kind, e))?;
+    let debug_id = debug_id_for_object(&elf_file);
+    let debuglink = elf_file
+        .gnu_debuglink()
+        .ok()
+        .flatten()
+        .and_then(|(name, crc)| {
+            std::str::from_utf8(name).ok().map(|n| ElfDebugLinkInfo {
+                name: n.to_owned(),
+                crc,
+            })
+        });
+    let debugaltlink = elf_file
+        .gnu_debugaltlink()
+        .ok()
+        .flatten()
+        .and_then(|(path, build_id)| {
+            std::str::from_utf8(path).ok().map(|p| ElfDebugAltLinkInfo {
+                path: p.to_owned(),
+                build_id: ElfBuildId(build_id.to_owned()),
+            })
+        });
+    Ok(ElfPrimaryInfo {
+        debug_id,
+        debuglink,
+        debugaltlink,
+    })
+}
 
-    if let Some(symbol_map) =
-        try_to_get_symbol_map_from_debug_link(&file_location, &elf_file, file_kind, &*helper).await
-    {
-        return Ok(symbol_map);
-    }
+/// Compute the GNU debuglink CRC of an entire `FileContentsWrapper`.
+fn debuglink_crc<F: FileContents>(data: &FileContentsWrapper<F>) -> Result<u32, Error> {
+    compute_debug_link_crc_of_file_contents(data)
+}
 
-    let dwp_file_contents = if let Some(dwp_file_location) = file_location.location_for_dwp() {
-        helper
-            .load_file(dwp_file_location)
-            .await
-            .ok()
-            .map(FileContentsWrapper::new)
-    } else {
-        None
+/// If the candidate file at `bytes` has the right `build_id`, return it; else None.
+fn supplementary_build_id_matches<F: FileContents>(
+    bytes: &FileContentsWrapper<F>,
+    expected_build_id: &ElfBuildId,
+) -> bool {
+    let elf_file = match File::parse(bytes) {
+        Ok(f) => f,
+        Err(_) => return false,
     };
+    elf_file.build_id().ok().flatten() == Some(&expected_build_id.0)
+}
 
-    if let Some(supplementary_file) =
-        try_to_load_supplementary_file(&file_location, &elf_file, &*helper).await
-    {
-        let owner = ElfSymbolMapDataAndObjects::new(
-            file_contents,
-            Some(supplementary_file),
-            dwp_file_contents,
-            file_kind,
-            None,
-        )?;
-        let symbol_map = ObjectSymbolMap::new(owner)?;
-        return Ok(SymbolMap::new_plain(file_location, Box::new(symbol_map)));
-    }
-
-    // If this file has a .gnu_debugdata section, use the uncompressed object from that section instead.
+/// Build a symbol map for the case where we have only the primary ELF (and
+/// optionally a DWP). Tries `.gnu_debugdata` mini-debug-info first; otherwise
+/// builds a full symbol map with external-file support so dwarf lookups can
+/// reach `.dwo` files.
+fn build_elf_symbol_map_no_supplementary<FT: FileTypes>(
+    file_location: FT::FL,
+    primary: FileContentsWrapper<FT::F>,
+    dwp: Option<FileContentsWrapper<FT::F>>,
+    file_kind: FileKind,
+) -> Result<SymbolMap<FT>, Error> {
     if let Some(symbol_map) =
-        try_get_symbol_map_from_mini_debug_info(&elf_file, file_kind, &file_location)
+        try_get_symbol_map_from_mini_debug_info::<FT>(&primary, file_kind, &file_location)
     {
         return Ok(symbol_map);
     }
-
-    let owner =
-        ElfSymbolMapDataAndObjects::new(file_contents, None, dwp_file_contents, file_kind, None)?;
+    let owner = ElfSymbolMapDataAndObjects::new(primary, None, dwp, file_kind, None)?;
     let symbol_map = ObjectSymbolMap::new(owner)?;
     Ok(SymbolMap::new_with_external_file_support(
         file_location,
         Box::new(symbol_map),
-        helper,
     ))
 }
 
-async fn try_to_get_symbol_map_from_debug_link<'data, H, R>(
-    original_file_location: &H::FL,
-    elf_file: &File<'data, R>,
+/// Build a symbol map from primary + supplementary (debugaltlink) + optional DWP.
+fn build_elf_symbol_map_with_supplementary<FT: FileTypes>(
+    file_location: FT::FL,
+    primary: FileContentsWrapper<FT::F>,
+    supplementary: FileContentsWrapper<FT::F>,
+    dwp: Option<FileContentsWrapper<FT::F>>,
     file_kind: FileKind,
-    helper: &H,
-) -> Option<SymbolMap<H>>
-where
-    R: ReadRef<'data>,
-    H: FileAndPathHelper,
-{
-    let (name, crc) = elf_file.gnu_debuglink().ok().flatten()?;
-    let debug_id = debug_id_for_object(elf_file)?;
-    let name = std::str::from_utf8(name).ok()?;
-    let candidate_paths = helper
-        .get_candidate_paths_for_gnu_debug_link_dest(original_file_location, name)
-        .ok()?;
-
-    for candidate_path in candidate_paths {
-        let symbol_map = get_symbol_map_for_debug_link_candidate(
-            original_file_location,
-            &candidate_path,
-            debug_id,
-            crc,
-            file_kind,
-            helper,
-        )
-        .await;
-        if let Ok(symbol_map) = symbol_map {
-            return Some(symbol_map);
-        }
-    }
-
-    None
+) -> Result<SymbolMap<FT>, Error> {
+    let owner =
+        ElfSymbolMapDataAndObjects::new(primary, Some(supplementary), dwp, file_kind, None)?;
+    let symbol_map = ObjectSymbolMap::new(owner)?;
+    Ok(SymbolMap::new_with_external_file_support(
+        file_location,
+        Box::new(symbol_map),
+    ))
 }
 
-async fn get_symbol_map_for_debug_link_candidate<H>(
-    original_file_location: &H::FL,
-    path: &H::FL,
-    debug_id: DebugId,
-    expected_crc: u32,
+/// Build a symbol map for a debuglink-matched candidate. The candidate's bytes
+/// are the primary content, but we override the debug id with that of the
+/// original binary the debuglink points away from.
+fn build_elf_symbol_map_for_debuglink_match<FT: FileTypes>(
+    original_file_location: FT::FL,
+    candidate: FileContentsWrapper<FT::F>,
+    dwp: Option<FileContentsWrapper<FT::F>>,
     file_kind: FileKind,
-    helper: &H,
-) -> Result<SymbolMap<H>, Error>
-where
-    H: FileAndPathHelper,
-{
-    let file_contents = helper
-        .load_file(path.clone())
-        .await
-        .map_err(|e| Error::HelperErrorDuringOpenFile(path.to_string(), e))?;
-    let file_contents = FileContentsWrapper::new(file_contents);
-    let actual_crc = compute_debug_link_crc_of_file_contents(&file_contents)?;
-
-    if actual_crc != expected_crc {
-        return Err(Error::DebugLinkCrcMismatch(actual_crc, expected_crc));
-    }
-
-    let dwp_file_contents = if let Some(dwp_file_location) = path.location_for_dwp() {
-        helper
-            .load_file(dwp_file_location)
-            .await
-            .ok()
-            .map(FileContentsWrapper::new)
-    } else {
-        None
-    };
-    let owner = ElfSymbolMapDataAndObjects::new(
-        file_contents,
-        None,
-        dwp_file_contents,
-        file_kind,
-        Some(debug_id),
-    )?;
+    debug_id: DebugId,
+) -> Result<SymbolMap<FT>, Error> {
+    let owner = ElfSymbolMapDataAndObjects::new(candidate, None, dwp, file_kind, Some(debug_id))?;
     let symbol_map = ObjectSymbolMap::new(owner)?;
     Ok(SymbolMap::new_plain(
-        original_file_location.clone(),
+        original_file_location,
         Box::new(symbol_map),
     ))
 }
@@ -192,7 +188,7 @@ fn compute_debug_link_crc_of_file_contents<T: FileContents>(
     while offset < len {
         let chunk_len = CHUNK_SIZE.min(len - offset);
         data.read_bytes_into(&mut buffer, offset, chunk_len as usize)
-            .map_err(|e| Error::HelperErrorDuringFileReading("DebugLinkForCrc".to_string(), e))?;
+            .map_err(|e| Error::FileReading("DebugLinkForCrc".to_string(), e))?;
         hasher.update(&buffer);
         buffer.clear();
         offset += CHUNK_SIZE;
@@ -200,49 +196,12 @@ fn compute_debug_link_crc_of_file_contents<T: FileContents>(
     Ok(hasher.finalize())
 }
 
-async fn try_to_load_supplementary_file<'data, H, F, R>(
-    original_file_location: &H::FL,
-    elf_file: &File<'data, R>,
-    helper: &H,
-) -> Option<FileContentsWrapper<F>>
-where
-    H: FileAndPathHelper<F = F>,
-    R: ReadRef<'data>,
-    F: FileContents + 'static,
-{
-    let (path, supplementary_build_id) = {
-        let (path, build_id) = elf_file.gnu_debugaltlink().ok().flatten()?;
-        let supplementary_build_id = ElfBuildId(build_id.to_owned());
-        let path = std::str::from_utf8(path).ok()?.to_string();
-        (path, supplementary_build_id)
-    };
-    let candidate_paths = helper
-        .get_candidate_paths_for_supplementary_debug_file(
-            original_file_location,
-            &path,
-            &supplementary_build_id,
-        )
-        .ok()?;
-
-    for candidate_path in candidate_paths {
-        if let Ok(file_contents) = helper.load_file(candidate_path).await {
-            let file_contents = FileContentsWrapper::new(file_contents);
-            if let Ok(elf_file) = File::parse(&file_contents) {
-                if elf_file.build_id().ok().flatten() == Some(&supplementary_build_id.0) {
-                    return Some(file_contents);
-                }
-            }
-        }
-    }
-
-    None
-}
-
-fn try_get_symbol_map_from_mini_debug_info<'data, R: ReadRef<'data>, H: FileAndPathHelper>(
-    elf_file: &File<'data, R>,
+fn try_get_symbol_map_from_mini_debug_info<FT: FileTypes>(
+    primary: &FileContentsWrapper<FT::F>,
     file_kind: FileKind,
-    debug_file_location: &H::FL,
-) -> Option<SymbolMap<H>> {
+    debug_file_location: &FT::FL,
+) -> Option<SymbolMap<FT>> {
+    let elf_file = File::parse(primary).ok()?;
     let debugdata = elf_file.section_by_name(".gnu_debugdata")?;
     let data = debugdata.data().ok()?;
     let mut cursor = Cursor::new(data);
@@ -529,4 +488,468 @@ fn compute_function_addresses_elf<'data, O: object::Object<'data>>(
         }
     }
     (Some(start_addresses), Some(end_addresses))
+}
+
+/// State machine for loading an ELF binary's symbol map.
+///
+/// Handles the full ELF companion-file graph: `.gnu_debuglink` candidates with
+/// CRC validation, optional `.dwp`, optional `.gnu_debugaltlink` (supplementary)
+/// candidates, and `.gnu_debugdata` (mini-debug-info) fallback.
+///
+/// The state machine surfaces two kinds of requests via [`SymbolMapLoadStep`]:
+///   - `SymbolMapLoadStep::NeedFile { required: false }` — fetch a candidate
+///     file. Each fetch is best-effort; an `Err` is treated as the file being
+///     absent.
+///   - `SymbolMapLoadStep::NeedDebugLinkCandidates` / `NeedSupplementaryCandidates`
+///     — enumerate candidate paths for a debug-link / supplementary debug file.
+///     The driver answers via [`ElfLoad::provide_candidates`].
+pub struct ElfLoad<FT: FileTypes> {
+    state: ElfLoadState<FT>,
+}
+
+enum ElfLoadState<FT: FileTypes> {
+    /// Surfacing `SymbolMapLoadStep::NeedDebugLinkCandidates`. Awaiting
+    /// `provide_candidates` to deliver paths.
+    NeedDebugLinkCandidates {
+        primary: FileContentsWrapper<FT::F>,
+        primary_info: ElfPrimaryInfo,
+        file_location: FT::FL,
+        file_kind: FileKind,
+        debuglink: ElfDebugLinkInfo,
+        debug_id: DebugId,
+    },
+    /// Awaiting bytes for a `.gnu_debuglink` candidate so we can CRC-check it.
+    AwaitingDebugLinkCandidate {
+        primary: FileContentsWrapper<FT::F>,
+        primary_info: ElfPrimaryInfo,
+        file_location: FT::FL,
+        file_kind: FileKind,
+        debuglink: ElfDebugLinkInfo,
+        debug_id: DebugId,
+        candidates: VecDeque<FT::FL>,
+        pending: FT::FL,
+    },
+    /// A debuglink candidate matched. Awaiting its (optional) `.dwp`.
+    AwaitingDebugLinkDwp {
+        candidate_contents: FileContentsWrapper<FT::F>,
+        file_location: FT::FL,
+        file_kind: FileKind,
+        debug_id: DebugId,
+        pending: FT::FL,
+    },
+    /// No (matching) debuglink. Awaiting the primary's optional `.dwp`.
+    AwaitingPrimaryDwp {
+        primary: FileContentsWrapper<FT::F>,
+        primary_info: ElfPrimaryInfo,
+        file_location: FT::FL,
+        file_kind: FileKind,
+        pending: FT::FL,
+    },
+    /// Surfacing `SymbolMapLoadStep::NeedSupplementaryCandidates`. Awaiting
+    /// `provide_candidates` to deliver paths.
+    NeedSupplementaryCandidates {
+        primary: FileContentsWrapper<FT::F>,
+        primary_info: ElfPrimaryInfo,
+        dwp: Option<FileContentsWrapper<FT::F>>,
+        file_location: FT::FL,
+        file_kind: FileKind,
+        debugaltlink: ElfDebugAltLinkInfo,
+    },
+    /// Trying supplementary (debugaltlink) candidates.
+    AwaitingSupplementaryCandidate {
+        primary: FileContentsWrapper<FT::F>,
+        primary_info: ElfPrimaryInfo,
+        dwp: Option<FileContentsWrapper<FT::F>>,
+        file_location: FT::FL,
+        file_kind: FileKind,
+        debugaltlink: ElfDebugAltLinkInfo,
+        candidates: VecDeque<FT::FL>,
+        pending: FT::FL,
+    },
+    Done(Result<SymbolMap<FT>, Error>),
+    Poisoned,
+}
+
+impl<FT: FileTypes> ElfLoad<FT> {
+    /// Construct a state machine for an already-loaded primary ELF binary.
+    pub fn new(
+        file_location: FT::FL,
+        file_contents: FileContentsWrapper<FT::F>,
+        file_kind: FileKind,
+    ) -> Self {
+        let primary_info = match analyze_elf_primary(&file_contents, file_kind) {
+            Ok(info) => info,
+            Err(e) => {
+                return Self {
+                    state: ElfLoadState::Done(Err(e)),
+                }
+            }
+        };
+        let mut sm = Self {
+            state: ElfLoadState::Poisoned,
+        };
+        sm.start_debuglink_or_advance(file_location, file_contents, primary_info, file_kind);
+        sm
+    }
+
+    pub fn poll(&self) -> SymbolMapLoadStep<'_, FT::FL> {
+        match &self.state {
+            ElfLoadState::NeedDebugLinkCandidates {
+                file_location,
+                debuglink,
+                ..
+            } => SymbolMapLoadStep::NeedDebugLinkCandidates {
+                original_location: file_location,
+                debug_link_name: &debuglink.name,
+            },
+            ElfLoadState::AwaitingDebugLinkCandidate { pending, .. }
+            | ElfLoadState::AwaitingDebugLinkDwp { pending, .. }
+            | ElfLoadState::AwaitingPrimaryDwp { pending, .. }
+            | ElfLoadState::AwaitingSupplementaryCandidate { pending, .. } => {
+                SymbolMapLoadStep::NeedFile {
+                    location: pending,
+                    required: false,
+                }
+            }
+            ElfLoadState::NeedSupplementaryCandidates {
+                file_location,
+                debugaltlink,
+                ..
+            } => SymbolMapLoadStep::NeedSupplementaryCandidates {
+                original_location: file_location,
+                sup_path: &debugaltlink.path,
+                sup_build_id: &debugaltlink.build_id,
+            },
+            ElfLoadState::Done(_) => SymbolMapLoadStep::Done,
+            ElfLoadState::Poisoned => unreachable!("invalid ElfLoad state"),
+        }
+    }
+
+    pub fn provide(&mut self, result: Result<FT::F, FileLoadError>) {
+        let state = std::mem::replace(&mut self.state, ElfLoadState::Poisoned);
+        match state {
+            ElfLoadState::AwaitingDebugLinkCandidate {
+                primary,
+                primary_info,
+                file_location,
+                file_kind,
+                debuglink,
+                debug_id,
+                mut candidates,
+                pending: candidate_path,
+            } => {
+                let matched_contents = match result {
+                    Ok(file) => {
+                        let candidate = FileContentsWrapper::new(file);
+                        match debuglink_crc(&candidate) {
+                            Ok(crc) if crc == debuglink.crc => Some(candidate),
+                            _ => None,
+                        }
+                    }
+                    Err(_) => None,
+                };
+                if let Some(candidate_contents) = matched_contents {
+                    self.start_debuglink_dwp_with_path(
+                        candidate_path,
+                        candidate_contents,
+                        file_location,
+                        file_kind,
+                        debug_id,
+                    );
+                } else if let Some(next) = candidates.pop_front() {
+                    self.state = ElfLoadState::AwaitingDebugLinkCandidate {
+                        primary,
+                        primary_info,
+                        file_location,
+                        file_kind,
+                        debuglink,
+                        debug_id,
+                        candidates,
+                        pending: next,
+                    };
+                } else {
+                    self.start_primary_dwp_or_advance(
+                        file_location,
+                        primary,
+                        primary_info,
+                        file_kind,
+                    );
+                }
+            }
+            ElfLoadState::AwaitingDebugLinkDwp {
+                candidate_contents,
+                file_location,
+                file_kind,
+                debug_id,
+                pending: _pending,
+            } => {
+                let dwp = result.ok().map(FileContentsWrapper::new);
+                self.state = ElfLoadState::Done(build_elf_symbol_map_for_debuglink_match::<FT>(
+                    file_location,
+                    candidate_contents,
+                    dwp,
+                    file_kind,
+                    debug_id,
+                ));
+            }
+            ElfLoadState::AwaitingPrimaryDwp {
+                primary,
+                primary_info,
+                file_location,
+                file_kind,
+                pending: _pending,
+            } => {
+                let dwp = result.ok().map(FileContentsWrapper::new);
+                self.advance_to_supplementary_or_finalize(
+                    primary,
+                    primary_info,
+                    dwp,
+                    file_location,
+                    file_kind,
+                );
+            }
+            ElfLoadState::AwaitingSupplementaryCandidate {
+                primary,
+                primary_info,
+                dwp,
+                file_location,
+                file_kind,
+                debugaltlink,
+                mut candidates,
+                pending: _pending,
+            } => {
+                let matched = match result {
+                    Ok(file) => {
+                        let bytes = FileContentsWrapper::new(file);
+                        if supplementary_build_id_matches(&bytes, &debugaltlink.build_id) {
+                            Some(bytes)
+                        } else {
+                            None
+                        }
+                    }
+                    Err(_) => None,
+                };
+                if let Some(supplementary) = matched {
+                    self.state = ElfLoadState::Done(build_elf_symbol_map_with_supplementary::<FT>(
+                        file_location,
+                        primary,
+                        supplementary,
+                        dwp,
+                        file_kind,
+                    ));
+                } else if let Some(next) = candidates.pop_front() {
+                    self.state = ElfLoadState::AwaitingSupplementaryCandidate {
+                        primary,
+                        primary_info,
+                        dwp,
+                        file_location,
+                        file_kind,
+                        debugaltlink,
+                        candidates,
+                        pending: next,
+                    };
+                } else {
+                    self.state = ElfLoadState::Done(build_elf_symbol_map_no_supplementary::<FT>(
+                        file_location,
+                        primary,
+                        dwp,
+                        file_kind,
+                    ));
+                }
+            }
+            ElfLoadState::NeedDebugLinkCandidates { .. }
+            | ElfLoadState::NeedSupplementaryCandidates { .. } => {
+                panic!("ElfLoad::provide called when awaiting candidates, not a file")
+            }
+            ElfLoadState::Done(_) | ElfLoadState::Poisoned => {
+                panic!("ElfLoad::provide called when not awaiting a file")
+            }
+        }
+    }
+
+    /// Provide the candidate paths requested by
+    /// `SymbolMapLoadStep::NeedDebugLinkCandidates` /
+    /// `SymbolMapLoadStep::NeedSupplementaryCandidates`. An empty list is
+    /// acceptable and means "no candidates"; the state machine will fall
+    /// through to its next phase.
+    pub fn provide_candidates(&mut self, candidates: Vec<FT::FL>) {
+        let state = std::mem::replace(&mut self.state, ElfLoadState::Poisoned);
+        match state {
+            ElfLoadState::NeedDebugLinkCandidates {
+                primary,
+                primary_info,
+                file_location,
+                file_kind,
+                debuglink,
+                debug_id,
+            } => {
+                let mut candidates: VecDeque<FT::FL> = candidates.into();
+                if let Some(pending) = candidates.pop_front() {
+                    self.state = ElfLoadState::AwaitingDebugLinkCandidate {
+                        primary,
+                        primary_info,
+                        file_location,
+                        file_kind,
+                        debuglink,
+                        debug_id,
+                        candidates,
+                        pending,
+                    };
+                } else {
+                    self.start_primary_dwp_or_advance(
+                        file_location,
+                        primary,
+                        primary_info,
+                        file_kind,
+                    );
+                }
+            }
+            ElfLoadState::NeedSupplementaryCandidates {
+                primary,
+                primary_info,
+                dwp,
+                file_location,
+                file_kind,
+                debugaltlink,
+            } => {
+                let mut candidates: VecDeque<FT::FL> = candidates.into();
+                if let Some(pending) = candidates.pop_front() {
+                    self.state = ElfLoadState::AwaitingSupplementaryCandidate {
+                        primary,
+                        primary_info,
+                        dwp,
+                        file_location,
+                        file_kind,
+                        debugaltlink,
+                        candidates,
+                        pending,
+                    };
+                } else {
+                    self.state = ElfLoadState::Done(build_elf_symbol_map_no_supplementary::<FT>(
+                        file_location,
+                        primary,
+                        dwp,
+                        file_kind,
+                    ));
+                }
+            }
+            _ => panic!("ElfLoad::provide_candidates called when not awaiting candidates"),
+        }
+    }
+
+    pub fn finish(self) -> Result<SymbolMap<FT>, Error> {
+        match self.state {
+            ElfLoadState::Done(result) => result,
+            _ => panic!("ElfLoad::finish called before reaching Done"),
+        }
+    }
+
+    fn start_debuglink_or_advance(
+        &mut self,
+        file_location: FT::FL,
+        primary: FileContentsWrapper<FT::F>,
+        primary_info: ElfPrimaryInfo,
+        file_kind: FileKind,
+    ) {
+        if let (Some(debuglink), Some(debug_id)) =
+            (primary_info.debuglink.clone(), primary_info.debug_id)
+        {
+            self.state = ElfLoadState::NeedDebugLinkCandidates {
+                primary,
+                primary_info,
+                file_location,
+                file_kind,
+                debuglink,
+                debug_id,
+            };
+            return;
+        }
+        self.start_primary_dwp_or_advance(file_location, primary, primary_info, file_kind);
+    }
+
+    fn start_debuglink_dwp_with_path(
+        &mut self,
+        candidate_path: FT::FL,
+        candidate_contents: FileContentsWrapper<FT::F>,
+        file_location: FT::FL,
+        file_kind: FileKind,
+        debug_id: DebugId,
+    ) {
+        match candidate_path.location_for_dwp() {
+            Some(pending) => {
+                self.state = ElfLoadState::AwaitingDebugLinkDwp {
+                    candidate_contents,
+                    file_location,
+                    file_kind,
+                    debug_id,
+                    pending,
+                };
+            }
+            None => {
+                self.state = ElfLoadState::Done(build_elf_symbol_map_for_debuglink_match::<FT>(
+                    file_location,
+                    candidate_contents,
+                    None,
+                    file_kind,
+                    debug_id,
+                ));
+            }
+        }
+    }
+
+    fn start_primary_dwp_or_advance(
+        &mut self,
+        file_location: FT::FL,
+        primary: FileContentsWrapper<FT::F>,
+        primary_info: ElfPrimaryInfo,
+        file_kind: FileKind,
+    ) {
+        match file_location.location_for_dwp() {
+            Some(pending) => {
+                self.state = ElfLoadState::AwaitingPrimaryDwp {
+                    primary,
+                    primary_info,
+                    file_location,
+                    file_kind,
+                    pending,
+                };
+            }
+            None => {
+                self.advance_to_supplementary_or_finalize(
+                    primary,
+                    primary_info,
+                    None,
+                    file_location,
+                    file_kind,
+                );
+            }
+        }
+    }
+
+    fn advance_to_supplementary_or_finalize(
+        &mut self,
+        primary: FileContentsWrapper<FT::F>,
+        primary_info: ElfPrimaryInfo,
+        dwp: Option<FileContentsWrapper<FT::F>>,
+        file_location: FT::FL,
+        file_kind: FileKind,
+    ) {
+        if let Some(debugaltlink) = primary_info.debugaltlink.clone() {
+            self.state = ElfLoadState::NeedSupplementaryCandidates {
+                primary,
+                primary_info,
+                dwp,
+                file_location,
+                file_kind,
+                debugaltlink,
+            };
+            return;
+        }
+        self.state = ElfLoadState::Done(build_elf_symbol_map_no_supplementary::<FT>(
+            file_location,
+            primary,
+            dwp,
+            file_kind,
+        ));
+    }
 }

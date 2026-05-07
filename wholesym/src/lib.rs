@@ -140,8 +140,10 @@ mod debuginfod;
 mod download;
 mod download_error;
 mod downloader;
+mod driver;
 mod file_creation;
-mod helper;
+mod file_resolver;
+mod load_helpers;
 mod moria_mac;
 #[cfg(target_os = "macos")]
 mod moria_mac_spotlight;

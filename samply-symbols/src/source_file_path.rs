@@ -1,5 +1,8 @@
 use std::borrow::Cow;
 
+use crate::error::Error;
+use crate::sans_io::{LoadStep, NeedsFiles};
+use crate::shared::{FileContents, FileLoadError, FileLocation, FileTypes};
 use crate::{generation::SymbolMapGeneration, mapped_path::UnparsedMappedPath};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -138,5 +141,162 @@ impl SymbolMapGeneration {
             "SourceFilePathHandle from wrong symbol map used"
         );
         handle.index
+    }
+}
+
+/// State machine that fetches a single source file and decodes it into a `String`.
+///
+/// Mirrors `SymbolManager::load_source_file` without performing any I/O.
+pub struct LoadSourceFile<FT: FileTypes> {
+    state: LoadSourceFileState<FT>,
+}
+
+enum LoadSourceFileState<FT: FileTypes> {
+    NeedFile { location: FT::FL },
+    Done(Result<String, Error>),
+    Poisoned,
+}
+
+impl<FT: FileTypes> LoadSourceFile<FT> {
+    pub fn new(
+        debug_file_location: &FT::FL,
+        source_file_path: &SourceFilePath<'_>,
+    ) -> Result<Self, Error> {
+        let location = debug_file_location
+            .location_for_source_file(source_file_path.raw_path())
+            .ok_or(Error::FileLocationRefusedSourceFileLocation)?;
+        Ok(Self {
+            state: LoadSourceFileState::NeedFile { location },
+        })
+    }
+
+    pub fn finish(self) -> Result<String, Error> {
+        match self.state {
+            LoadSourceFileState::Done(result) => result,
+            _ => panic!("LoadSourceFile::finish called before reaching Done"),
+        }
+    }
+}
+
+impl<FT: FileTypes> NeedsFiles<FT> for LoadSourceFile<FT> {
+    fn poll(&self) -> LoadStep<'_, FT::FL> {
+        match &self.state {
+            LoadSourceFileState::NeedFile { location } => LoadStep::NeedFile {
+                location,
+                required: true,
+            },
+            LoadSourceFileState::Done(_) => LoadStep::Done,
+            LoadSourceFileState::Poisoned => unreachable!("invalid LoadSourceFile state"),
+        }
+    }
+
+    fn provide(&mut self, result: Result<FT::F, FileLoadError>) {
+        let location = match std::mem::replace(&mut self.state, LoadSourceFileState::Poisoned) {
+            LoadSourceFileState::NeedFile { location } => location,
+            _ => panic!("LoadSourceFile::provide called when not awaiting a file"),
+        };
+        let decoded = match result {
+            Ok(file) => decode_source_file(&location, file),
+            Err(e) => Err(Error::OpenFile(location.to_string(), e)),
+        };
+        self.state = LoadSourceFileState::Done(decoded);
+    }
+}
+
+fn decode_source_file<FL: FileLocation, F: FileContents>(
+    location: &FL,
+    file: F,
+) -> Result<String, Error> {
+    let len = file.len();
+    let bytes = file
+        .read_bytes_at(0, len)
+        .map_err(|e| Error::FileReading(location.to_string(), e))?;
+    Ok(String::from_utf8_lossy(bytes).to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::borrow::Cow;
+
+    use super::*;
+    use crate::shared::FileTypes;
+
+    /// A `FileTypes` that never actually does any I/O — its only
+    /// purpose is to give `LoadSourceFile` something to be generic over so
+    /// that the sans-IO loop can be driven from a synchronous test.
+    struct TestFileTypes;
+
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    struct StringPath(String);
+
+    impl std::fmt::Display for StringPath {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.write_str(&self.0)
+        }
+    }
+
+    impl FileLocation for StringPath {
+        fn location_for_dyld_subcache(&self, _: &str) -> Option<Self> {
+            None
+        }
+        fn location_for_external_object_file(&self, p: &str) -> Option<Self> {
+            Some(StringPath(p.to_owned()))
+        }
+        fn location_for_pdb_from_binary(&self, p: &str) -> Option<Self> {
+            Some(StringPath(p.to_owned()))
+        }
+        fn location_for_source_file(&self, p: &str) -> Option<Self> {
+            Some(StringPath(p.to_owned()))
+        }
+        fn location_for_breakpad_symindex(&self) -> Option<Self> {
+            None
+        }
+        fn location_for_dwo(&self, _: &str, _: &str) -> Option<Self> {
+            None
+        }
+        fn location_for_dwp(&self) -> Option<Self> {
+            None
+        }
+    }
+
+    impl FileTypes for TestFileTypes {
+        type F = Vec<u8>;
+        type FL = StringPath;
+    }
+
+    #[test]
+    fn drives_synchronously_without_async_runtime() {
+        let debug_loc = StringPath("/some/debug/file".to_owned());
+        let src_path = SourceFilePath::RawPath(Cow::Borrowed("/source/file.rs"));
+        let mut sm = LoadSourceFile::<TestFileTypes>::new(&debug_loc, &src_path).unwrap();
+
+        // First poll: a NeedFile with the resolved location.
+        match sm.poll() {
+            LoadStep::NeedFile { location, required } => {
+                assert!(required);
+                assert_eq!(location.0, "/source/file.rs");
+            }
+            _ => panic!("expected NeedFile"),
+        }
+
+        // Synthesize file contents — no async involved.
+        sm.provide(Ok(b"hello sans-io\n".to_vec()));
+
+        // Second poll: Done.
+        assert!(matches!(sm.poll(), LoadStep::Done));
+        assert_eq!(sm.finish().unwrap(), "hello sans-io\n");
+    }
+
+    #[test]
+    fn surfaces_helper_error_on_required_fetch() {
+        let debug_loc = StringPath("/some/debug/file".to_owned());
+        let src_path = SourceFilePath::RawPath(Cow::Borrowed("/source/missing.rs"));
+        let mut sm = LoadSourceFile::<TestFileTypes>::new(&debug_loc, &src_path).unwrap();
+
+        assert!(matches!(sm.poll(), LoadStep::NeedFile { .. }));
+        sm.provide(Err("nope".into()));
+        assert!(matches!(sm.poll(), LoadStep::Done));
+        let err = sm.finish().unwrap_err();
+        assert!(matches!(err, Error::OpenFile(_, _)));
     }
 }
