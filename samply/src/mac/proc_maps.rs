@@ -535,14 +535,17 @@ impl<'a> StackwalkerRef<'a> {
 /// `frames` must be empty initially.
 ///
 /// On return, `frames` will have the stack frames from callee-most to root-most.
+///
+/// Returns the monotonic timestamp captured while the thread is still suspended,
+/// so the sample time reflects the moment the stack was actually sampled.
 pub fn get_backtrace(
     stackwalker: StackwalkerRef,
     memory: &mut ForeignMemory,
     thread_act: mach_port_t,
     frames: &mut Vec<FrameAddress>,
     fold_recursive_prefix: bool,
-) -> Result<(), SamplingError> {
-    with_suspended_thread(thread_act, || {
+) -> Result<u64, SamplingError> {
+    let sample_time_mono = with_suspended_thread(thread_act, || {
         let (pc, regs) = get_unwinding_registers(thread_act).map_err(|err| match err {
             KernelError::InvalidArgument
             | KernelError::MachSendInvalidDest
@@ -552,7 +555,7 @@ pub fn get_backtrace(
             err => SamplingError::Ignorable("thread_get_state in get_unwinding_registers", err),
         })?;
         do_stackwalk(stackwalker, pc, regs, memory, frames);
-        Ok(())
+        Ok(super::time::get_monotonic_timestamp())
     })
     .unwrap_or_else(|err| match err {
         KernelError::InvalidArgument
@@ -574,7 +577,7 @@ pub fn get_backtrace(
         }
     }
 
-    Ok(())
+    Ok(sample_time_mono)
 }
 
 /// `frames` must be empty initially.
