@@ -5,7 +5,8 @@ use std::{mem, thread};
 
 use crossbeam_channel::Receiver;
 use fxprof_processed_profile::{
-    Category, CategoryColor, Profile, ReferenceTimestamp, SubcategoryHandle,
+    Category, CategoryColor, PlatformSpecificReferenceTimestamp, Profile, ReferenceTimestamp,
+    SubcategoryHandle,
 };
 use mach2::port::mach_port_t;
 
@@ -70,6 +71,9 @@ impl Sampler {
             self.profile_creation_props.profile_name(),
             ReferenceTimestamp::from_system_time(reference_system_time),
             self.recording_props.interval.into(),
+        );
+        profile.set_platform_specific_reference_timestamp(
+            PlatformSpecificReferenceTimestamp::MachAbsoluteTimeNanoseconds(reference_mono),
         );
         if let Some(macos_name_and_version) = get_macos_name_and_version() {
             profile.set_os_name(&macos_name_and_version);
