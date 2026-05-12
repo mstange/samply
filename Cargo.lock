@@ -179,7 +179,7 @@ dependencies = [
  "dump-table",
  "flate2",
  "query-api",
- "reqwest 0.13.2",
+ "reqwest 0.13.3",
  "tar",
  "tempfile",
  "tokio",
@@ -2243,9 +2243,9 @@ dependencies = [
 
 [[package]]
 name = "reqwest"
-version = "0.13.2"
+version = "0.13.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ab3f43e3283ab1488b624b44b0e988d0acea0b3214e694730a055cb6b2efa801"
+checksum = "62e0021ea2c22aed41653bc7e1419abb2c97e038ff2c33d0e1309e49a97deec0"
 dependencies = [
  "base64",
  "bytes",
@@ -2288,7 +2288,7 @@ dependencies = [
  "anyhow",
  "async-trait",
  "http",
- "reqwest 0.13.2",
+ "reqwest 0.13.3",
  "thiserror 2.0.18",
  "tower-service",
 ]
@@ -2305,7 +2305,7 @@ dependencies = [
  "getrandom 0.2.17",
  "http",
  "hyper",
- "reqwest 0.13.2",
+ "reqwest 0.13.3",
  "reqwest-middleware",
  "retry-policies",
  "thiserror 2.0.18",
@@ -3506,7 +3506,7 @@ dependencies = [
  "http",
  "libc",
  "memmap2",
- "reqwest 0.13.2",
+ "reqwest 0.13.3",
  "reqwest-middleware",
  "reqwest-retry",
  "rustls",
