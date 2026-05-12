@@ -942,7 +942,7 @@ where
             ContextSwitchRecord::Out { preempted, .. } => {
                 self.context_switch_handler
                     .handle_switch_out(timestamp, &mut thread.context_switch_data);
-                if let (Some(cpus), Some(cpu_index)) = (&mut self.cpus, Some(common.cpu.unwrap())) {
+                if let (Some(cpus), Some(cpu_index)) = (&mut self.cpus, common.cpu) {
                     let combined_thread = cpus.combined_thread_handle();
                     let cpu = cpus.get_mut(cpu_index as usize, &mut self.profile);
                     self.context_switch_handler
