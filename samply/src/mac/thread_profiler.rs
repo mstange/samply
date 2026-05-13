@@ -4,7 +4,6 @@ use framehop::FrameAddress;
 use fxprof_processed_profile::{CpuDelta, Profile, StringHandle, ThreadHandle, Timestamp};
 use mach2::mach_types::thread_act_t;
 use mach2::port::mach_port_t;
-use time::get_monotonic_timestamp;
 
 use super::error::SamplingError;
 use super::kernel_error::{self, IntoResult, KernelError};
@@ -15,7 +14,6 @@ use super::thread_info::{
     thread_info_t, time_value, THREAD_BASIC_INFO, THREAD_BASIC_INFO_COUNT, THREAD_EXTENDED_INFO,
     THREAD_EXTENDED_INFO_COUNT, THREAD_IDENTIFIER_INFO, THREAD_IDENTIFIER_INFO_COUNT,
 };
-use crate::mac::time;
 use crate::shared::recycling::ThreadRecycler;
 use crate::shared::types::{StackFrame, StackMode};
 use crate::shared::unresolved_samples::{UnresolvedSamples, UnresolvedStacks};
@@ -137,17 +135,13 @@ impl ThreadProfiler {
 
         if !cpu_delta.is_zero() || self.tick_count == 0 {
             stack_scratch_buffer.clear();
-            get_backtrace(
+            let sample_time_mono = get_backtrace(
                 stackwalker,
                 &mut self.stack_memory,
                 self.thread_act,
                 stack_scratch_buffer,
                 fold_recursive_prefix,
             )?;
-            // make sure to use the time immediately after the stack is sampled so that any
-            // jitdump records emitted in the interval between samply starting to sample
-            // all tasks and actually stopping the thread are properly used
-            let sample_time_mono = get_monotonic_timestamp();
 
             let frames = stack_scratch_buffer.iter().rev().map(|f| match f {
                 FrameAddress::InstructionPointer(address) => {
