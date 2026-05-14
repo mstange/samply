@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::fmt::Debug;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -21,16 +22,16 @@ pub enum KernelSymbolsError {
 
     #[error("Did not find a _text symbol in the kernel symbol list")]
     NoTextSymbol,
-
-    #[error("Relative address {0:#x} does not fit into u32")]
-    RelativeAddressTooLarge(u64),
 }
 
 #[derive(Debug, Clone)]
 pub struct KernelSymbols {
     pub build_id: Vec<u8>,
     pub base_avma: u64,
+    pub end_avma: u64,
     pub symbol_table: Arc<SymbolTable>,
+    /// Symbol tables for kernel modules, keyed by module name.
+    pub module_symbol_tables: HashMap<String, Arc<SymbolTable>>,
 }
 
 impl KernelSymbols {
@@ -42,12 +43,27 @@ impl KernelSymbols {
             .to_owned();
         let kallsyms = std::fs::read("/proc/kallsyms")
             .map_err(KernelSymbolsError::CouldNotReadProcKallsyms)?;
-        let (base_avma, symbol_table) = parse_kallsyms(&kallsyms)?;
+
+        // Get module base addresses from /proc/modules
+        let module_bases: HashMap<String, u64> = parse_proc_modules()
+            .into_iter()
+            .map(|m| (m.name, m.base_address))
+            .collect();
+
+        let (base_avma, end_avma, symbol_table, module_symbol_tables) =
+            parse_kallsyms(&kallsyms, &module_bases)?;
         let symbol_table = Arc::new(symbol_table);
+        let module_symbol_tables = module_symbol_tables
+            .into_iter()
+            .map(|(k, v)| (k, Arc::new(v)))
+            .collect();
+
         Ok(KernelSymbols {
             build_id,
             base_avma,
+            end_avma,
             symbol_table,
+            module_symbol_tables,
         })
     }
 }
@@ -99,37 +115,121 @@ impl<'a> Iterator for KallSymIter<'a> {
     }
 }
 
-pub fn parse_kallsyms(data: &[u8]) -> Result<(u64, SymbolTable), KernelSymbolsError> {
-    let mut symbols = Vec::new();
+/// Parses "symbol_name [module_name]" format, returning (symbol_name, module_name).
+fn parse_module_symbol(symbol_name: &[u8]) -> Option<(&[u8], &[u8])> {
+    let bracket_start = symbol_name.iter().rposition(|&b| b == b'[')?;
+    if symbol_name.last() != Some(&b']') {
+        return None;
+    }
+    let module_name = &symbol_name[bracket_start + 1..symbol_name.len() - 1];
+    let name_end = symbol_name[..bracket_start]
+        .iter()
+        .rposition(|&b| b != b' ' && b != b'\t')
+        .map(|i| i + 1)
+        .unwrap_or(0);
+    Some((&symbol_name[..name_end], module_name))
+}
+
+/// Parse kallsyms data into kernel and module symbol tables.
+///
+/// `module_bases` provides the base addresses from `/proc/modules`.
+/// Modules not present in `module_bases` are skipped.
+///
+/// Returns: (kernel_base, kernel_end, kernel_symbols, module_symbol_tables)
+pub fn parse_kallsyms(
+    data: &[u8],
+    module_bases: &HashMap<String, u64>,
+) -> Result<(u64, u64, SymbolTable, HashMap<String, SymbolTable>), KernelSymbolsError> {
+    let mut kernel_symbols = Vec::new();
+    let mut module_symbols_raw: HashMap<String, Vec<(u64, String)>> = HashMap::new();
 
     let mut text_addr = None;
+    let mut etext_addr = None;
+
     for (absolute_addr, symbol_name) in KallSymIter::new(data) {
+        // Check if this is a module symbol
+        if let Some((sym_name, module_name)) = parse_module_symbol(symbol_name) {
+            if let Ok(module_name) = std::str::from_utf8(module_name) {
+                let name = String::from_utf8_lossy(sym_name).to_string();
+                module_symbols_raw
+                    .entry(module_name.to_string())
+                    .or_default()
+                    .push((absolute_addr, name));
+            }
+            continue;
+        }
+
+        // Kernel symbol
         match (text_addr, symbol_name) {
             (None, b"_text") => {
                 text_addr = Some(absolute_addr);
-                symbols.push(Symbol {
+                kernel_symbols.push(Symbol {
                     address: 0,
                     size: None,
                     name: "_text".to_string(),
                 });
             }
             (Some(text_addr), _) if absolute_addr >= text_addr => {
+                if symbol_name == b"_etext" && etext_addr.is_none() {
+                    etext_addr = Some(absolute_addr);
+                }
                 let relative_address = absolute_addr - text_addr;
-                let relative_address = u32::try_from(relative_address)
-                    .map_err(|_| KernelSymbolsError::RelativeAddressTooLarge(relative_address))?;
-                symbols.push(Symbol {
-                    address: relative_address,
-                    size: None,
-                    name: String::from_utf8_lossy(symbol_name).to_string(),
-                });
+                if let Ok(relative_address) = u32::try_from(relative_address) {
+                    kernel_symbols.push(Symbol {
+                        address: relative_address,
+                        size: None,
+                        name: String::from_utf8_lossy(symbol_name).into_owned(),
+                    });
+                }
             }
             _ => {
                 // Ignore symbols before the _text symbol.
             }
         }
     }
+
+    // Build module symbol tables
+    let mut module_symbol_tables = HashMap::new();
+
+    for (module_name, symbols) in module_symbols_raw {
+        // Skip modules not in /proc/modules
+        let Some(&base_addr) = module_bases.get(&module_name) else {
+            continue;
+        };
+
+        let symbols: Vec<Symbol> = symbols
+            .into_iter()
+            .filter_map(|(addr, name)| {
+                let relative_addr = addr.checked_sub(base_addr)?;
+                let relative_addr = u32::try_from(relative_addr).ok()?;
+                Some(Symbol {
+                    address: relative_addr,
+                    size: None,
+                    name,
+                })
+            })
+            .collect();
+
+        if !symbols.is_empty() {
+            module_symbol_tables.insert(module_name, SymbolTable::new(symbols));
+        }
+    }
+
     let text_addr = text_addr.ok_or(KernelSymbolsError::NoTextSymbol)?;
-    Ok((text_addr, SymbolTable::new(symbols)))
+    // If _etext not found, use a reasonable default (text_addr + max symbol offset)
+    let etext_addr = etext_addr.unwrap_or_else(|| {
+        kernel_symbols
+            .last()
+            .map(|s| text_addr + u64::from(s.address))
+            .unwrap_or(text_addr)
+    });
+
+    Ok((
+        text_addr,
+        etext_addr,
+        SymbolTable::new(kernel_symbols),
+        module_symbol_tables,
+    ))
 }
 
 /// Match a hex string, parse it to a u32 or a u64.
@@ -168,22 +268,83 @@ pub fn kernel_module_build_id(path: &Path, binary_lookup_dirs: &[PathBuf]) -> Op
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct KernelModuleInfo {
+    pub name: String,
+    pub size: u64,
+    pub base_address: u64,
+}
+
+pub fn parse_proc_modules() -> Vec<KernelModuleInfo> {
+    let Ok(data) = std::fs::read_to_string("/proc/modules") else {
+        return Vec::new();
+    };
+    parse_proc_modules_from_str(&data)
+}
+
+fn parse_proc_modules_from_str(data: &str) -> Vec<KernelModuleInfo> {
+    let mut modules = Vec::new();
+    for line in data.lines() {
+        let mut parts = line.splitn(6, ' ');
+        let (Some(name), Some(size_str), Some(_refcount), Some(_deps), Some(_state), Some(rest)) = (
+            parts.next(),
+            parts.next(),
+            parts.next(),
+            parts.next(),
+            parts.next(),
+            parts.next(),
+        ) else {
+            continue;
+        };
+
+        let Ok(size) = size_str.parse::<u64>() else {
+            continue;
+        };
+
+        let addr_str = rest.split_whitespace().next().unwrap_or("");
+        let addr_str = addr_str.trim_start_matches("0x");
+        let Ok(base_address) = u64::from_str_radix(addr_str, 16) else {
+            continue;
+        };
+
+        modules.push(KernelModuleInfo {
+            name: name.to_string(),
+            size,
+            base_address,
+        });
+    }
+
+    // `[base_address, base_address + size)` isn't the exact module boundary
+    // because modules aren't guaranteed to occupy a single contiguous region,
+    // so it's only a simple heuristic we can use for debugging.
+    //
+    // Because of this, overlapping ranges may occur, and this would mean a
+    // module may evict a previous one during symbolication.
+    // Make sure this doesn't happen by clamping the size of each module
+    // to the end of the previous module.
+    modules.sort_by_key(|m| m.base_address);
+    for i in 0..modules.len().saturating_sub(1) {
+        let max_size_left = modules[i + 1].base_address - modules[i].base_address;
+        modules[i].size = Ord::min(modules[i].size, max_size_left);
+    }
+
+    modules
+}
+
 #[cfg(test)]
 mod test {
+    use super::*;
     use debugid::CodeId;
 
-    use super::build_id_from_notes_section_data;
-    use crate::linux_shared::kernel_symbols::parse_kallsyms;
-
     #[test]
-    fn test() {
+    fn parse_build_id_from_notes() {
         let build_id = build_id_from_notes_section_data(b"\x04\0\0\0\x14\0\0\0\x03\0\0\0GNU\0\x98Kvo\x1c\xb5i\x9c;\x1bw\xb5\x92\x98<\"\xe9\xd1\x97\xad\x06\0\0\0\x04\0\0\0\x01\x01\0\0Linux\0\0\0\0\0\0\0\x06\0\0\0\x01\0\0\0\0\x01\0\0Linux\0\0\0\0\0\0\0");
         let code_id = CodeId::from_binary(build_id.unwrap());
         assert_eq!(code_id.as_str(), "984b766f1cb5699c3b1b77b592983c22e9d197ad");
     }
 
     #[test]
-    fn test2() {
+    fn parse_kallsyms_basic() {
         let kallsyms = br#"ffff8000081e0000 T _text
 ffff8000081f0000 t bcm2835_handle_irq
 ffff8000081f0000 T _stext
@@ -191,7 +352,9 @@ ffff8000081f0000 T __irqentry_text_start
 ffff8000081f0060 t bcm2836_arm_irqchip_handle_irq
 ffff8000081f00e0 t dw_apb_ictl_handle_irq
 ffff8000081f0190 t sun4i_handle_irq"#;
-        let (base_avma, symbol_table) = parse_kallsyms(kallsyms).unwrap();
+        let module_bases = HashMap::new();
+        let (base_avma, _end_avma, symbol_table, module_tables) =
+            parse_kallsyms(kallsyms, &module_bases).unwrap();
         assert_eq!(base_avma, 0xffff8000081e0000);
         assert_eq!(
             &symbol_table.lookup(0x10061).unwrap().name,
@@ -201,10 +364,11 @@ ffff8000081f0190 t sun4i_handle_irq"#;
             &symbol_table.lookup(0x10054).unwrap().name,
             "__irqentry_text_start"
         );
+        assert!(module_tables.is_empty());
     }
 
     #[test]
-    fn test3() {
+    fn parse_kallsyms_skips_symbols_before_text() {
         let kallsyms = br#"0000000000000000 A fixed_percpu_data
 0000000000000000 A __per_cpu_start
 0000000000001000 A cpu_debug_store
@@ -220,7 +384,9 @@ ffffffffa7e00040 T secondary_startup_64
 ffffffffa7e00045 T secondary_startup_64_no_verify
 ffffffffa7e00110 t verify_cpu
 ffffffffa7e00210 T sev_verify_cbit"#;
-        let (base_avma, symbol_table) = parse_kallsyms(kallsyms).unwrap();
+        let module_bases = HashMap::new();
+        let (base_avma, _end_avma, symbol_table, _) =
+            parse_kallsyms(kallsyms, &module_bases).unwrap();
         assert_eq!(base_avma, 0xffffffffa7e00000);
         assert_eq!(
             &symbol_table.lookup(0x61).unwrap().name,
@@ -229,7 +395,7 @@ ffffffffa7e00210 T sev_verify_cbit"#;
     }
 
     #[test]
-    fn test4() {
+    fn parse_kallsyms_with_kernel_modules() {
         // In this example, there are spots where the address goes backwards.
         // The kernel modules seem to be loaded before the regular vmlinux image.
         // For example, [tls] starts at ffff800001717000, which is before _text at ffff8000081e0000.
@@ -336,11 +502,53 @@ ffff80000141f058 d $d  [raid10]
 ffff800001411050 t __raid10_find_phys  [raid10]
 ffff80000b543a4c t bpf_prog_6deef7357e7b4530   [bpf]
 ffff80000b5c5744 t bpf_prog_654d7024997e7811   [bpf]"#;
-        let (base_avma, symbol_table) = parse_kallsyms(kallsyms).unwrap();
+        // Provide module bases from /proc/modules
+        let mut module_bases = HashMap::new();
+        module_bases.insert("tls".to_string(), 0xffff800001717000u64);
+        module_bases.insert("raid10".to_string(), 0xffff800001411010u64);
+        module_bases.insert("bpf".to_string(), 0xffff80000b543a4cu64);
+
+        let (base_avma, _end_avma, symbol_table, module_tables) =
+            parse_kallsyms(kallsyms, &module_bases).unwrap();
         assert_eq!(base_avma, 0xffff8000081e0000);
         assert_eq!(
             &symbol_table.lookup(0x998b20).unwrap().name,
             "tegra_clk_periph_fixed_is_enabled"
         );
+
+        // Check module symbol tables were created
+        assert_eq!(module_tables.len(), 3); // tls, raid10, bpf
+        assert!(module_tables.contains_key("tls"));
+        assert!(module_tables.contains_key("raid10"));
+        assert!(module_tables.contains_key("bpf"));
+
+        // Check tls module symbols
+        let tls_symbols = module_tables.get("tls").unwrap();
+        // tls_update is at 0xffff800001717020, base is 0xffff800001717000, relative = 0x20
+        assert_eq!(&tls_symbols.lookup(0x20).unwrap().name, "tls_update");
+
+        // Check raid10 module symbols
+        let raid10_symbols = module_tables.get("raid10").unwrap();
+        // __raid10_find_phys is at 0xffff800001411050, base is 0xffff800001411010, relative = 0x40
+        assert_eq!(
+            &raid10_symbols.lookup(0x40).unwrap().name,
+            "__raid10_find_phys"
+        );
+    }
+
+    #[test]
+    fn parse_proc_modules_basic() {
+        let modules_data = r#"rfcomm 102400 4 - Live 0xffffffffc9347000
+snd_seq_dummy 12288 0 - Live 0xffffffffc931c000
+snd_hrtimer 12288 1 - Live 0xffffffffc7bae000
+snd_seq 135168 7 snd_seq_dummy, Live 0xffffffffc933a000
+wireguard 118784 0 - Live 0xffffffffc932c000"#;
+
+        let modules = parse_proc_modules_from_str(modules_data);
+        assert_eq!(modules.len(), 5);
+
+        assert_eq!(modules[0].name, "snd_hrtimer");
+        assert_eq!(modules[0].size, 12288);
+        assert_eq!(modules[0].base_address, 0xffffffffc7bae000);
     }
 }
