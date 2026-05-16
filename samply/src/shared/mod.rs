@@ -24,3 +24,9 @@ pub mod timestamp_converter;
 pub mod types;
 pub mod unresolved_samples;
 pub mod utils;
+
+#[allow(dead_code)]
+pub enum StopCondition {
+    CtrlC,
+    ReceiverSignaled(std::sync::mpsc::Receiver<()>),
+}

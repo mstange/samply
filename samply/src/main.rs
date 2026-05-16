@@ -1,3 +1,5 @@
+#![cfg_attr(all(target_os = "windows", gui), windows_subsystem = "windows")]
+
 #[cfg(target_os = "macos")]
 mod mac;
 
@@ -39,9 +41,15 @@ use shared::prop_types::{ImportProps, SymbolProps};
 use shared::save_profile::save_profile_to_file;
 use symbols::create_symbol_manager_and_quota_manager;
 
+#[allow(unreachable_code)]
 fn main() {
     env_logger::init();
 
+    #[cfg(all(windows, gui))]
+    {
+        windows::gui::run();
+        return;
+    }
     use clap::Parser;
     let opt = cli::Opt::parse();
     match opt.action {
@@ -124,14 +132,18 @@ fn do_record_action(record_args: cli::RecordArgs) {
     let profile_creation_props = record_args.profile_creation_props();
     let presymbolicate = profile_creation_props.presymbolicate;
 
-    let (mut profile, exit_status) =
-        match profiler::run(recording_mode, recording_props, profile_creation_props) {
-            Ok(exit_status) => exit_status,
-            Err(err) => {
-                eprintln!("Encountered an error during profiling: {err:?}");
-                std::process::exit(1);
-            }
-        };
+    let (mut profile, exit_status) = match profiler::run(
+        recording_mode,
+        recording_props,
+        profile_creation_props,
+        shared::StopCondition::CtrlC,
+    ) {
+        Ok(exit_status) => exit_status,
+        Err(err) => {
+            eprintln!("Encountered an error during profiling: {err:?}");
+            std::process::exit(1);
+        }
+    };
 
     if presymbolicate {
         eprintln!("Symbolicating...");

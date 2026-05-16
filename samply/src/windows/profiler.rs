@@ -8,6 +8,7 @@ use super::profile_context::ProfileContext;
 use crate::shared::ctrl_c::CtrlC;
 use crate::shared::included_processes::IncludedProcesses;
 use crate::shared::prop_types::{ProfileCreationProps, RecordingMode, RecordingProps};
+use crate::shared::StopCondition;
 use crate::windows::elevated_helper::ElevatedHelperSession;
 
 // Hello intrepid explorer! You may be in this code because you'd like to extend something,
@@ -40,6 +41,7 @@ pub fn run(
     recording_mode: RecordingMode,
     recording_props: RecordingProps,
     profile_creation_props: ProfileCreationProps,
+    stop_receiver: StopCondition,
 ) -> Result<(Profile, ExitStatus), i32> {
     let timebase = std::time::SystemTime::now();
     let timebase = ReferenceTimestamp::from_system_time(timebase);
@@ -59,22 +61,36 @@ pub fn run(
 
     let included_processes = match recording_mode {
         RecordingMode::All => {
-            let ctrl_c_receiver = CtrlC::observe_oneshot();
             eprintln!("Profiling all processes...");
-            eprintln!("Press Ctrl+C to stop.");
-            // TODO: Respect recording_props.time_limit, if specified
-            // Wait for Ctrl+C.
-            let _ = ctrl_c_receiver.blocking_recv();
+            match stop_receiver {
+                StopCondition::ReceiverSignaled(rx) => {
+                    let _ = rx.recv();
+                }
+                StopCondition::CtrlC => {
+                    let ctrl_c_receiver = CtrlC::observe_oneshot();
+                    eprintln!("Press Ctrl+C to stop.");
+                    // TODO: Respect recording_props.time_limit, if specified
+                    // Wait for Ctrl+C.
+                    let _ = ctrl_c_receiver.blocking_recv();
+                }
+            };
             None
         }
         RecordingMode::Pid(pid) => {
-            let ctrl_c_receiver = CtrlC::observe_oneshot();
             // TODO: check that process with this pid exists
             eprintln!("Profiling process with pid {pid}...");
-            eprintln!("Press Ctrl+C to stop.");
-            // TODO: Respect recording_props.time_limit, if specified
-            // Wait for Ctrl+C.
-            let _ = ctrl_c_receiver.blocking_recv();
+            match stop_receiver {
+                StopCondition::ReceiverSignaled(rx) => {
+                    let _ = rx.recv();
+                }
+                StopCondition::CtrlC => {
+                    let ctrl_c_receiver = CtrlC::observe_oneshot();
+                    eprintln!("Press Ctrl+C to stop.");
+                    // TODO: Respect recording_props.time_limit, if specified
+                    // Wait for Ctrl+C.
+                    let _ = ctrl_c_receiver.blocking_recv();
+                }
+            };
             Some(IncludedProcesses {
                 name_substrings: Vec::new(),
                 pids: vec![pid],
