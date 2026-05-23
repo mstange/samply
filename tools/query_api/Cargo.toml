@@ -7,9 +7,8 @@ edition = "2021"
 publish = false
 
 [dependencies]
-samply-api = { path = "../../samply-api" }
+wholesym = { path = "../../wholesym", features = ["api"] }
 clap = { version = "4", features = ["derive"] }
-memmap2 = "0.9.9"
 anyhow = "1"
-futures = "0.3.5"
+tokio = { version = "1.52", features = ["macros", "rt", "rt-multi-thread"] }
 serde_json = "1"

@@ -103,22 +103,22 @@ pub enum Error {
     MachOHeaderParseError(#[source] object::read::Error),
 
     #[error("get_candidate_paths_for_debug_file helper callback for {0:?} returned error: {1}")]
-    HelperErrorDuringGetCandidatePathsForDebugFile(
+    GetCandidatePathsForDebugFile(
         Box<LibraryInfo>,
         #[source] Box<dyn std::error::Error + Send + Sync>,
     ),
 
     #[error("get_candidate_paths_for_binary helper callback for returned error: {0}")]
-    HelperErrorDuringGetCandidatePathsForBinary(#[source] Box<dyn std::error::Error + Send + Sync>),
+    GetCandidatePathsForBinary(#[source] Box<dyn std::error::Error + Send + Sync>),
 
     #[error("get_dyld_shared_cache_paths helper callback returned error: {0}")]
-    HelperErrorDuringGetDyldSharedCachePaths(#[source] Box<dyn std::error::Error + Send + Sync>),
+    GetDyldSharedCachePaths(#[source] Box<dyn std::error::Error + Send + Sync>),
 
     #[error("open_file helper callback for file {0} returned error: {1}")]
-    HelperErrorDuringOpenFile(String, #[source] Box<dyn std::error::Error + Send + Sync>),
+    OpenFile(String, #[source] Box<dyn std::error::Error + Send + Sync>),
 
     #[error("FileContents read_bytes_at for file {0} returned error: {1}")]
-    HelperErrorDuringFileReading(String, #[source] Box<dyn std::error::Error + Send + Sync>),
+    FileReading(String, #[source] Box<dyn std::error::Error + Send + Sync>),
 
     #[error("FileContents read_bytes_at during JITDUMP parsing returned error: {0}")]
     JitDumpFileReading(#[source] std::io::Error),
@@ -264,17 +264,11 @@ impl Error {
             Error::NoMatchingDyldCacheImagePath(_) => "NoMatchingDyldCacheImagePath",
             Error::ObjectParseError(_, _) => "ObjectParseError",
             Error::MachOHeaderParseError(_) => "MachOHeaderParseError",
-            Error::HelperErrorDuringGetCandidatePathsForDebugFile(_, _) => {
-                "HelperErrorDuringGetCandidatePathsForDebugFile"
-            }
-            Error::HelperErrorDuringGetCandidatePathsForBinary(_) => {
-                "HelperErrorDuringGetCandidatePathsForBinary"
-            }
-            Error::HelperErrorDuringGetDyldSharedCachePaths(_) => {
-                "HelperErrorDuringGetDyldSharedCachePaths"
-            }
-            Error::HelperErrorDuringOpenFile(_, _) => "HelperErrorDuringOpenFile",
-            Error::HelperErrorDuringFileReading(_, _) => "HelperErrorDuringFileReading",
+            Error::GetCandidatePathsForDebugFile(_, _) => "GetCandidatePathsForDebugFile",
+            Error::GetCandidatePathsForBinary(_) => "GetCandidatePathsForBinary",
+            Error::GetDyldSharedCachePaths(_) => "GetDyldSharedCachePaths",
+            Error::OpenFile(_, _) => "OpenFile",
+            Error::FileReading(_, _) => "FileReading",
             Error::JitDumpFileReading(_) => "JitDumpFileReading",
             Error::NoCandidatePathForDebugFile(_) => "NoCandidatePathForDebugFile",
             Error::NoCandidatePathForBinary(_, _) => "NoCandidatePathForBinary",

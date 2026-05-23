@@ -9,14 +9,13 @@ publish = false
 [dependencies]
 dump-table = { path = "../dump_table" }
 query-api = { path = "../query_api" }
-reqwest = { version = "0.12", default-features = false, features = [
-  "rustls-tls",
+reqwest = { version = "0.13", default-features = false, features = [
   "gzip",
   "blocking"
 ] }
 anyhow = "1"
 tempfile = "3.10.1"
-futures = "0.3.5"
+tokio = { version = "1.52", features = ["macros", "rt", "rt-multi-thread"] }
 cab = "0.6.0"
 flate2 = "1.1"
 tar = "0.4.45"

@@ -133,14 +133,17 @@
 pub use debugid;
 
 mod async_double_buffer;
+mod async_gzip_decoder;
 mod breakpad;
 mod config;
 mod debuginfod;
 mod download;
 mod download_error;
 mod downloader;
+mod driver;
 mod file_creation;
-mod helper;
+mod file_resolver;
+mod load_helpers;
 mod moria_mac;
 #[cfg(target_os = "macos")]
 mod moria_mac_spotlight;
@@ -163,3 +166,8 @@ pub use samply_symbols::{
 pub use symbol_manager::{SymbolFileOrigin, SymbolManager, SymbolMap};
 pub use symbol_manager_observer::SymbolManagerObserver;
 pub use verbose_symbol_manager_observer::VerboseSymbolManagerObserver;
+
+#[cfg(feature = "api")]
+pub use samply_api::{ModuleLoadOutcome, ModuleStat, SymbolicateStats};
+#[cfg(feature = "api")]
+pub use symbol_manager::QueryApiJsonResult;

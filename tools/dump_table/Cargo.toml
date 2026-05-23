@@ -6,15 +6,8 @@ license = "MIT OR Apache-2.0"
 edition = "2021"
 publish = false
 
-[features]
-default = []
-# default = ["chunked_caching"] # To simulate wasm file reading
-chunked_caching = []
-
 [dependencies]
-# samply-symbols = { path = "../../samply-symbols", features = ["partial_read_stats"] }
-samply-symbols = { path = "../../samply-symbols" }
+wholesym = { path = "../../wholesym" }
 clap = { version = "4", features = ["derive"] }
-memmap2 = "0.9.9"
 anyhow = "1"
-futures = "0.3.5"
+tokio = { version = "1.52", features = ["macros", "rt", "rt-multi-thread"] }

@@ -17,7 +17,7 @@ use hyper::service::service_fn;
 use hyper::{header, Method, Request, Response, StatusCode};
 use hyper_util::rt::TokioIo;
 use percent_encoding::{utf8_percent_encode, AsciiSet, CONTROLS};
-use rand::RngCore;
+use rand::Rng;
 use tokio::io::BufReader;
 use tokio::net::TcpListener;
 use tokio_util::io::ReaderStream;
