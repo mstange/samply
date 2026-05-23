@@ -17,7 +17,7 @@ use hyper::service::service_fn;
 use hyper::{header, Method, Request, Response, StatusCode};
 use hyper_util::rt::TokioIo;
 use percent_encoding::{utf8_percent_encode, AsciiSet, CONTROLS};
-use rand::RngCore;
+use rand::Rng;
 use tokio::io::BufReader;
 use tokio::net::TcpListener;
 use tokio_util::io::ReaderStream;
@@ -223,9 +223,9 @@ async fn run_server(
 
         // Spawn a tokio task to serve multiple connections concurrently
         tokio::task::spawn(async move {
-            // Finally, we bind the incoming connection to our service
-            if let Err(err) = http1::Builder::new()
-                // `service_fn` converts our function in a `Service`
+            // Ignore errors from aborted connections, e.g.
+            // hyper::Error(IncompleteMessage) when the client cancels a request.
+            let _ = http1::Builder::new()
                 .serve_connection(
                     io,
                     service_fn(move |req| {
@@ -238,10 +238,7 @@ async fn run_server(
                         )
                     }),
                 )
-                .await
-            {
-                println!("Error serving connection: {err:?}");
-            }
+                .await;
         });
     }
 }

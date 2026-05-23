@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::num::NonZeroU32;
 use std::sync::Arc;
 
-use samply_symbols::{FileAndPathHelper, FrameDebugInfo, SymbolMap, SymbolMapTrait};
+use samply_symbols::{FileTypes, FrameDebugInfo, SymbolMap, SymbolMapTrait};
 use serde::ser::{SerializeMap, SerializeSeq};
 
 use super::request_json::{Job, Lib, RequestFrame, RequestStack};
@@ -10,9 +10,9 @@ use crate::api_file_path::to_api_file_path;
 use crate::symbolicate::looked_up_addresses::AddressResults;
 use crate::symbolicate::request_json::Request;
 
-pub struct LibSymbols<H: FileAndPathHelper> {
+pub struct LibSymbols<FT: FileTypes> {
     pub address_results: AddressResults,
-    pub symbol_map: Arc<SymbolMap<H>>,
+    pub symbol_map: Arc<SymbolMap<FT>>,
 }
 
 /// The response for a [`Request`].
@@ -25,14 +25,16 @@ pub struct LibSymbols<H: FileAndPathHelper> {
 ///   turn that entire future non-Send.
 /// - In profiler-get-symbols, H is non-Send, so we cannot require H: Send here.
 ///
-/// Actually, that last bit may not be true. Maybe SymbolMap<H> is always Send these
+/// Actually, that last bit may not be true. Maybe SymbolMap<FT> is always Send these
 /// days? Maybe this deserves another look.
-pub struct Response<H: FileAndPathHelper> {
+pub struct Response<FT: FileTypes> {
     pub request: Request,
-    pub symbols_per_lib: HashMap<Lib, Result<LibSymbols<H>, samply_symbols::Error>>,
+    pub symbols_per_lib: HashMap<Lib, Result<LibSymbols<FT>, samply_symbols::Error>>,
+    /// Observability data; not included in the serialized JSON output.
+    pub stats: crate::SymbolicateStats,
 }
 
-impl<H: FileAndPathHelper> serde::Serialize for Response<H> {
+impl<FT: FileTypes> serde::Serialize for Response<FT> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,

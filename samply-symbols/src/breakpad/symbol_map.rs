@@ -82,12 +82,7 @@ impl<T: FileContents> BreakpadSymbolMapOuter<T> {
         while offset < len {
             let chunk_len = CHUNK_SIZE.min(len - offset);
             data.read_bytes_into(&mut buffer, offset, chunk_len as usize)
-                .map_err(|e| {
-                    Error::HelperErrorDuringFileReading(
-                        "BreakpadBreakpadSymbolMapData".to_string(),
-                        e,
-                    )
-                })?;
+                .map_err(|e| Error::FileReading("BreakpadBreakpadSymbolMapData".to_string(), e))?;
             index_parser.consume(&buffer);
             buffer.clear();
             offset += CHUNK_SIZE;
@@ -167,9 +162,7 @@ impl<'a> BreakpadSymbolMapSymbolCache<'a> {
                 let line_length = entry.line_or_block_len.get();
                 let line = data
                     .read_bytes_at(file_offset, line_length.into())
-                    .map_err(|e| {
-                        Error::HelperErrorDuringFileReading("Breakpad PUBLIC symbol".to_string(), e)
-                    })?;
+                    .map_err(|e| Error::FileReading("Breakpad PUBLIC symbol".to_string(), e))?;
                 let info = BreakpadPublicSymbol::parse(line)?;
                 self.names.insert(
                     entry_index,
@@ -181,9 +174,7 @@ impl<'a> BreakpadSymbolMapSymbolCache<'a> {
                 let block_length = entry.line_or_block_len.get();
                 let block = data
                     .read_bytes_at(file_offset, block_length.into())
-                    .map_err(|e| {
-                        Error::HelperErrorDuringFileReading("Breakpad FUNC symbol".to_string(), e)
-                    })?;
+                    .map_err(|e| Error::FileReading("Breakpad FUNC symbol".to_string(), e))?;
                 let mut tokenizer = Tokenizer::new(block);
                 let (_address, _size, name) =
                     func_line(&mut tokenizer).map_err(|_| BreakpadParseError::ParsingFunc)?;
@@ -220,9 +211,7 @@ impl<'a> BreakpadSymbolMapSymbolCache<'a> {
         let block_length = entry.line_or_block_len.get();
         let block = data
             .read_bytes_at(file_offset, block_length.into())
-            .map_err(|e| {
-                Error::HelperErrorDuringFileReading("Breakpad FUNC symbol".to_string(), e)
-            })?;
+            .map_err(|e| Error::FileReading("Breakpad FUNC symbol".to_string(), e))?;
         let info = BreakpadFuncSymbol::parse(block, &mut self.lines, &mut self.inlinees)?;
         self.func_symbols.insert(entry_index, info);
         self.names.insert(

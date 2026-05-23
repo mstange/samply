@@ -8,27 +8,12 @@ use yoke_derive::Yokeable;
 
 use crate::dwarf::{get_frames, Addr2lineContextData};
 use crate::error::Error;
+use crate::sans_io::{LoadStep, NeedsFiles};
 use crate::shared::{
-    ExternalFileAddressInFileRef, FileAndPathHelper, FileContents, FileContentsWrapper,
-    FrameDebugInfo,
+    ExternalFileAddressInFileRef, FileContents, FileContentsWrapper, FileLoadError, FileLocation,
+    FileTypes, FrameDebugInfo,
 };
 use crate::SymbolMapStringInterner;
-
-pub async fn load_external_file<H>(
-    helper: &H,
-    external_file_location: H::FL,
-    external_file_path: &str,
-) -> Result<ExternalFileSymbolMap<H::F>, Error>
-where
-    H: FileAndPathHelper,
-{
-    let file = helper
-        .load_file(external_file_location)
-        .await
-        .map_err(|e| Error::HelperErrorDuringOpenFile(external_file_path.to_string(), e))?;
-    let symbol_map = ExternalFileSymbolMap::new(external_file_path, file)?;
-    Ok(symbol_map)
-}
 
 struct ExternalFileOuter<F: FileContents> {
     file_path: String,
@@ -275,5 +260,64 @@ impl<F: FileContents + 'static> ExternalFileSymbolMap<F> {
             .get()
             .0
             .lookup(external_file_address, string_interner)
+    }
+}
+
+/// State machine that fetches a single external object file and parses it into
+/// an `ExternalFileSymbolMap`.
+///
+/// Mirrors `SymbolManager::load_external_file` without performing any I/O.
+pub struct LoadExternalFile<FT: FileTypes> {
+    external_file_path: String,
+    state: LoadExternalFileState<FT>,
+}
+
+enum LoadExternalFileState<FT: FileTypes> {
+    NeedFile { location: FT::FL },
+    Done(Result<ExternalFileSymbolMap<FT::F>, Error>),
+    Poisoned,
+}
+
+impl<FT: FileTypes> LoadExternalFile<FT> {
+    pub fn new(debug_file_location: &FT::FL, external_file_path: &str) -> Result<Self, Error> {
+        let location = debug_file_location
+            .location_for_external_object_file(external_file_path)
+            .ok_or(Error::FileLocationRefusedExternalObjectLocation)?;
+        Ok(Self {
+            external_file_path: external_file_path.to_owned(),
+            state: LoadExternalFileState::NeedFile { location },
+        })
+    }
+
+    pub fn finish(self) -> Result<ExternalFileSymbolMap<FT::F>, Error> {
+        match self.state {
+            LoadExternalFileState::Done(result) => result,
+            _ => panic!("LoadExternalFile::finish called before reaching Done"),
+        }
+    }
+}
+
+impl<FT: FileTypes> NeedsFiles<FT> for LoadExternalFile<FT> {
+    fn poll(&self) -> LoadStep<'_, FT::FL> {
+        match &self.state {
+            LoadExternalFileState::NeedFile { location } => LoadStep::NeedFile {
+                location,
+                required: true,
+            },
+            LoadExternalFileState::Done(_) => LoadStep::Done,
+            LoadExternalFileState::Poisoned => unreachable!("invalid LoadExternalFile state"),
+        }
+    }
+
+    fn provide(&mut self, result: Result<FT::F, FileLoadError>) {
+        let _location = match std::mem::replace(&mut self.state, LoadExternalFileState::Poisoned) {
+            LoadExternalFileState::NeedFile { location } => location,
+            _ => panic!("LoadExternalFile::provide called when not awaiting a file"),
+        };
+        let parsed = match result {
+            Ok(file) => ExternalFileSymbolMap::new(&self.external_file_path, file),
+            Err(e) => Err(Error::OpenFile(self.external_file_path.clone(), e)),
+        };
+        self.state = LoadExternalFileState::Done(parsed);
     }
 }

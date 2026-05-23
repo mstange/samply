@@ -7,10 +7,7 @@ use std::sync::{Arc, Mutex};
 use bytes::Bytes;
 use debugid::DebugId;
 use samply_debugid::{CodeId, ElfBuildId, PeCodeId};
-use samply_symbols::{
-    CandidatePathInfo, FileAndPathHelper, FileAndPathHelperResult, FileLocation, LibraryInfo,
-    OptionallySendFuture, SymbolMapTrait,
-};
+use samply_symbols::{FileLoadResult, FileLocation, FileTypes, LibraryInfo, SymbolMapTrait};
 use symsrv::{SymsrvDownloader, SymsrvObserver};
 use uuid::Uuid;
 
@@ -46,6 +43,28 @@ impl std::ops::Deref for WholesymFileContents {
     }
 }
 
+/// The single [`FileTypes`] type bundle used throughout `wholesym`. Pairs
+/// [`WholesymFileContents`] and [`WholesymFileLocation`] under one type
+/// parameter for the sans-IO state machines exposed by `samply-symbols`.
+pub enum WholesymFileTypes {}
+
+impl FileTypes for WholesymFileTypes {
+    type F = WholesymFileContents;
+    type FL = WholesymFileLocation;
+}
+
+/// One element in the candidate-path list returned by
+/// [`FileResolver::get_candidate_paths_for_debug_file`] and
+/// [`FileResolver::get_candidate_paths_for_binary`].
+#[derive(Debug)]
+pub enum CandidatePathInfo {
+    SingleFile(WholesymFileLocation),
+    InDyldCache {
+        dyld_cache_path: WholesymFileLocation,
+        dylib_path: String,
+    },
+}
+
 #[derive(Debug, Clone)]
 pub enum WholesymFileLocation {
     LocalFile(PathBuf),
@@ -55,6 +74,8 @@ pub enum WholesymFileLocation {
     BreakpadSymbolServerFile(String),
     BreakpadSymindexFile(String),
     DebuginfodDebugFile(ElfBuildId),
+    // Only constructed when the `api` feature is on, but matched unconditionally.
+    #[cfg_attr(not(feature = "api"), allow(dead_code))]
     DebuginfodExecutable(ElfBuildId),
     UrlForSourceFile(String),
     VdsoLoadedIntoThisProcess,
@@ -186,15 +207,20 @@ impl std::fmt::Display for WholesymFileLocation {
     }
 }
 
-/// A simple helper which only exists to let samply_symbols::SymbolManager open
-/// local binary files for the binary_at_path functions.
-pub struct FileReadOnlyHelper;
+/// A minimal file fetcher that only opens local files (and walks the dyld
+/// shared cache).
+///
+/// Used by the static [`SymbolManager::library_info_for_binary_at_path`] API,
+/// which lets callers extract a `LibraryInfo` from a local binary without
+/// constructing a [`FileResolver`] (and the downloaders it brings with it).
+/// Panics if asked to load any non-local [`WholesymFileLocation`] variant.
+pub struct LocalFileFetcher;
 
-impl FileReadOnlyHelper {
-    async fn load_file_impl(
+impl LocalFileFetcher {
+    pub async fn load_file_impl(
         &self,
         location: WholesymFileLocation,
-    ) -> FileAndPathHelperResult<WholesymFileContents> {
+    ) -> FileLoadResult<WholesymFileContents> {
         match location {
             WholesymFileLocation::LocalFile(path) => {
                 let file = File::open(path)?;
@@ -203,47 +229,20 @@ impl FileReadOnlyHelper {
                 }))
             }
             _ => {
-                panic!("FileReadOnlyHelper should only be used for local files");
+                panic!("LocalFileFetcher should only be used for local files");
             }
         }
     }
-}
 
-impl FileAndPathHelper for FileReadOnlyHelper {
-    type F = WholesymFileContents;
-    type FL = WholesymFileLocation;
-
-    fn get_candidate_paths_for_debug_file(
-        &self,
-        _library_info: &LibraryInfo,
-    ) -> FileAndPathHelperResult<Vec<CandidatePathInfo<WholesymFileLocation>>> {
-        panic!("Should not be called");
-    }
-
-    fn get_candidate_paths_for_binary(
-        &self,
-        _library_info: &LibraryInfo,
-    ) -> FileAndPathHelperResult<Vec<CandidatePathInfo<WholesymFileLocation>>> {
-        panic!("Should not be called");
-    }
-
-    fn load_file(
-        &self,
-        location: WholesymFileLocation,
-    ) -> std::pin::Pin<Box<dyn OptionallySendFuture<Output = FileAndPathHelperResult<Self::F>> + '_>>
-    {
-        Box::pin(self.load_file_impl(location))
-    }
-
-    fn get_dyld_shared_cache_paths(
+    pub fn get_dyld_shared_cache_paths(
         &self,
         arch: Option<&str>,
-    ) -> FileAndPathHelperResult<Vec<WholesymFileLocation>> {
+    ) -> FileLoadResult<Vec<WholesymFileLocation>> {
         Ok(get_dyld_shared_cache_paths(arch))
     }
 }
 
-pub struct Helper {
+pub struct FileResolver {
     downloader: Arc<Downloader>,
     symsrv_downloader: Option<SymsrvDownloader>,
     breakpad_downloader: BreakpadSymbolDownloader,
@@ -251,7 +250,7 @@ pub struct Helper {
     known_libs: Mutex<KnownLibs>,
     config: SymbolManagerConfig,
     precog_symbol_data: Mutex<HashMap<DebugId, Arc<dyn SymbolMapTrait + Send + Sync>>>,
-    observer: Arc<HelperDownloaderObserver>,
+    observer: Arc<FileResolverDownloaderObserver>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -262,10 +261,13 @@ struct KnownLibs {
     by_mach_uuid: HashMap<Uuid, Arc<LibraryInfo>>,
 }
 
-impl Helper {
+impl FileResolver {
     pub fn with_config(config: SymbolManagerConfig) -> Self {
-        let observer = Arc::new(HelperDownloaderObserver::new());
-        let downloader = Arc::new(Downloader::new());
+        let observer = Arc::new(FileResolverDownloaderObserver::new());
+        let downloader = Arc::new(match config.user_agent.as_deref() {
+            Some(ua) => Downloader::new_with_user_agent(ua),
+            None => Downloader::new(),
+        });
         let symsrv_downloader = match config.effective_nt_symbol_path() {
             Some(nt_symbol_path) => {
                 let mut downloader = SymsrvDownloader::new(nt_symbol_path);
@@ -293,6 +295,9 @@ impl Helper {
             Some(downloader.clone()),
         );
         breakpad_downloader.set_observer(Some(observer.clone()));
+        if let Some(ttl) = config.breakpad_negative_cache_ttl {
+            breakpad_downloader.set_negative_cache_ttl(ttl);
+        }
         Self {
             downloader,
             symsrv_downloader,
@@ -309,6 +314,7 @@ impl Helper {
         self.observer.set_observer(observer);
     }
 
+    #[cfg(feature = "api")]
     pub fn add_known_lib(&self, lib_info: LibraryInfo) {
         let mut known_libs = self.known_libs.lock().unwrap();
         let lib_info = Arc::new(lib_info);
@@ -356,10 +362,10 @@ impl Helper {
         file_exists
     }
 
-    async fn load_file_impl(
+    pub async fn load_file_impl(
         &self,
         location: WholesymFileLocation,
-    ) -> FileAndPathHelperResult<WholesymFileContents> {
+    ) -> FileLoadResult<WholesymFileContents> {
         let file_path = match location {
             WholesymFileLocation::LocalFile(path) => {
                 let path = self.config.redirect_paths.get(&path).unwrap_or(&path);
@@ -395,10 +401,11 @@ impl Helper {
                     .get_file(&filename, &hash)
                     .await?
             }
-            WholesymFileLocation::BreakpadSymbolServerFile(path) => self
+            WholesymFileLocation::BreakpadSymbolServerFile(rel_path) => self
                 .breakpad_downloader
-                .get_file(&path)
+                .get_file(&rel_path)
                 .await
+                .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?
                 .ok_or("Not found on breakpad symbol server")?,
             WholesymFileLocation::BreakpadSymindexFile(rel_path) => {
                 let sym_path = self
@@ -470,14 +477,11 @@ impl Helper {
     }
 }
 
-impl FileAndPathHelper for Helper {
-    type F = WholesymFileContents;
-    type FL = WholesymFileLocation;
-
-    fn get_candidate_paths_for_debug_file(
+impl FileResolver {
+    pub fn get_candidate_paths_for_debug_file(
         &self,
         library_info: &LibraryInfo,
-    ) -> FileAndPathHelperResult<Vec<CandidatePathInfo<WholesymFileLocation>>> {
+    ) -> FileLoadResult<Vec<CandidatePathInfo>> {
         let mut paths = vec![];
 
         let mut info = library_info.clone();
@@ -575,17 +579,27 @@ impl FileAndPathHelper for Helper {
         }
 
         if let (Some(debug_name), Some(debug_id)) = (&info.debug_name, info.debug_id) {
-            let rel_path = format!(
-                "{}/{}/{}.sym",
-                debug_name,
-                debug_id.breakpad(),
-                debug_name.trim_end_matches(".pdb")
-            );
+            // Check Breakpad symbol sources, but only for debug names that are safe
+            // both as filenames and as URL segments.
+            if is_safe_filename_and_url_segment(debug_name) {
+                let rel_path = format!(
+                    "{debug_name}/{}/{}.sym",
+                    debug_id.breakpad(),
+                    debug_name.trim_end_matches(".pdb")
+                );
 
-            // Search breakpad symbol directories.
-            paths.push(CandidatePathInfo::SingleFile(
-                WholesymFileLocation::LocalBreakpadFile(rel_path.clone()),
-            ));
+                // Search breakpad symbol directories.
+                paths.push(CandidatePathInfo::SingleFile(
+                    WholesymFileLocation::LocalBreakpadFile(rel_path.clone()),
+                ));
+
+                if !might_be_fake_jit_file(&info) && !self.config.breakpad_servers.is_empty() {
+                    // We might find a .sym file on a symbol server.
+                    paths.push(CandidatePathInfo::SingleFile(
+                        WholesymFileLocation::BreakpadSymbolServerFile(rel_path),
+                    ));
+                }
+            }
 
             if debug_name.ends_with(".pdb") && self.symsrv_downloader.is_some() {
                 // We might find this pdb file with the help of a symbol server.
@@ -595,18 +609,8 @@ impl FileAndPathHelper for Helper {
                         debug_id.breakpad().to_string(),
                     ),
                 ));
-            }
 
-            if !might_be_fake_jit_file(&info) {
-                if !self.config.breakpad_servers.is_empty() {
-                    // We might find a .sym file on a symbol server.
-                    paths.push(CandidatePathInfo::SingleFile(
-                        WholesymFileLocation::BreakpadSymbolServerFile(rel_path),
-                    ));
-                }
-
-                if debug_name.ends_with(".pdb") && self.symsrv_downloader.is_some() {
-                    // We might find this pdb file with the help of a symbol server.
+                if !might_be_fake_jit_file(&info) {
                     paths.push(CandidatePathInfo::SingleFile(
                         WholesymFileLocation::SymsrvFile(
                             debug_name.clone(),
@@ -692,19 +696,20 @@ impl FileAndPathHelper for Helper {
         Ok(paths)
     }
 
-    fn get_candidate_paths_for_gnu_debug_link_dest(
+    pub fn get_candidate_paths_for_gnu_debug_link_dest(
         &self,
         original_file_location: &WholesymFileLocation,
         debug_link_name: &str,
-    ) -> FileAndPathHelperResult<Vec<WholesymFileLocation>> {
-        let absolute_original_file_parent = match original_file_location {
-            WholesymFileLocation::LocalFile(path) => {
-                let parent = path
-                    .parent()
-                    .ok_or("Original file should point to a file")?;
-                fs::canonicalize(parent)?
-            }
-            _ => return Err("Only local files have a .gnu_debuglink".into()),
+    ) -> Vec<WholesymFileLocation> {
+        let WholesymFileLocation::LocalFile(path) = original_file_location else {
+            // Only local files have a .gnu_debuglink.
+            return Vec::new();
+        };
+        let Some(parent) = path.parent() else {
+            return Vec::new();
+        };
+        let Ok(absolute_original_file_parent) = fs::canonicalize(parent) else {
+            return Vec::new();
         };
 
         // https://www-zeuthen.desy.de/unix/unixguide/infohtml/gdb/Separate-Debug-Files.html
@@ -723,13 +728,14 @@ impl FileAndPathHelper for Helper {
                     .join(debug_link_name),
             ));
         }
-        Ok(candidates)
+        candidates
     }
 
-    fn get_candidate_paths_for_binary(
+    #[cfg(feature = "api")]
+    pub fn get_candidate_paths_for_binary(
         &self,
         library_info: &LibraryInfo,
-    ) -> FileAndPathHelperResult<Vec<CandidatePathInfo<WholesymFileLocation>>> {
+    ) -> FileLoadResult<Vec<CandidatePathInfo>> {
         let mut info = library_info.clone();
         self.fill_in_library_info_details(&mut info);
 
@@ -810,27 +816,12 @@ impl FileAndPathHelper for Helper {
         Ok(paths)
     }
 
-    fn get_dyld_shared_cache_paths(
-        &self,
-        arch: Option<&str>,
-    ) -> FileAndPathHelperResult<Vec<WholesymFileLocation>> {
-        Ok(get_dyld_shared_cache_paths(arch))
-    }
-
-    fn load_file(
-        &self,
-        location: WholesymFileLocation,
-    ) -> std::pin::Pin<Box<dyn OptionallySendFuture<Output = FileAndPathHelperResult<Self::F>> + '_>>
-    {
-        Box::pin(self.load_file_impl(location))
-    }
-
-    fn get_candidate_paths_for_supplementary_debug_file(
+    pub fn get_candidate_paths_for_supplementary_debug_file(
         &self,
         original_file_path: &WholesymFileLocation,
         sup_file_path: &str,
         sup_file_build_id: &ElfBuildId,
-    ) -> FileAndPathHelperResult<Vec<WholesymFileLocation>> {
+    ) -> Vec<WholesymFileLocation> {
         let mut paths = Vec::new();
 
         if let WholesymFileLocation::LocalFile(original_file_path) = original_file_path {
@@ -862,13 +853,13 @@ impl FileAndPathHelper for Helper {
             }
         }
 
-        Ok(paths)
+        paths
     }
 
-    fn get_symbol_map_for_library(
+    pub fn get_symbol_map_for_library(
         &self,
         info: &LibraryInfo,
-    ) -> Option<(Self::FL, Arc<dyn SymbolMapTrait + Send + Sync>)> {
+    ) -> Option<(WholesymFileLocation, Arc<dyn SymbolMapTrait + Send + Sync>)> {
         let precog_symbol_data = self.precog_symbol_data.lock().unwrap();
         let symbol_map = precog_symbol_data.get(&info.debug_id?)?;
         let location = WholesymFileLocation::LocalFile(
@@ -927,19 +918,56 @@ fn might_be_fake_jit_file(info: &LibraryInfo) -> bool {
     matches!(&info.name, Some(name) if (name.starts_with("jitted-") && name.ends_with(".so")) || name.contains("jit_app_cache:"))
 }
 
-struct HelperDownloaderObserver {
-    inner: Mutex<HelperDownloaderObserverInner>,
+/// Whether `debug_name` is safe to embed unchanged into both a single-component
+/// filesystem path and a single URL path segment.
+///
+/// Rules: ASCII alphanumeric plus `.`, `-`, `_`, `~`, `+`. Empty / `.` / `..`
+/// are rejected. The allow-list is intentionally constrained to characters
+/// that are valid both as filesystem name components and as URL path segments
+/// without percent-encoding:
+/// - `.`, `-`, `_`, `~` are RFC 3986 unreserved characters
+/// - `+` is a sub-delim, valid in a path segment unencoded — included so
+///   names like `libc++.1.dylib` and `libgallium-...~bpo12+rpt1.so` pass
+///   through unchanged
+///
+/// Names containing other characters (spaces, `{`, `}`, `<`, `>`, `@`, …) are
+/// rejected. We'd want to percent-encode them for the URL, and it's easier to
+/// skip the lookup than to thread a separate URL-encoded path through various
+/// layers. We also don't really want to have to deal with cached files that
+/// have different names than what we put in the URL.
+///
+/// Results from checking a few examples:
+/// - `libgallium-24.2.8-1~bpo12+rpt1.so` contains both `+` and `~`;
+///   `https://symbols.mozilla.org/libgallium-24.2.8-1~bpo12+rpt1.so/686E9835D66E381253D84E5E01FEFAD30/libgallium-24.2.8-1~bpo12+rpt1.so.sym`
+///   returns success for all combinations of raw and percent-encoded `~`/`%7E` and `+`/`%2B`.
+/// - `<unknown>` returns HTTP 400 (server actively rejects angle brackets).
+/// - Same for square brackets as in `[vdso]` - server rejects with HTTP 400.
+///
+/// As for spaces, in theory you could have binaries with spaces in them (and, for example,
+/// Firefox on macOS ships such binaries today, e.g. "Firefox Nightly GPU Helper"),
+/// but we currently don't seem to have symbol files on the server for them. We'd
+/// need to percent-encode spaces in the URL once we do.
+fn is_safe_filename_and_url_segment(name: &str) -> bool {
+    if name.is_empty() || name == "." || name == ".." {
+        return false;
+    }
+    name.bytes()
+        .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'-' | b'_' | b'~' | b'+'))
 }
 
-struct HelperDownloaderObserverInner {
+struct FileResolverDownloaderObserver {
+    inner: Mutex<FileResolverDownloaderObserverInner>,
+}
+
+struct FileResolverDownloaderObserverInner {
     observer: Option<Arc<dyn SymbolManagerObserver>>,
     symsrv_download_id_mapping: HashMap<u64, u64>,
     downloader_download_id_mapping: HashMap<u64, u64>,
 }
 
-impl HelperDownloaderObserver {
+impl FileResolverDownloaderObserver {
     pub fn new() -> Self {
-        let inner = HelperDownloaderObserverInner {
+        let inner = FileResolverDownloaderObserverInner {
             observer: None,
             symsrv_download_id_mapping: HashMap::new(),
             downloader_download_id_mapping: HashMap::new(),
@@ -975,7 +1003,7 @@ impl HelperDownloaderObserver {
 
 static NEXT_DOWNLOAD_ID: AtomicU64 = AtomicU64::new(0);
 
-impl SymsrvObserver for HelperDownloaderObserver {
+impl SymsrvObserver for FileResolverDownloaderObserver {
     fn on_new_download_before_connect(&self, symsrv_download_id: u64, url: &str) {
         let download_id = NEXT_DOWNLOAD_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let mut inner = self.inner.lock().unwrap();
@@ -1131,7 +1159,7 @@ impl SymsrvObserver for HelperDownloaderObserver {
     }
 }
 
-impl DownloaderObserver for HelperDownloaderObserver {
+impl DownloaderObserver for FileResolverDownloaderObserver {
     fn on_new_download_before_connect(&self, downloader_download_id: u64, url: &str) {
         let download_id = NEXT_DOWNLOAD_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let mut inner = self.inner.lock().unwrap();
@@ -1293,3 +1321,81 @@ impl DownloaderObserver for HelperDownloaderObserver {
 // I think it's ok if the logging here doesn't answer all those questions. Instead, the
 // questions can be answered by information in the response JSON... or I guess by something
 // that's stored on the SymbolMap.
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn accepts_normal_names() {
+        assert!(is_safe_filename_and_url_segment("xul.pdb"));
+        assert!(is_safe_filename_and_url_segment("libxul.so"));
+        assert!(is_safe_filename_and_url_segment("testproj"));
+        assert!(is_safe_filename_and_url_segment("libSystem.B.dylib"));
+    }
+
+    #[test]
+    fn accepts_real_world_names() {
+        // Examples lifted from eliot's `test_validate_modules_good`. These are
+        // names that have actually appeared in submitted profiles.
+        assert!(is_safe_filename_and_url_segment("TestTuple"));
+        assert!(is_safe_filename_and_url_segment(
+            "IAccessible2proxy.dll.pdb"
+        ));
+        assert!(is_safe_filename_and_url_segment("qipcap.dll"));
+        // `+` keeps libc++ working.
+        assert!(is_safe_filename_and_url_segment("libc++.1.dylib"));
+        assert!(is_safe_filename_and_url_segment("libstdc++.so.6"));
+        assert!(is_safe_filename_and_url_segment(
+            "libgmodule-2.0.so.0.6600.1"
+        ));
+        assert!(is_safe_filename_and_url_segment("ASMO_449.so"));
+        // `~` matters for Debian-style backport package names like Mesa drivers
+        // installed via apt.
+        assert!(is_safe_filename_and_url_segment(
+            "libgallium-24.2.8-1~bpo12+rpt1.so"
+        ));
+    }
+
+    #[test]
+    fn rejects_real_world_names_needing_encoding() {
+        // Also from eliot's tests. These are valid debug_filenames at the
+        // input layer but contain characters that need URL percent-encoding,
+        // so we skip breakpad lookups for them rather than encode.
+        assert!(!is_safe_filename_and_url_segment("<unknown>"));
+        assert!(!is_safe_filename_and_url_segment(
+            "{e824f0e4-72f7-4295-8879-d8ff4bf348d2}.xpi"
+        ));
+        assert!(!is_safe_filename_and_url_segment(
+            "Font Awesome 5 Free-Solid-900.otf"
+        ));
+    }
+
+    #[test]
+    fn rejects_path_separators() {
+        assert!(!is_safe_filename_and_url_segment("../../etc/passwd.pdb"));
+        assert!(!is_safe_filename_and_url_segment("/etc/passwd.pdb"));
+        assert!(!is_safe_filename_and_url_segment("\\windows\\ntdll.pdb"));
+    }
+
+    #[test]
+    fn rejects_dot_and_dotdot() {
+        assert!(!is_safe_filename_and_url_segment("."));
+        assert!(!is_safe_filename_and_url_segment(".."));
+    }
+
+    #[test]
+    fn rejects_empty() {
+        assert!(!is_safe_filename_and_url_segment(""));
+    }
+
+    #[test]
+    fn rejects_url_or_filesystem_unsafe_chars() {
+        assert!(!is_safe_filename_and_url_segment("foo bar"));
+        assert!(!is_safe_filename_and_url_segment("foo?bar"));
+        assert!(!is_safe_filename_and_url_segment("foo#bar"));
+        assert!(!is_safe_filename_and_url_segment("foo%bar"));
+        assert!(!is_safe_filename_and_url_segment("foo\x00bar"));
+        assert!(!is_safe_filename_and_url_segment("foo()*$bar"));
+    }
+}

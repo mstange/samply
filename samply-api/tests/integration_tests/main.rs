@@ -6,39 +6,222 @@ use assert_json_diff::assert_json_eq;
 pub use samply_api::debugid::DebugId;
 use samply_api::samply_symbols;
 use samply_symbols::{
-    CandidatePathInfo, FileAndPathHelper, FileAndPathHelperResult, FileLocation, LibraryInfo,
-    OptionallySendFuture, SymbolManager,
+    Error, FileLoadResult, FileLocation, FileTypes, LibraryInfo, LoadBinary, LoadSourceFile,
+    LoadStep, LoadSymbolMap, MultiArchDisambiguator, NeedsFiles, SourceFilePath, SymbolMapLoadStep,
 };
 
-#[derive(serde_derive::Serialize)]
-pub struct QueryApiJsonResult(samply_api::QueryApiJsonResult<Helper>);
+enum CandidatePathInfo {
+    SingleFile(FileLocationType),
+    InDyldCache {
+        dyld_cache_path: FileLocationType,
+        dylib_path: String,
+    },
+}
 
-pub async fn query_api(
+#[derive(serde_derive::Serialize)]
+pub struct QueryApiJsonResult(samply_api::QueryApiJsonResult<FileResolver>);
+
+pub fn query_api(
     request_url: &str,
     request_json: &str,
     symbol_directory: PathBuf,
 ) -> QueryApiJsonResult {
-    let helper = Helper { symbol_directory };
-    let symbol_manager = SymbolManager::with_helper(helper);
-    let api = samply_api::Api::new(&symbol_manager);
-    QueryApiJsonResult(api.query_api(request_url, request_json).await)
+    let helper = FileResolver { symbol_directory };
+    let mut state = match samply_api::Api::build_query::<FileResolver>(request_url, request_json) {
+        Ok(s) => s,
+        Err(e) => return QueryApiJsonResult(samply_api::QueryApiJsonResult::Err(e)),
+    };
+    use samply_api::ApiStep;
+    loop {
+        match state.poll() {
+            ApiStep::Done => break,
+            ApiStep::NeedSymbolMap(info) => {
+                let result = load_symbol_map_for_library_info(&helper, &info);
+                state.provide_symbol_map(result);
+            }
+            ApiStep::NeedBinary(info) => {
+                let result = load_binary_for_library_info(&helper, &info);
+                state.provide_binary(result);
+            }
+            ApiStep::NeedSourceFile {
+                debug_file,
+                source_file_path,
+            } => {
+                let path = SourceFilePath::RawPath(source_file_path.into());
+                match LoadSourceFile::<FileResolver>::new(&debug_file, &path) {
+                    Ok(mut sm) => {
+                        drive_inner(&mut sm, &helper, |sm| sm.poll(), |sm, r| sm.provide(r));
+                        state.provide_source_file(sm.finish());
+                    }
+                    Err(e) => state.provide_source_file(Err(e)),
+                }
+            }
+            ApiStep::NeedFile { location, .. } => {
+                let result = helper.load_file(location);
+                state.provide_file(result);
+            }
+        }
+    }
+    QueryApiJsonResult(state.finish())
 }
 
-struct Helper {
+fn load_symbol_map_for_library_info(
+    helper: &FileResolver,
+    info: &LibraryInfo,
+) -> Result<samply_symbols::SymbolMap<FileResolver>, Error> {
+    let debug_id = info
+        .debug_id
+        .ok_or(Error::NotEnoughInformationToIdentifySymbolMap)?;
+    let candidates = helper.get_candidate_paths_for_debug_file(info);
+
+    let mut errors: Vec<Error> = Vec::new();
+    for candidate in candidates {
+        let mut sm = match candidate {
+            CandidatePathInfo::SingleFile(fl) => LoadSymbolMap::<FileResolver>::new(
+                fl,
+                Some(MultiArchDisambiguator::DebugId(debug_id)),
+            ),
+            CandidatePathInfo::InDyldCache {
+                dyld_cache_path,
+                dylib_path,
+            } => LoadSymbolMap::<FileResolver>::for_dyld_cache(dyld_cache_path, dylib_path),
+        };
+        drive_load_symbol_map(&mut sm, helper);
+        match sm.finish() {
+            Ok(sm) if sm.debug_id() == debug_id => return Ok(sm),
+            Ok(sm) => errors.push(Error::UnmatchedDebugId(sm.debug_id(), debug_id)),
+            Err(e) => errors.push(e),
+        }
+    }
+    Err(match errors.len() {
+        0 => Error::NoCandidatePathForDebugFile(Box::new(info.clone())),
+        1 => errors.pop().unwrap(),
+        _ => Error::NoSuccessfulCandidate(errors),
+    })
+}
+
+fn drive_load_symbol_map(sm: &mut LoadSymbolMap<FileResolver>, helper: &FileResolver) {
+    loop {
+        match sm.poll() {
+            SymbolMapLoadStep::NeedFile { location, .. } => {
+                let location = location.clone();
+                let result = helper.load_file(location);
+                sm.provide(result);
+            }
+            SymbolMapLoadStep::NeedDebugLinkCandidates { .. } => {
+                sm.provide_candidates(Vec::new());
+            }
+            SymbolMapLoadStep::NeedSupplementaryCandidates { .. } => {
+                sm.provide_candidates(Vec::new());
+            }
+            SymbolMapLoadStep::Done => return,
+        }
+    }
+}
+
+fn load_binary_for_library_info(
+    helper: &FileResolver,
+    info: &LibraryInfo,
+) -> Result<samply_symbols::BinaryImage<<FileResolver as FileTypes>::F>, Error> {
+    if info.code_id.is_none() && (info.debug_name.is_none() || info.debug_id.is_none()) {
+        return Err(Error::NotEnoughInformationToIdentifyBinary);
+    }
+
+    let candidates = helper.get_candidate_paths_for_binary(info);
+    let disambiguator = match (&info.debug_id, &info.arch) {
+        (Some(debug_id), _) => Some(MultiArchDisambiguator::DebugId(*debug_id)),
+        (None, Some(arch)) => Some(MultiArchDisambiguator::Arch(arch.clone())),
+        (None, None) => None,
+    };
+
+    let mut last_err: Option<Error> = None;
+    for candidate in candidates {
+        let mut sm = match candidate {
+            CandidatePathInfo::SingleFile(fl) => {
+                LoadBinary::<FileResolver>::new(fl, info.name.clone(), None, disambiguator.clone())
+            }
+            CandidatePathInfo::InDyldCache {
+                dyld_cache_path,
+                dylib_path,
+            } => LoadBinary::<FileResolver>::for_dyld_cache(dyld_cache_path, dylib_path),
+        };
+        drive_inner(&mut sm, helper, |sm| sm.poll(), |sm, r| sm.provide(r));
+        match sm.finish() {
+            Ok(image) => match (info.debug_id, info.code_id.as_ref()) {
+                (Some(expected_debug_id), _) => {
+                    if image.debug_id() == Some(expected_debug_id) {
+                        return Ok(image);
+                    }
+                    last_err = Some(Error::UnmatchedDebugIdOptional(
+                        expected_debug_id,
+                        image.debug_id(),
+                    ));
+                }
+                (None, Some(expected_code_id)) => {
+                    if image.code_id().as_ref() == Some(expected_code_id) {
+                        return Ok(image);
+                    }
+                    last_err = Some(Error::UnmatchedCodeId(
+                        expected_code_id.clone(),
+                        image.code_id(),
+                    ));
+                }
+                (None, None) => return Ok(image),
+            },
+            Err(e) => last_err = Some(e),
+        }
+    }
+    Err(last_err
+        .unwrap_or_else(|| Error::NoCandidatePathForBinary(info.debug_name.clone(), info.debug_id)))
+}
+
+fn drive_inner<S, P, V>(sm: &mut S, helper: &FileResolver, mut poll: P, mut provide: V)
+where
+    P: FnMut(&S) -> LoadStep<'_, FileLocationType>,
+    V: FnMut(&mut S, Result<<FileResolver as FileTypes>::F, samply_symbols::FileLoadError>),
+{
+    loop {
+        match poll(sm) {
+            LoadStep::NeedFile { location, .. } => {
+                let location = location.clone();
+                let result = helper.load_file(location);
+                provide(sm, result);
+            }
+            LoadStep::Done => return,
+        }
+    }
+}
+
+struct FileResolver {
     symbol_directory: PathBuf,
 }
 
-impl FileAndPathHelper for Helper {
-    type F = memmap2::Mmap;
-    type FL = FileLocationType;
+impl FileResolver {
+    fn load_file(&self, location: FileLocationType) -> FileLoadResult<<Self as FileTypes>::F> {
+        let mut path = location.0;
+
+        if !path.starts_with(&self.symbol_directory) {
+            if let Some(filename) = path.file_name() {
+                let redirected_path = self.symbol_directory.join(filename);
+                if std::fs::metadata(&redirected_path).is_ok() {
+                    eprintln!("Redirecting {:?} to {:?}", &path, &redirected_path);
+                    path = redirected_path;
+                }
+            }
+        }
+
+        eprintln!("Reading file {:?}", &path);
+        let file = File::open(&path)?;
+        Ok(unsafe { memmap2::MmapOptions::new().map(&file)? })
+    }
 
     fn get_candidate_paths_for_debug_file(
         &self,
         library_info: &LibraryInfo,
-    ) -> FileAndPathHelperResult<Vec<CandidatePathInfo<FileLocationType>>> {
+    ) -> Vec<CandidatePathInfo> {
         let debug_name = match library_info.debug_name.as_deref() {
             Some(debug_name) => debug_name,
-            None => return Ok(Vec::new()),
+            None => return Vec::new(),
         };
 
         let mut paths = vec![];
@@ -73,68 +256,17 @@ impl FileAndPathHelper for Helper {
             || self.symbol_directory.starts_with("/System/")
         {
             if let Some(dylib_path) = self.symbol_directory.join(debug_name).to_str() {
-                paths.extend(
-                    self.get_dyld_shared_cache_paths(None)
-                        .unwrap()
-                        .into_iter()
-                        .map(|dyld_cache_path| CandidatePathInfo::InDyldCache {
-                            dyld_cache_path,
-                            dylib_path: dylib_path.to_string(),
-                        }),
-                );
+                paths.extend(dyld_shared_cache_candidates(dylib_path.to_string()));
             }
         }
 
-        Ok(paths)
+        paths
     }
 
-    fn get_dyld_shared_cache_paths(
-        &self,
-        _arch: Option<&str>,
-    ) -> FileAndPathHelperResult<Vec<FileLocationType>> {
-        Ok(vec![
-            FileLocationType::new("/System/Library/dyld/dyld_shared_cache_arm64e"),
-            FileLocationType::new("/System/Library/dyld/dyld_shared_cache_x86_64h"),
-            FileLocationType::new("/System/Library/dyld/dyld_shared_cache_x86_64"),
-        ])
-    }
-
-    fn load_file(
-        &self,
-        location: FileLocationType,
-    ) -> std::pin::Pin<Box<dyn OptionallySendFuture<Output = FileAndPathHelperResult<Self::F>> + '_>>
-    {
-        Box::pin(async {
-            let mut path = location.0;
-
-            if !path.starts_with(&self.symbol_directory) {
-                // See if this file exists in self.symbol_directory.
-                // For example, when looking up object files referenced by mach-O binaries,
-                // we want to take the object files from the symbol directory if they exist,
-                // rather than from the original path.
-                if let Some(filename) = path.file_name() {
-                    let redirected_path = self.symbol_directory.join(filename);
-                    if std::fs::metadata(&redirected_path).is_ok() {
-                        // redirected_path exists!
-                        eprintln!("Redirecting {:?} to {:?}", &path, &redirected_path);
-                        path = redirected_path;
-                    }
-                }
-            }
-
-            eprintln!("Reading file {:?}", &path);
-            let file = File::open(&path)?;
-            Ok(unsafe { memmap2::MmapOptions::new().map(&file)? })
-        })
-    }
-
-    fn get_candidate_paths_for_binary(
-        &self,
-        library_info: &LibraryInfo,
-    ) -> FileAndPathHelperResult<Vec<CandidatePathInfo<FileLocationType>>> {
+    fn get_candidate_paths_for_binary(&self, library_info: &LibraryInfo) -> Vec<CandidatePathInfo> {
         let name = match library_info.name.as_deref() {
             Some(name) => name,
-            None => return Ok(Vec::new()),
+            None => return Vec::new(),
         };
 
         let mut paths = vec![];
@@ -149,20 +281,30 @@ impl FileAndPathHelper for Helper {
             || self.symbol_directory.starts_with("/System/")
         {
             if let Some(dylib_path) = self.symbol_directory.join(name).to_str() {
-                paths.extend(
-                    self.get_dyld_shared_cache_paths(None)
-                        .unwrap()
-                        .into_iter()
-                        .map(|dyld_cache_path| CandidatePathInfo::InDyldCache {
-                            dyld_cache_path,
-                            dylib_path: dylib_path.to_string(),
-                        }),
-                );
+                paths.extend(dyld_shared_cache_candidates(dylib_path.to_string()));
             }
         }
 
-        Ok(paths)
+        paths
     }
+}
+
+fn dyld_shared_cache_candidates(dylib_path: String) -> impl Iterator<Item = CandidatePathInfo> {
+    [
+        "/System/Library/dyld/dyld_shared_cache_arm64e",
+        "/System/Library/dyld/dyld_shared_cache_x86_64h",
+        "/System/Library/dyld/dyld_shared_cache_x86_64",
+    ]
+    .into_iter()
+    .map(move |p| CandidatePathInfo::InDyldCache {
+        dyld_cache_path: FileLocationType::new(p),
+        dylib_path: dylib_path.clone(),
+    })
+}
+
+impl FileTypes for FileResolver {
+    type F = memmap2::Mmap;
+    type FL = FileLocationType;
 }
 
 #[derive(Clone)]
@@ -232,11 +374,7 @@ fn compare_snapshot(
     snapshot_filename: &str,
     output_filename: &str,
 ) {
-    let output = futures::executor::block_on(crate::query_api(
-        request_url,
-        request_json,
-        symbol_directory,
-    ));
+    let output = crate::query_api(request_url, request_json, symbol_directory);
     let output = serde_json::to_string(&output).unwrap();
 
     let output_json: serde_json::Value = serde_json::from_str(&output).unwrap();

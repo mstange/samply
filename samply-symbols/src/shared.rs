@@ -1,53 +1,18 @@
 use std::fmt::{Debug, Display};
-use std::future::Future;
 use std::marker::PhantomData;
 use std::ops::{Deref, Range};
-use std::sync::Arc;
 
 #[cfg(feature = "partial_read_stats")]
 use bitvec::{bitvec, prelude::BitVec};
 use debugid::DebugId;
 use object::read::ReadRef;
-use samply_debugid::{CodeId, ElfBuildId};
+use samply_debugid::CodeId;
 
 use crate::generation::SymbolMapGeneration;
-use crate::symbol_map::SymbolMapTrait;
 use crate::SourceFilePathHandle;
 
-pub type FileAndPathHelperError = Box<dyn std::error::Error + Send + Sync + 'static>;
-pub type FileAndPathHelperResult<T> = std::result::Result<T, FileAndPathHelperError>;
-
-// Define a OptionallySendFuture trait. This exists for the following reasons:
-//  - The "+ Send" in the return types of the FileAndPathHelper trait methods
-//    trickles down all the way to the root async functions exposed by this crate.
-//  - We have two consumers: One that requires Send on the futures returned by those
-//    root functions, and one that cannot return Send futures from the trait methods.
-//    The former is hyper/tokio (in profiler-symbol-server), the latter is the wasm/js
-//    implementation: JsFutures are not Send.
-// So we provide a cargo feature to allow the consumer to select whether they want Send or not.
-//
-// Please tell me that there is a better way.
-
-#[cfg(not(feature = "send_futures"))]
-pub trait OptionallySendFuture: Future {}
-
-#[cfg(not(feature = "send_futures"))]
-impl<T> OptionallySendFuture for T where T: Future {}
-
-#[cfg(feature = "send_futures")]
-pub trait OptionallySendFuture: Future + Send {}
-
-#[cfg(feature = "send_futures")]
-impl<T> OptionallySendFuture for T where T: Future + Send {}
-
-#[derive(Debug)]
-pub enum CandidatePathInfo<FL: FileLocation> {
-    SingleFile(FL),
-    InDyldCache {
-        dyld_cache_path: FL,
-        dylib_path: String,
-    },
-}
+pub type FileLoadError = Box<dyn std::error::Error + Send + Sync + 'static>;
+pub type FileLoadResult<T> = std::result::Result<T, FileLoadError>;
 
 /// An address that can be looked up in a `SymbolMap`.
 ///
@@ -187,87 +152,19 @@ impl LibraryInfo {
     }
 }
 
-/// This is the trait that consumers need to implement so that they can call
-/// the main entry points of this crate. This crate contains no direct file
-/// access - all access to the file system is via this trait, and its associated
-/// trait `FileContents`.
-pub trait FileAndPathHelper {
+/// A pure type-bundle trait that names the [`FileContents`] and [`FileLocation`]
+/// types used together by the sans-IO state machines.
+///
+/// This trait has no methods. Its only role is to pair `F` and `FL` behind a
+/// single type parameter, so generic signatures like `LoadSymbolMap<FT>` can
+/// stay one parameter instead of two. Implementers typically define an empty
+/// struct (or a tag-only type) and write a single trivial impl.
+///
+/// I/O — fetching file bytes, enumerating candidate paths — is the driver's
+/// responsibility and lives outside this trait.
+pub trait FileTypes {
     type F: FileContents + 'static;
     type FL: FileLocation + 'static;
-
-    /// Given a "debug name" and a "breakpad ID", return a list of file paths
-    /// which may potentially have artifacts containing symbol data for the
-    /// requested binary (executable or library).
-    ///
-    /// The symbolication methods will try these paths one by one, calling
-    /// `load_file` for each until it succeeds and finds a file whose contents
-    /// match the breakpad ID. Any remaining paths are discarded.
-    ///
-    /// # Arguments
-    ///
-    ///  - `debug_name`: On Windows, this is the filename of the associated PDB
-    ///    file of the executable / DLL, for example "firefox.pdb" or "xul.pdb". On
-    ///    non-Windows, this is the filename of the binary, for example "firefox"
-    ///    or "XUL" or "libxul.so".
-    ///  - `breakpad_id`: A string of 33 hex digits, serving as a hash of the
-    ///    contents of the binary / library. On Windows, this is 32 digits "signature"
-    ///    plus one digit of "pdbAge". On non-Windows, this is the binary's UUID
-    ///    (ELF id or mach-o UUID) plus a "0" digit at the end (replacing the pdbAge).
-    ///
-    fn get_candidate_paths_for_debug_file(
-        &self,
-        info: &LibraryInfo,
-    ) -> FileAndPathHelperResult<Vec<CandidatePathInfo<Self::FL>>>;
-
-    /// TODO
-    fn get_candidate_paths_for_binary(
-        &self,
-        info: &LibraryInfo,
-    ) -> FileAndPathHelperResult<Vec<CandidatePathInfo<Self::FL>>>;
-
-    /// TODO
-    fn get_dyld_shared_cache_paths(
-        &self,
-        arch: Option<&str>,
-    ) -> FileAndPathHelperResult<Vec<Self::FL>>;
-
-    /// TODO
-    fn get_candidate_paths_for_gnu_debug_link_dest(
-        &self,
-        _original_file_location: &Self::FL,
-        _debug_link_name: &str,
-    ) -> FileAndPathHelperResult<Vec<Self::FL>> {
-        Ok(Vec::new())
-    }
-
-    /// TODO
-    fn get_candidate_paths_for_supplementary_debug_file(
-        &self,
-        _original_file_path: &Self::FL,
-        _supplementary_file_path: &str,
-        _supplementary_file_build_id: &ElfBuildId,
-    ) -> FileAndPathHelperResult<Vec<Self::FL>> {
-        Ok(Vec::new())
-    }
-
-    /// This method is the entry point for file access during symbolication.
-    /// The implementer needs to return an object which implements the `FileContents` trait.
-    /// This method is asynchronous, but once it returns, the file data needs to be
-    /// available synchronously because the `FileContents` methods are synchronous.
-    /// If there is no file at the requested path, an error should be returned (or in any
-    /// other error case).
-    fn load_file(
-        &self,
-        location: Self::FL,
-    ) -> std::pin::Pin<Box<dyn OptionallySendFuture<Output = FileAndPathHelperResult<Self::F>> + '_>>;
-
-    /// Ask the helper to return a SymbolMap if it happens to have one available already.
-    fn get_symbol_map_for_library(
-        &self,
-        _info: &LibraryInfo,
-    ) -> Option<(Self::FL, Arc<dyn SymbolMapTrait + Send + Sync>)> {
-        None
-    }
 }
 
 /// Provides synchronous access to the raw bytes of a file.
@@ -285,24 +182,16 @@ pub trait FileContents: Send + Sync {
     /// The slice's lifetime must be valid for the entire lifetime of this
     /// `FileContents` object. This restriction may be a bit cumbersome to satisfy;
     /// it's a restriction that's inherited from the `object` crate's `ReadRef` trait.
-    fn read_bytes_at(&self, offset: u64, size: u64) -> FileAndPathHelperResult<&[u8]>;
+    fn read_bytes_at(&self, offset: u64, size: u64) -> FileLoadResult<&[u8]>;
 
     /// TODO: document
-    fn read_bytes_at_until(
-        &self,
-        range: Range<u64>,
-        delimiter: u8,
-    ) -> FileAndPathHelperResult<&[u8]>;
+    fn read_bytes_at_until(&self, range: Range<u64>, delimiter: u8) -> FileLoadResult<&[u8]>;
 
     /// Append `size` bytes to `buffer`, starting to read at `offset` in the file.
     /// If successful, `buffer` must have had its len increased exactly by `size`,
     /// otherwise the caller may panic.
-    fn read_bytes_into(
-        &self,
-        buffer: &mut Vec<u8>,
-        offset: u64,
-        size: usize,
-    ) -> FileAndPathHelperResult<()>;
+    fn read_bytes_into(&self, buffer: &mut Vec<u8>, offset: u64, size: usize)
+        -> FileLoadResult<()>;
 }
 
 /// The debug information (function name, file path, line number) for a single frame
@@ -323,8 +212,13 @@ pub struct FrameDebugInfo {
     pub function_start_column: Option<u32>,
 }
 
-/// A trait which abstracts away the token that's passed to the [`FileAndPathHelper::load_file`]
-/// trait method.
+/// A trait which abstracts away the token that identifies a file the driver
+/// should load.
+///
+/// `FileLocation` values are what the sans-IO state machines surface in
+/// [`LoadStep::NeedFile`](crate::LoadStep::NeedFile); the driver translates
+/// them to actual file bytes (an [`FT::F: FileContents`](FileContents)) before
+/// feeding the result back via `provide`.
 ///
 /// This is usually something like a `PathBuf`, but it can also be more complicated. For example,
 /// in `wholesym` this is an enum which can refer to a local file or to a file from a symbol
@@ -543,7 +437,7 @@ impl<T: Deref<Target = [u8]> + Send + Sync> FileContents for T {
         <[u8]>::len(self) as u64
     }
 
-    fn read_bytes_at(&self, offset: u64, size: u64) -> FileAndPathHelperResult<&[u8]> {
+    fn read_bytes_at(&self, offset: u64, size: u64) -> FileLoadResult<&[u8]> {
         <[u8]>::get(self, offset as usize..)
             .and_then(|s| s.get(..size as usize))
             .ok_or_else(|| {
@@ -555,11 +449,7 @@ impl<T: Deref<Target = [u8]> + Send + Sync> FileContents for T {
             })
     }
 
-    fn read_bytes_at_until(
-        &self,
-        range: Range<u64>,
-        delimiter: u8,
-    ) -> FileAndPathHelperResult<&[u8]> {
+    fn read_bytes_at_until(&self, range: Range<u64>, delimiter: u8) -> FileLoadResult<&[u8]> {
         if range.end < range.start {
             return Err("Invalid range in read_bytes_at_until".into());
         }
@@ -580,7 +470,7 @@ impl<T: Deref<Target = [u8]> + Send + Sync> FileContents for T {
         buffer: &mut Vec<u8>,
         offset: u64,
         size: usize,
-    ) -> FileAndPathHelperResult<()> {
+    ) -> FileLoadResult<()> {
         buffer.extend_from_slice(self.read_bytes_at(offset, size as u64)?);
         Ok(())
     }
@@ -684,7 +574,7 @@ impl<T: FileContents> FileContentsWrapper<T> {
     }
 
     #[inline]
-    pub fn read_bytes_at(&self, offset: u64, size: u64) -> FileAndPathHelperResult<&[u8]> {
+    pub fn read_bytes_at(&self, offset: u64, size: u64) -> FileLoadResult<&[u8]> {
         #[cfg(feature = "partial_read_stats")]
         self.partial_read_stats
             .lock()
@@ -695,11 +585,7 @@ impl<T: FileContents> FileContentsWrapper<T> {
     }
 
     #[inline]
-    pub fn read_bytes_at_until(
-        &self,
-        range: Range<u64>,
-        delimiter: u8,
-    ) -> FileAndPathHelperResult<&[u8]> {
+    pub fn read_bytes_at_until(&self, range: Range<u64>, delimiter: u8) -> FileLoadResult<&[u8]> {
         #[cfg(feature = "partial_read_stats")]
         let start = range.start;
 
@@ -722,7 +608,7 @@ impl<T: FileContents> FileContentsWrapper<T> {
         buffer: &mut Vec<u8>,
         offset: u64,
         size: usize,
-    ) -> FileAndPathHelperResult<()> {
+    ) -> FileLoadResult<()> {
         #[cfg(feature = "partial_read_stats")]
         self.partial_read_stats
             .lock()
@@ -732,7 +618,7 @@ impl<T: FileContents> FileContentsWrapper<T> {
         self.file_contents.read_bytes_into(buffer, offset, size)
     }
 
-    pub fn read_entire_data(&self) -> FileAndPathHelperResult<&[u8]> {
+    pub fn read_entire_data(&self) -> FileLoadResult<&[u8]> {
         self.read_bytes_at(0, self.len())
     }
 

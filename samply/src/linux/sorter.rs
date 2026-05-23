@@ -99,6 +99,11 @@ impl<G: Clone + Ord, K: Ord, V> EventSorter<G, K, V> {
         }
         self.heap.pop().map(|x| x.value)
     }
+
+    /// Unconditionally pop the next event, ignoring round constraints.
+    pub fn force_pop(&mut self) -> Option<V> {
+        self.heap.pop().map(|x| x.value)
+    }
 }
 
 impl<G: Clone + Ord, K: Ord, V> Extend<(K, V)> for EventSorter<G, K, V> {
