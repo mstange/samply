@@ -35,7 +35,52 @@ static __SETUP_SAMPLY_CONNECTION: unsafe extern "C" fn() = {
     __load_samply_lib
 };
 
+/// Returns true if the current process is an Apple "platform binary"
+/// (`CS_PLATFORM_BINARY`). Such processes are given an *immovable* task-self
+/// mach port by the kernel: any attempt to transfer that port to another
+/// process — which is exactly what samply's task handoff below does — raises a
+/// fatal `EXC_GUARD` (`ILLEGAL_MOVE`) and the kernel SIGKILLs the process.
+///
+/// This is how `samply record -- <build>` would otherwise kill `dsymutil` (and
+/// other Apple toolchain binaries) that a build invokes: they inherit samply's
+/// `DYLD_INSERT_LIBRARIES`, load this preload, and crash in the handoff.
+///
+/// samply cannot profile platform binaries through this mechanism regardless
+/// (their task port is protected), so detecting this case and skipping the
+/// handoff loses nothing and keeps the process alive.
+fn is_platform_binary() -> bool {
+    // `csops(getpid(), CS_OPS_STATUS, &flags, sizeof(flags))` reports the
+    // process's code-signing status flags. It works on the calling process
+    // without any privilege. CS_PLATFORM_BINARY == 0x04000000.
+    const CS_OPS_STATUS: u32 = 0;
+    const CS_PLATFORM_BINARY: u32 = 0x0400_0000;
+    extern "C" {
+        fn csops(
+            pid: libc::pid_t,
+            ops: u32,
+            useraddr: *mut libc::c_void,
+            usersize: libc::size_t,
+        ) -> libc::c_int;
+    }
+    let mut flags: u32 = 0;
+    let r = unsafe {
+        csops(
+            libc::getpid(),
+            CS_OPS_STATUS,
+            &mut flags as *mut u32 as *mut libc::c_void,
+            core::mem::size_of::<u32>() as libc::size_t,
+        )
+    };
+    r == 0 && (flags & CS_PLATFORM_BINARY) != 0
+}
+
 fn set_up_samply_connection() -> Option<()> {
+    // Don't hand our task port to samply if we're a platform binary: the port
+    // is immovable and sending it would get us SIGKILLed. See
+    // `is_platform_binary`.
+    if is_platform_binary() {
+        return None;
+    }
     let (tx0, rx0) = channel().ok()?;
     // Safety:
     // - b"SAMPLY_BOOTSTRAP_SERVER_NAME\0" is a nul-terminated c string
