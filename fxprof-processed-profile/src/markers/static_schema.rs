@@ -87,7 +87,7 @@ pub trait Marker {
     /// Defaults to `{marker.name}` if set to `None`.
     const TOOLTIP_LABEL: Option<&'static str> = None;
 
-    /// A template string defining the label shown within each marker's box in the marker chart.
+    /// A template string defining the label shown in this marker's row in the marker table.
     ///
     /// Usable template literals are `{marker.name}` and `{marker.data.fieldkey}`.
     ///
@@ -131,10 +131,12 @@ pub struct Schema<FieldsType: MarkerFieldsTrait>(pub FieldsType::Schema);
 
 /// A graph within a marker graph track, used in [`Marker::GRAPHS`].
 pub struct MarkerGraph {
-    /// The key of a number field that's declared in the marker schema.
+    /// Must match the `key` of one of the [`MarkerField`]s in
+    /// [`Marker::FIELDS`], and that field must have a numeric format
+    /// (i.e. a [`MarkerNumberFieldFormat`](crate::MarkerNumberFieldFormat)).
     ///
-    /// The values of this field are the values of this graph line /
-    /// bar graph segment.
+    /// The values of that field across markers of this type become the values
+    /// of this graph line / bar graph segment.
     pub key: &'static str,
     /// Whether this marker graph segment is a line or a bar graph segment.
     pub graph_type: MarkerGraphType,

@@ -7,7 +7,12 @@ use super::category_color::CategoryColor;
 use super::fast_hash_map::FastIndexSet;
 use crate::Profile;
 
-/// Implemented by [`Category`], [`Subcategory`], [`CategoryHandle`] and [`SubcategoryHandle`].
+/// Conversion trait for arguments that name a subcategory.
+///
+/// Implemented by [`Category`], [`Subcategory`], [`CategoryHandle`], and
+/// [`SubcategoryHandle`]. `Profile` methods that need a subcategory
+/// (e.g. [`Profile::handle_for_frame_with_label_and_source_location`])
+/// use `impl IntoSubcategoryHandle` for the (sub)category argument.
 pub trait IntoSubcategoryHandle {
     /// Returns the corresponding [`SubcategoryHandle`].
     fn into_subcategory_handle(self, profile: &mut Profile) -> SubcategoryHandle;
@@ -17,6 +22,10 @@ pub trait IntoSubcategoryHandle {
 ///
 /// Used to categorize stack frames and markers in the front-end. The category's
 /// color is used in the activity graph and in the call tree, and in a few other places.
+///
+/// `Category` is a lightweight tuple struct: the first field is the display
+/// name, the second is the [`CategoryColor`]. Construct one with
+/// `Category("My category", CategoryColor::Blue)`.
 #[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash)]
 pub struct Category<'a>(pub &'a str, pub CategoryColor);
 
@@ -62,6 +71,9 @@ impl Serialize for CategoryHandle {
 /// If you don't need named subcategories, you can just pass a [`Category`] or a
 /// [`CategoryHandle`] in any place where an [`IntoSubcategoryHandle`] is expected;
 /// this will give you the category's default subcategory.
+///
+/// Tuple struct fields are `(parent_category, subcategory_name)`. Construct one with
+/// `Subcategory(Category("Layout", CategoryColor::Blue), "Reflow")`.
 pub struct Subcategory<'a>(pub Category<'a>, pub &'a str);
 
 impl IntoSubcategoryHandle for Subcategory<'_> {
