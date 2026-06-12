@@ -35,7 +35,18 @@ impl Serialize for StringTable {
     }
 }
 
-/// The handle for a string. Created with [`Profile::handle_for_string`](crate::Profile::handle_for_string).
+/// The handle for an interned string in the profile's string table. Created
+/// with [`Profile::handle_for_string`](crate::Profile::handle_for_string).
+///
+/// String handles are how the profile keeps its JSON small: every string that
+/// appears in a marker, frame, or thread name is interned once in a per-profile
+/// string table, and all references to it are integer handles into that table.
+/// Calling `handle_for_string` with the same string twice always returns the
+/// same handle.
+///
+/// The handle is specific to the [`Profile`](crate::Profile) instance it was
+/// created from. Using it with a different `Profile` will produce nonsense
+/// strings or panics. Storing and reusing the handle avoids repeated lookups.
 #[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash)]
 pub struct StringHandle(pub(crate) StringIndex);
 

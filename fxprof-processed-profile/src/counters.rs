@@ -6,7 +6,15 @@ use crate::timestamp::{
 };
 use crate::{GraphColor, ProcessHandle, Timestamp};
 
-/// A counter. Can be created with [`Profile::add_counter`](crate::Profile::add_counter).
+/// A handle that identifies a counter in a [`Profile`](crate::Profile). Created
+/// with [`Profile::add_counter`](crate::Profile::add_counter).
+///
+/// Counters track a numeric quantity over time (e.g. resident memory, allocated
+/// bytes) and are rendered as graphs in the profiler UI. Samples are added with
+/// [`Profile::add_counter_sample`](crate::Profile::add_counter_sample).
+///
+/// The handle is specific to the [`Profile`](crate::Profile) instance it was
+/// created from.
 #[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash)]
 pub struct CounterHandle(pub(crate) usize);
 
