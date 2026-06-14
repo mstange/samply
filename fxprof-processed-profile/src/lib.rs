@@ -40,6 +40,16 @@
 //! # Ok(())
 //! # }
 //! ```
+//!
+//! ## Symbolication
+//!
+//! Profiles built with this crate typically contain raw code addresses rather
+//! than function names. The Firefox Profiler can symbolicate addresses on
+//! demand, but you can also bake symbol information into the profile ahead of
+//! time. Build a [`symbol_info::ProfileSymbolInfo`] containing the addresses
+//! you care about and their resolved names / file / line info, then call
+//! [`Profile::make_symbolicated_profile`] to produce a new, symbolicated
+//! profile.
 
 pub use debugid;
 
@@ -101,7 +111,22 @@ pub use string_table::StringHandle;
 pub use thread::ProcessHandle;
 pub use timestamp::Timestamp;
 
-/// A module for types used in [`Profile::make_symbolicated_profile`].
+/// Types describing symbol information for after-the-fact symbolication.
+///
+/// Used as input to [`Profile::make_symbolicated_profile`]. The flow is:
+///
+/// 1. Build an unsymbolicated [`Profile`] in the usual way, using raw code
+///    addresses for native frames.
+/// 2. Collect the addresses you want symbolicated (see
+///    [`Profile::native_frame_addresses_per_library`]) and resolve them via
+///    whichever symbolicator you use (DWARF, PDB, symbol server, ...).
+/// 3. Pack the results into a [`symbol_info::ProfileSymbolInfo`]: one
+///    [`symbol_info::LibSymbolInfo`] per [`LibraryHandle`], each containing the
+///    resolved [`symbol_info::AddressInfo`] for its addresses. Strings (function
+///    names, file paths) are stored once in the [`symbol_info::SymbolStringTable`]
+///    and referenced by [`symbol_info::SymbolStringIndex`].
+/// 4. Call [`Profile::make_symbolicated_profile`] to obtain a new, symbolicated
+///    profile.
 pub mod symbol_info {
     pub use crate::profile_symbol_info::*;
 }
