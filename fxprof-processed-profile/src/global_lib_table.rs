@@ -126,6 +126,17 @@ impl GlobalLibIndex {
     }
 }
 
-/// The handle for a library, obtained from [`Profile::add_lib`](crate::Profile::add_lib).
+/// A handle that identifies a library (binary, DSO, JIT module, ...) in a
+/// [`Profile`](crate::Profile). Created with
+/// [`Profile::add_lib`](crate::Profile::add_lib).
+///
+/// Used in [`FrameAddress`](crate::FrameAddress)'s relative-address variants
+/// and as the value type stored in per-process library mappings (see
+/// [`Profile::add_lib_mapping`](crate::Profile::add_lib_mapping)). Storing and
+/// reusing the handle avoids repeated lookups when adding many mappings or
+/// frames for the same library.
+///
+/// The handle is specific to the [`Profile`](crate::Profile) instance it was
+/// created from.
 #[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash)]
 pub struct LibraryHandle(usize);

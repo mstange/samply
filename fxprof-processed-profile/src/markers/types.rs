@@ -5,11 +5,21 @@ use crate::Timestamp;
 
 /// The handle for a marker. Returned from [`Profile::add_marker`](crate::Profile::add_marker).
 ///
-/// This allows adding a stack to marker after the marker has been added.
+/// Keep the handle if you want to attach a stack to the marker afterwards via
+/// [`Profile::set_marker_stack`](crate::Profile::set_marker_stack); otherwise it
+/// can be discarded.
 #[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash)]
 pub struct MarkerHandle(pub(crate) usize);
 
-/// The handle for a marker type. Returned from [`Profile::register_marker_type`](crate::Profile::register_marker_type).
+/// The handle for a marker type. Returned from
+/// [`Profile::register_marker_type`](crate::Profile::register_marker_type) (for
+/// runtime-defined schemas) or
+/// [`Profile::static_schema_marker_type`](crate::Profile::static_schema_marker_type)
+/// (for compile-time [`Marker`](crate::Marker) types).
+///
+/// The handle identifies the schema all of a type's markers share, and is what
+/// implementations of [`DynamicSchemaMarker::marker_type`](crate::DynamicSchemaMarker::marker_type)
+/// must return.
 #[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash)]
 pub struct MarkerTypeHandle(pub(crate) usize);
 
@@ -37,15 +47,33 @@ pub enum MarkerTiming {
 }
 
 /// The kind of a marker field.
+///
+/// Each kind has its own format enum which provides the concrete display format:
+/// see [`MarkerStringFieldFormat`](crate::MarkerStringFieldFormat),
+/// [`MarkerNumberFieldFormat`](crate::MarkerNumberFieldFormat), and
+/// [`MarkerFlowFieldFormat`](crate::MarkerFlowFieldFormat).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum MarkerFieldKind {
+    /// A string-valued field. The concrete format is one of
+    /// [`MarkerStringFieldFormat`](crate::MarkerStringFieldFormat).
     String,
+    /// A numeric (`f64`) field. The concrete format is one of
+    /// [`MarkerNumberFieldFormat`](crate::MarkerNumberFieldFormat).
     Number,
+    /// A flow field — a `u64` identifier that links related markers together.
+    /// The concrete format is one of [`MarkerFlowFieldFormat`](crate::MarkerFlowFieldFormat).
     Flow,
 }
 
 bitflags! {
     /// Locations in the profiler UI where markers can be displayed.
+    ///
+    /// Combine flags with the bitwise `|` operator:
+    ///
+    /// ```
+    /// use fxprof_processed_profile::MarkerLocations;
+    /// let locations = MarkerLocations::MARKER_CHART | MarkerLocations::MARKER_TABLE;
+    /// ```
     #[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Clone, Copy)]
     pub struct MarkerLocations: u32 {
         /// Show the marker in the "marker chart" panel.
@@ -80,17 +108,31 @@ pub enum MarkerGraphType {
 }
 
 /// The color used for a graph segment within a marker graph.
+///
+/// These are named colors from the Firefox Profiler's graph palette (not
+/// arbitrary RGB values). When a marker schema uses one of these, the front-end
+/// picks the matching palette color.
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Ord, PartialOrd, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum GraphColor {
+    /// Blue.
     Blue,
+    /// Green.
     Green,
+    /// Grey.
     Grey,
+    /// Ink (dark blue / near-black).
     Ink,
+    /// Magenta.
     Magenta,
+    /// Orange.
     Orange,
+    /// Purple.
     Purple,
+    /// Red.
     Red,
+    /// Teal.
     Teal,
+    /// Yellow.
     Yellow,
 }
