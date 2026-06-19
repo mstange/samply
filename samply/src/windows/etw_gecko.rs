@@ -588,5 +588,10 @@ fn process_trace(
                 context.handle_unknown_event(timestamp_raw, tid, task_and_op, text);
             }
         }
-    })
+    })?;
+
+    // Emit any samples whose stacks never arrived before the trace ended.
+    context.flush_pending_stacks();
+
+    Ok(())
 }

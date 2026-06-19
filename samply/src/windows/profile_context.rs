@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, HashMap, VecDeque};
+use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
 use std::time::Duration;
 
@@ -36,19 +36,35 @@ use crate::shared::unresolved_samples::{
 use crate::windows::firefox::{
     PHASE_INSTANT, PHASE_INTERVAL, PHASE_INTERVAL_END, PHASE_INTERVAL_START,
 };
+use crate::windows::stack_stitcher::{Finalized, StackStitcher, StitchedStack};
 
-/// An on- or off-cpu-sample for which the user stack is not known yet.
-/// Consumed once the user stack arrives.
+/// What a pending stack is for. This is the payload we hand to the
+/// [`StackStitcher`]; once the stack is reassembled we get it back and dispatch
+/// accordingly. The stitcher itself is agnostic about this type — it just
+/// reassembles kernel/user fragments — which is what lets the same stitching
+/// logic serve sample stacks and marker stacks alike.
 #[derive(Debug, Clone)]
-pub struct SampleWithPendingStack {
-    /// The timestamp of the SampleProf or CSwitch event
-    pub timestamp: u64,
-    /// Starts out as None. Once we encounter the kernel stack (if any), we put it here.
-    pub kernel_stack: Option<Vec<StackFrame>>,
-    pub off_cpu_sample_group: Option<OffCpuSampleGroup>,
-    pub cpu_delta: CpuDelta,
-    pub has_on_cpu_sample: bool,
-    pub per_cpu_stuff: Option<(ThreadHandle, CpuDelta)>,
+enum StackTarget {
+    /// An on- or off-cpu profiler sample.
+    Sample {
+        pid: u32,
+        thread_handle: ThreadHandle,
+        thread_label: StringHandle,
+        cpu_delta: CpuDelta,
+        off_cpu_sample_group: Option<OffCpuSampleGroup>,
+        has_on_cpu_sample: bool,
+        per_cpu_stuff: Option<(ThreadHandle, CpuDelta)>,
+    },
+    /// A marker that wants the stitched stack attached to it. Not currently
+    /// produced (CoreCLR stacks arrive pre-stitched on their own path), but the
+    /// stitcher and dispatch support it, so any future kernel/user-split marker
+    /// stack can reuse this exact path.
+    #[allow(dead_code)]
+    Marker {
+        pid: u32,
+        thread_handle: ThreadHandle,
+        marker_handle: MarkerHandle,
+    },
 }
 
 #[derive(Debug)]
@@ -143,7 +159,6 @@ pub struct Thread {
     pub is_main_thread: bool,
     pub handle: ThreadHandle,
     pub thread_label: StringHandle,
-    pub samples_with_pending_stacks: VecDeque<SampleWithPendingStack>,
     pub context_switch_data: ThreadContextSwitchData,
     #[allow(dead_code)]
     pub thread_id: u32,
@@ -167,7 +182,6 @@ impl Thread {
             is_main_thread,
             handle,
             thread_label,
-            samples_with_pending_stacks: VecDeque::new(),
             context_switch_data: Default::default(),
             pending_markers: HashMap::new(),
             thread_id: tid,
@@ -471,6 +485,10 @@ pub struct ProfileContext {
 
     context_switch_handler: ContextSwitchHandler,
 
+    /// Reassembles the kernel/user stack fragments that ETW delivers separately,
+    /// and associates them with the sample (or marker) they belong to.
+    stack_stitcher: StackStitcher<StackTarget>,
+
     // cache of device mappings
     device_mappings: HashMap<String, String>, // map of \Device\HarddiskVolume4 -> C:\
 
@@ -574,6 +592,7 @@ impl ProfileContext {
             js_jit_lib,
             coreclr_jit_lib,
             context_switch_handler: ContextSwitchHandler::new(122100), // hardcoded, but replaced once TraceStart is received
+            stack_stitcher: StackStitcher::new(),
             device_mappings: winutils::get_dos_device_mappings(),
             kernel_min,
             address_classifier,
@@ -1163,161 +1182,173 @@ impl ProfileContext {
             StackFrame::ReturnAddress(addr, stack_mode)
         }));
 
-        match first_frame_stack_mode {
-            StackMode::Kernel => self.handle_kernel_stack(timestamp_raw, pid, tid, stack),
-            StackMode::User => self.handle_user_stack(timestamp_raw, pid, tid, stack),
+        // Hand the raw fragment to the stitcher. It decides whether this is a
+        // partial kernel stack (buffered until the user stack arrives) or a
+        // terminal user stack (which finalizes this sample and all preceding
+        // pending samples on the thread). See `stack_stitcher` for details.
+        let finalized = self.stack_stitcher.on_fragment(tid, timestamp_raw, stack);
+
+        if finalized.is_empty() && pid == 4 {
+            // The System process never runs user code, so no user stack will
+            // ever arrive to finalize this kernel sample. Emit it now,
+            // kernel-only.
+            if let Some(finalized) = self.stack_stitcher.finalize_kernel_only(tid, timestamp_raw) {
+                self.emit_finalized(pid, tid, finalized);
+            }
+            return;
+        }
+
+        for finalized in finalized {
+            self.emit_finalized(pid, tid, finalized);
         }
     }
 
-    fn handle_kernel_stack(
+    /// Emit any samples whose stacks never arrived (e.g. a thread that was still
+    /// in the kernel at end of trace, or off-cpu samples that never got a user
+    /// stack). Call once after processing a trace.
+    pub fn flush_pending_stacks(&mut self) {
+        for (tid, finalized) in self.stack_stitcher.flush_all() {
+            self.emit_finalized(0, tid, finalized);
+        }
+    }
+
+    /// Turn a reassembled stack into the appropriate profile entries: a sample,
+    /// a marker stack, or — for an orphan stack with no associated request — a
+    /// standalone sample.
+    fn emit_finalized(
         &mut self,
-        timestamp_raw: u64,
-        pid: u32,
-        tid: u32,
-        stack: Vec<StackFrame>,
+        fragment_pid: u32,
+        fragment_tid: u32,
+        finalized: Finalized<StackTarget>,
     ) {
-        let Some(thread) = self.threads.get_by_tid(tid) else {
-            return;
-        };
-        let Some(index) = thread
-            .samples_with_pending_stacks
-            .iter_mut()
-            .rposition(|s| s.timestamp == timestamp_raw)
-        else {
-            return;
-        };
-        let sample_info = &mut thread.samples_with_pending_stacks[index];
-        if let Some(kernel_stack) = sample_info.kernel_stack.as_mut() {
-            log::warn!("Multiple kernel stacks for timestamp {timestamp_raw} on thread {tid}");
-            kernel_stack.extend(&stack);
+        let Finalized {
+            timestamp: timestamp_raw,
+            payload,
+            stack: StitchedStack { kernel, user },
+        } = finalized;
+
+        // Intern the stack. `convert` wants caller-most-to-callee-most order, and
+        // each half is leaf-first, so reverse them. The kernel frames are the
+        // innermost (callee-most), prefixed onto the user frames.
+        let have_user_frames = !user.is_empty();
+        let user_stack_index = self.unresolved_stacks.convert(user.into_iter().rev());
+        let stack_index = if kernel.is_empty() {
+            user_stack_index
         } else {
-            sample_info.kernel_stack = Some(stack);
-        }
-
-        if pid == 4 {
-            // No user stack will arrive. Consume the sample now.
-            let sample_info = thread.samples_with_pending_stacks.remove(index).unwrap();
-            let thread_handle = thread.handle;
-            let thread_label = thread.thread_label;
-            self.consume_sample(
-                pid,
-                sample_info,
-                UnresolvedStackHandle::EMPTY,
-                thread_handle,
-                thread_label,
-            );
-        }
-    }
-
-    fn handle_user_stack(
-        &mut self,
-        timestamp_raw: u64,
-        pid: u32,
-        tid: u32,
-        user_stack: Vec<StackFrame>,
-    ) {
-        let Some(thread) = self.threads.get_by_tid(tid) else {
-            return;
+            self.unresolved_stacks
+                .convert_with_prefix(user_stack_index, kernel.into_iter().rev())
         };
 
-        // User stacks always come last. Consume any samples with pending stacks with matching timestamp.
-        let user_stack_index = self.unresolved_stacks.convert(user_stack.into_iter().rev());
+        // The stack an off-cpu sample gets, which is not always the full stack;
+        // see the comment in `emit_sample`.
+        let off_cpu_stack_index = if have_user_frames {
+            user_stack_index
+        } else {
+            stack_index
+        };
 
-        // the number of pending stacks at or before our timestamp
-        let num_samples_with_pending_stacks = thread
-            .samples_with_pending_stacks
-            .iter()
-            .take_while(|s| s.timestamp <= timestamp_raw)
-            .count();
-
-        let samples_with_pending_stacks: VecDeque<_> = thread
-            .samples_with_pending_stacks
-            .drain(..num_samples_with_pending_stacks)
-            .collect();
-
-        let thread_handle = thread.handle;
-        let thread_label = thread.thread_label;
-
-        // Use this user stack for all pending stacks from this thread.
-        for sample_info in samples_with_pending_stacks {
-            self.consume_sample(
+        match payload {
+            Some(StackTarget::Sample {
                 pid,
-                sample_info,
-                user_stack_index,
                 thread_handle,
                 thread_label,
-            );
+                cpu_delta,
+                off_cpu_sample_group,
+                has_on_cpu_sample,
+                per_cpu_stuff,
+            }) => {
+                self.emit_sample(
+                    pid,
+                    timestamp_raw,
+                    stack_index,
+                    off_cpu_stack_index,
+                    thread_handle,
+                    thread_label,
+                    cpu_delta,
+                    off_cpu_sample_group,
+                    has_on_cpu_sample,
+                    per_cpu_stuff,
+                );
+            }
+            Some(StackTarget::Marker {
+                pid,
+                thread_handle,
+                marker_handle,
+            }) => {
+                let Some(process) = self.processes.get_by_pid(pid) else {
+                    return;
+                };
+                let timestamp = self.timestamp_converter.convert_time(timestamp_raw);
+                process.unresolved_samples.attach_stack_to_marker(
+                    thread_handle,
+                    timestamp,
+                    timestamp_raw,
+                    stack_index,
+                    marker_handle,
+                );
+            }
+            None => {
+                // Orphan: a terminal stack with no matching sample request. This
+                // happens on ARM64 guests where PROFILE events are unavailable and
+                // each StackWalk stands alone. Synthesize a standalone sample.
+                self.emit_orphan_sample(fragment_pid, fragment_tid, timestamp_raw, stack_index);
+            }
         }
     }
 
-    fn consume_sample(
+    #[allow(clippy::too_many_arguments)]
+    fn emit_sample(
         &mut self,
         pid: u32,
-        sample_info: SampleWithPendingStack,
-        user_stack_index: UnresolvedStackHandle,
+        timestamp_raw: u64,
+        stack_index: UnresolvedStackHandle,
+        off_cpu_stack_index: UnresolvedStackHandle,
         thread_handle: ThreadHandle,
         thread_label: StringHandle,
+        mut cpu_delta: CpuDelta,
+        off_cpu_sample_group: Option<OffCpuSampleGroup>,
+        has_on_cpu_sample: bool,
+        per_cpu_stuff: Option<(ThreadHandle, CpuDelta)>,
     ) {
         let Some(process) = self.processes.get_by_pid(pid) else {
             return;
         };
-        let SampleWithPendingStack {
-            timestamp: timestamp_raw,
-            kernel_stack,
-            off_cpu_sample_group,
-            mut cpu_delta,
-            has_on_cpu_sample,
-            per_cpu_stuff,
-        } = sample_info;
         let timestamp = self.timestamp_converter.convert_time(timestamp_raw);
 
         if let Some(off_cpu_sample_group) = off_cpu_sample_group {
-            let OffCpuSampleGroup {
-                begin_timestamp: begin_timestamp_raw,
-                end_timestamp: end_timestamp_raw,
-                sample_count,
-            } = off_cpu_sample_group;
-
-            // Add a sample at the beginning of the paused range.
-            // This "first sample" will carry any leftover accumulated running time ("cpu delta").
-            let begin_timestamp = self.timestamp_converter.convert_time(begin_timestamp_raw);
-            process.unresolved_samples.add_sample(
+            // Off-cpu samples get `off_cpu_stack_index`, i.e. the *user* stack
+            // alone whenever there is one. A stack walk taken at switch-in has the
+            // resume path at its leaf, and when the walk has to reach user mode it
+            // runs as an expanded-stack callout, so the leaf is the ETW tracing
+            // machinery itself (KeExpandKernelStackAndCalloutInternal /
+            // EtwpTraceStackWalk / EtwpLogContextSwapEvent / SwapContext / ...).
+            // None of that was executing during the sleeping range these samples
+            // stand for, and being at the leaf it dominates the inverted view.
+            //
+            // Threads that never run user code (the System process, pid 4) are the
+            // exception: they have no user stack to fall back on, and their
+            // switch-in walks don't need the callout, so their kernel stack is
+            // clean and genuinely describes the wait (KeWaitForSingleObject <-
+            // whatever queued the thread). Keep it rather than emitting nothing.
+            //
+            // The "first sample" of the paused range carries any leftover
+            // accumulated running time ("cpu delta"); the on-cpu sample below then
+            // gets a zero delta.
+            process.unresolved_samples.add_off_cpu_sample_group(
+                off_cpu_sample_group,
                 thread_handle,
-                begin_timestamp,
-                begin_timestamp_raw,
-                user_stack_index,
                 cpu_delta,
+                &self.timestamp_converter,
                 1,
-                None,
+                off_cpu_stack_index,
             );
             cpu_delta = CpuDelta::ZERO;
-
-            if sample_count > 1 {
-                // Emit a "rest sample" with a CPU delta of zero covering the rest of the paused range.
-                let weight = i32::try_from(sample_count - 1).unwrap_or(0);
-                let end_timestamp = self.timestamp_converter.convert_time(end_timestamp_raw);
-                process.unresolved_samples.add_sample(
-                    thread_handle,
-                    end_timestamp,
-                    end_timestamp_raw,
-                    user_stack_index,
-                    CpuDelta::ZERO,
-                    weight,
-                    None,
-                );
-            }
         }
 
         if !has_on_cpu_sample {
             return;
         }
 
-        let stack_index = if let Some(kernel_stack) = kernel_stack {
-            self.unresolved_stacks
-                .convert_with_prefix(user_stack_index, kernel_stack.into_iter().rev())
-        } else {
-            user_stack_index
-        };
         process.unresolved_samples.add_sample(
             thread_handle,
             timestamp,
@@ -1357,10 +1388,48 @@ impl ProfileContext {
         self.stack_sample_count += 1;
     }
 
+    /// Add a standalone sample for an orphan stack (a stack that arrived with no
+    /// associated sample request; see [`Self::emit_finalized`]), consuming the
+    /// thread's accumulated cpu delta.
+    fn emit_orphan_sample(
+        &mut self,
+        pid: u32,
+        tid: u32,
+        timestamp_raw: u64,
+        stack_index: UnresolvedStackHandle,
+    ) {
+        let Some(thread) = self.threads.get_by_tid(tid) else {
+            return;
+        };
+        let thread_handle = thread.handle;
+        let cpu_delta_raw = self
+            .context_switch_handler
+            .consume_cpu_delta(&mut thread.context_switch_data);
+        let cpu_delta =
+            CpuDelta::from_nanos(cpu_delta_raw * self.timestamp_converter.raw_to_ns_factor);
+        let timestamp = self.timestamp_converter.convert_time(timestamp_raw);
+        // `thread` borrow ends here (NLL).
+        let Some(process) = self.processes.get_by_pid(pid) else {
+            return;
+        };
+        process.unresolved_samples.add_sample(
+            thread_handle,
+            timestamp,
+            timestamp_raw,
+            stack_index,
+            cpu_delta,
+            1,
+            None,
+        );
+    }
+
     pub fn handle_sample(&mut self, timestamp_raw: u64, tid: u32, cpu_index: u32) {
         let Some(thread) = self.threads.get_by_tid(tid) else {
             return;
         };
+        let thread_handle = thread.handle;
+        let thread_label = thread.thread_label;
+        let pid = thread.process_id;
 
         let off_cpu_sample_group = self
             .context_switch_handler
@@ -1393,16 +1462,19 @@ impl ProfileContext {
             None
         };
 
-        thread
-            .samples_with_pending_stacks
-            .push_back(SampleWithPendingStack {
-                timestamp: timestamp_raw,
-                kernel_stack: None,
-                off_cpu_sample_group,
+        self.stack_stitcher.request_stack(
+            tid,
+            timestamp_raw,
+            StackTarget::Sample {
+                pid,
+                thread_handle,
+                thread_label,
                 cpu_delta,
+                off_cpu_sample_group,
                 has_on_cpu_sample: true,
                 per_cpu_stuff,
-            });
+            },
+        );
 
         self.sample_count += 1;
     }
@@ -1608,6 +1680,9 @@ impl ProfileContext {
         }
 
         if let Some(new_thread) = self.threads.get_by_tid(new_tid) {
+            let thread_handle = new_thread.handle;
+            let thread_label = new_thread.thread_label;
+            let pid = new_thread.process_id;
             let off_cpu_sample_group = self
                 .context_switch_handler
                 .handle_switch_in(timestamp_raw, &mut new_thread.context_switch_data);
@@ -1616,16 +1691,21 @@ impl ProfileContext {
                 .consume_cpu_delta(&mut new_thread.context_switch_data);
             let cpu_delta = self.timestamp_converter.convert_cpu_delta(cpu_delta_raw);
             if let Some(off_cpu_sample_group) = off_cpu_sample_group {
-                new_thread
-                    .samples_with_pending_stacks
-                    .push_back(SampleWithPendingStack {
-                        timestamp: timestamp_raw,
-                        kernel_stack: None,
-                        off_cpu_sample_group: Some(off_cpu_sample_group),
+                // Register an off-cpu "sample" whose stack will be filled in when
+                // the thread's next stack walk arrives (or left empty at flush).
+                self.stack_stitcher.request_stack(
+                    new_tid,
+                    timestamp_raw,
+                    StackTarget::Sample {
+                        pid,
+                        thread_handle,
+                        thread_label,
                         cpu_delta,
+                        off_cpu_sample_group: Some(off_cpu_sample_group),
                         has_on_cpu_sample: false,
                         per_cpu_stuff: None,
-                    });
+                    },
+                );
             }
             if let Some(cpus) = &mut self.cpus {
                 let combined_thread = cpus.combined_thread_handle();
