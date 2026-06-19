@@ -9,6 +9,7 @@ mod gfx;
 pub mod import;
 mod profile_context;
 pub mod profiler;
+mod stack_stitcher;
 mod utility_process;
 mod winutils;
 mod xperf;

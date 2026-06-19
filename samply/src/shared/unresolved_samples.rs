@@ -5,6 +5,8 @@ use fxprof_processed_profile::{CpuDelta, FrameHandle, MarkerHandle, ThreadHandle
 use rustc_hash::FxBuildHasher;
 use schnellru::{ByLength, LruMap};
 
+use super::context_switch::OffCpuSampleGroup;
+use super::timestamp_converter::TimestampConverter;
 use super::types::{FastHashMap, StackFrame, StackMode};
 
 #[derive(Debug, Clone, Default)]
@@ -113,6 +115,54 @@ impl UnresolvedSamples {
                     prev_sample_index_if_zero_cpu: Some(sample_index),
                 });
             }
+        }
+    }
+
+    /// Expand an [`OffCpuSampleGroup`] into the samples that represent a paused
+    /// (off-cpu) range on a thread, all sharing the same stack:
+    ///  - a "first sample" at the start of the range, carrying any leftover
+    ///    accumulated running time (`cpu_delta`), and
+    ///  - if the range spans more than one sampling interval, a zero-cpu "rest
+    ///    sample" at the end covering the remainder.
+    #[allow(clippy::too_many_arguments)]
+    pub fn add_off_cpu_sample_group(
+        &mut self,
+        off_cpu_sample: OffCpuSampleGroup,
+        thread_handle: ThreadHandle,
+        cpu_delta: CpuDelta,
+        timestamp_converter: &TimestampConverter,
+        off_cpu_weight_per_sample: i32,
+        off_cpu_stack: UnresolvedStackHandle,
+    ) {
+        let OffCpuSampleGroup {
+            begin_timestamp: begin_timestamp_raw,
+            end_timestamp: end_timestamp_raw,
+            sample_count,
+        } = off_cpu_sample;
+
+        let begin_timestamp = timestamp_converter.convert_time(begin_timestamp_raw);
+        self.add_sample(
+            thread_handle,
+            begin_timestamp,
+            begin_timestamp_raw,
+            off_cpu_stack,
+            cpu_delta,
+            off_cpu_weight_per_sample,
+            None,
+        );
+
+        if sample_count > 1 {
+            let weight = i32::try_from(sample_count - 1).unwrap_or(0) * off_cpu_weight_per_sample;
+            let end_timestamp = timestamp_converter.convert_time(end_timestamp_raw);
+            self.add_sample(
+                thread_handle,
+                end_timestamp,
+                end_timestamp_raw,
+                off_cpu_stack,
+                CpuDelta::ZERO,
+                weight,
+                None,
+            );
         }
     }
 
