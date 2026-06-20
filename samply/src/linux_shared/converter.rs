@@ -34,7 +34,7 @@ use super::avma_range::AvmaRange;
 use super::convert_regs::ConvertRegs;
 use super::event_interpretation::{EventInterpretation, OffCpuIndicator};
 use super::injected_jit_object::{correct_bad_perf_jit_so_file, jit_function_name};
-use super::kernel_symbols::{kernel_module_build_id, KernelSymbols};
+use super::kernel_symbols::{kernel_module_build_id, parse_proc_modules, KernelSymbols};
 use super::mmap_range_or_vec::MmapRangeOrVec;
 use super::pe_mappings::{PeMappings, SuspectedPeMapping};
 use super::processes::Processes;
@@ -59,6 +59,7 @@ use crate::shared::unresolved_samples::{
 };
 use crate::shared::utils::open_file_with_fallback;
 
+const PROT_READ: u32 = 0b001;
 const PROT_EXEC: u32 = 0b100;
 
 pub struct Converter<U>
@@ -160,7 +161,9 @@ where
                 Some(interval_ns) => (*interval_ns, 1),
                 None => (DEFAULT_OFF_CPU_SAMPLING_INTERVAL_NS, 0),
             };
-        let kernel_symbols = KernelSymbols::new_for_running_kernel().ok();
+        let kernel_symbols = KernelSymbols::new_for_running_kernel()
+            .inspect_err(|err| log::warn!("Failed to load kernel symbols: {err}"))
+            .ok();
 
         let timestamp_converter = TimestampConverter {
             reference_raw: first_sample_time,
@@ -425,7 +428,9 @@ where
         }
 
         if let (Some(cpu_index), Some(cpus)) = (e.cpu, &mut self.cpus) {
-            let stack_index = self.unresolved_stacks.convert(stack.iter().rev().cloned());
+            let stack_index = self
+                .unresolved_stacks
+                .convert(self.stack_scratch.iter().rev().cloned());
             let cpu = cpus.get_mut(cpu_index as usize, &mut self.profile);
             let timestamp = self.timestamp_converter.convert_time(timestamp_mono);
             let marker_handle = self.profile.add_marker(
@@ -624,9 +629,7 @@ where
         fold_recursive_prefix: bool,
         call_chain_return_addresses_are_preadjusted: bool,
     ) {
-        stack.truncate(0);
-
-        // CpuMode::from_misc(e.raw.misc)
+        stack.clear();
 
         // Get the first fragment of the stack from e.callchain.
         if let Some(callchain) = e.callchain {
@@ -777,7 +780,8 @@ where
             }
         } else {
             None
-        };
+        }
+        .filter(|x| !x.is_empty());
 
         // Get build_id and potentially override path from build_ids map.
         // These paths are usually the same, but in some cases the path from the build
@@ -807,6 +811,61 @@ where
                 e.length,
                 build_id.as_deref(),
                 timestamp,
+            );
+        }
+    }
+
+    /// Emit synthetic Mmap2 events for the kernel and kernel modules.
+    /// This matches how `perf record` synthesizes kernel mmap events.
+    pub fn emit_kernel_module_mappings(&mut self) {
+        let Some(kernel_symbols) = &self.kernel_symbols else {
+            return;
+        };
+
+        // Emit synthetic Mmap2 event for the main kernel image.
+        let text_start = kernel_symbols.base_avma;
+        let text_end = kernel_symbols.end_avma;
+        if text_start != 0 && text_end > text_start {
+            let path = b"[kernel.kallsyms]_text";
+            let build_id = kernel_symbols.build_id.clone();
+            self.handle_mmap2(
+                Mmap2Record {
+                    pid: -1,
+                    tid: 0,
+                    address: text_start,
+                    length: text_end - text_start,
+                    // perf sets pgoff to the ref_reloc_sym address (_text)
+                    page_offset: text_start,
+                    file_id: Mmap2FileId::BuildId(build_id),
+                    protection: PROT_READ | PROT_EXEC,
+                    flags: 0,
+                    path: linux_perf_event_reader::RawData::Single(path),
+                    cpu_mode: linux_perf_event_reader::CpuMode::Kernel,
+                },
+                0,
+            );
+        }
+
+        // Emit synthetic Mmap2 events for each kernel module.
+        // Use /proc/modules for base address and size.
+        // perf uses the format "[module_name]" for kernel module paths.
+        for module in parse_proc_modules() {
+            let path = format!("[{}]", module.name);
+            let path_bytes = path.into_bytes();
+            self.handle_mmap2(
+                Mmap2Record {
+                    pid: -1,
+                    tid: 0,
+                    address: module.base_address,
+                    length: module.size,
+                    page_offset: 0,
+                    file_id: Mmap2FileId::BuildId(Vec::new()),
+                    protection: PROT_READ | PROT_EXEC,
+                    flags: 0,
+                    path: linux_perf_event_reader::RawData::Single(&path_bytes),
+                    cpu_mode: linux_perf_event_reader::CpuMode::Kernel,
+                },
+                0,
             );
         }
     }
@@ -1212,11 +1271,22 @@ where
                 }
             }
         } else {
-            self.simpleperf
-                .symbol_tables
-                .kernel_modules
-                .get(path_slice)
-                .map(|s| s.symbol_table.clone())
+            // First try kallsyms module symbols, then fall back to simpleperf
+            let kallsyms_symbols = if let DsoKey::KernelModule { name } = &dso_key {
+                let module_name = name.trim_start_matches('[').trim_end_matches(']');
+                self.kernel_symbols
+                    .as_ref()
+                    .and_then(|ks| ks.module_symbol_tables.get(module_name).cloned())
+            } else {
+                None
+            };
+            kallsyms_symbols.or_else(|| {
+                self.simpleperf
+                    .symbol_tables
+                    .kernel_modules
+                    .get(path_slice)
+                    .map(|s| s.symbol_table.clone())
+            })
         };
 
         let lib_handle = self.profile.add_lib(LibraryInfo {
