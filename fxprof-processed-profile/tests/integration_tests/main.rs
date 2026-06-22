@@ -9,9 +9,11 @@ use fxprof_processed_profile::{
     ReferenceTimestamp, SamplingInterval, Schema, StringHandle, Symbol, SymbolTable, Timestamp,
     WeightType,
 };
-use serde_json::json;
+use serde_json::{json, Value};
 
-// TODO: Add tests for SubcategoryHandle, ProcessHandle, ThreadHandle
+fn column<'a>(value: &'a Value, path: &[&str]) -> &'a Value {
+    path.iter().fold(value, |value, key| &value[*key])
+}
 
 /// An example marker type with some text content.
 #[derive(Debug, Clone)]
@@ -35,6 +37,112 @@ impl Marker for TextMarker {
     fn field_values(&self) -> StringHandle {
         self.text
     }
+}
+
+#[test]
+fn handles_are_applied_to_the_right_profile_entities() {
+    let mut profile = Profile::new(
+        "handles",
+        ReferenceTimestamp::from_millis_since_unix_epoch(0.0),
+        SamplingInterval::from_millis(1),
+    );
+
+    let process0 = profile.add_process(
+        "second process",
+        100,
+        Timestamp::from_millis_since_reference(1.0),
+    );
+    let process1 = profile.add_process(
+        "first process",
+        100,
+        Timestamp::from_millis_since_reference(0.0),
+    );
+    let _process0_main_thread = profile.add_thread(
+        process0,
+        10,
+        Timestamp::from_millis_since_reference(0.0),
+        true,
+    );
+    let process0_worker_thread = profile.add_thread(
+        process0,
+        11,
+        Timestamp::from_millis_since_reference(1.0),
+        false,
+    );
+    let _process1_main_thread = profile.add_thread(
+        process1,
+        10,
+        Timestamp::from_millis_since_reference(0.0),
+        true,
+    );
+
+    profile.set_thread_name(process0_worker_thread, "worker");
+    profile.add_initial_visible_thread(process0_worker_thread);
+    profile.add_initial_selected_thread(process0_worker_thread);
+
+    let category = profile.handle_for_category(Category("Rust", CategoryColor::Orange));
+    let parsing = profile.handle_for_subcategory(category, "Parsing");
+    let label = profile.handle_for_string("parse_module");
+    let frame = profile.handle_for_frame_with_label(label, parsing, FrameFlags::empty());
+    let stack = profile.handle_for_stack(frame, None);
+    profile.add_sample(
+        process0_worker_thread,
+        Timestamp::from_millis_since_reference(2.0),
+        Some(stack),
+        CpuDelta::ZERO,
+        1,
+    );
+
+    let json = serde_json::to_value(profile).unwrap();
+
+    assert_eq!(
+        column(&json, &["meta", "categories"]),
+        &json!([
+            {
+                "name": "Other",
+                "color": "grey",
+                "subcategories": ["Other"]
+            },
+            {
+                "name": "Rust",
+                "color": "orange",
+                "subcategories": ["Other", "Parsing"]
+            }
+        ])
+    );
+    assert_eq!(
+        column(&json, &["shared", "frameTable", "category"]),
+        &json!([1])
+    );
+    assert_eq!(
+        column(&json, &["shared", "frameTable", "subcategory"]),
+        &json!([1])
+    );
+    assert_eq!(
+        column(&json, &["shared", "stringArray"]),
+        &json!(["parse_module"])
+    );
+
+    assert_eq!(
+        column(&json, &["meta", "initialVisibleThreads"]),
+        &json!([2])
+    );
+    assert_eq!(
+        column(&json, &["meta", "initialSelectedThreads"]),
+        &json!([2])
+    );
+
+    let threads = column(&json, &["threads"]);
+    assert_eq!(threads[0]["processName"], "first process");
+    assert_eq!(threads[0]["pid"], "100.1");
+    assert_eq!(threads[0]["tid"], "10.1");
+    assert_eq!(threads[1]["processName"], "second process");
+    assert_eq!(threads[1]["pid"], "100");
+    assert_eq!(threads[1]["tid"], "10");
+    assert_eq!(threads[2]["processName"], "second process");
+    assert_eq!(threads[2]["name"], "worker");
+    assert_eq!(threads[2]["tid"], "11");
+    assert_eq!(column(&threads[2], &["samples", "stack"]), &json!([0]));
 }
 
 #[test]
