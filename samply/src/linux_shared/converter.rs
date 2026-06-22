@@ -626,9 +626,9 @@ where
     ) {
         stack.truncate(0);
 
-        // CpuMode::from_misc(e.raw.misc)
-
-        // Get the first fragment of the stack from e.callchain.
+        // Parse e.callchain into kernel frames and user FP frames.
+        let mut callchain_buf = Vec::new();
+        let mut callchain_kernel_len = 0;
         if let Some(callchain) = e.callchain {
             let mut is_first_frame = true;
             let mut mode = StackMode::from(e.cpu_mode);
@@ -647,13 +647,20 @@ where
                         (false, false) => StackFrame::ReturnAddress(address, mode),
                         (false, true) => StackFrame::AdjustedReturnAddress(address, mode),
                     };
-                stack.push(stack_frame);
+                callchain_buf.push(stack_frame);
 
                 is_first_frame = false;
             }
+            callchain_kernel_len = callchain_buf.iter().take_while(|f| f.is_kernel()).count();
         }
+        let (kernel_frames, fp_user_frames) = callchain_buf.split_at(callchain_kernel_len);
+
+        // Start with kernel frames from the callchain.
+        stack.extend_from_slice(kernel_frames);
 
         // Append the user stack with the help of DWARF unwinding.
+        let mut dwarf_truncated = false;
+        let dwarf_start = stack.len();
         if let (Some(regs), Some((user_stack, _))) = (&e.user_regs, e.user_stack) {
             let ustack_bytes = RawDataU64::from_raw_data::<LittleEndian>(user_stack);
             let (pc, sp, regs) = C::convert_regs(regs);
@@ -671,7 +678,7 @@ where
                     Ok(Some(frame)) => frame,
                     Ok(None) => break,
                     Err(_) => {
-                        stack.push(StackFrame::TruncatedStackMarker);
+                        dwarf_truncated = true;
                         break;
                     }
                 };
@@ -684,6 +691,28 @@ where
                     }
                 };
                 stack.push(stack_frame);
+            }
+        }
+
+        // If DWARF unwinding was truncated, fall back to the user portion of
+        // the kernel's FP callchain for the remaining (deeper) frames.
+        if dwarf_truncated && fp_user_frames.len() > 1 {
+            let last_dwarf_addr = stack.last().map(|f| f.address());
+            let splice_idx = last_dwarf_addr
+                .and_then(|addr| fp_user_frames.iter().position(|f| f.address() == addr))
+                .map(|i| i + 1)
+                .unwrap_or(fp_user_frames.len());
+            if splice_idx < fp_user_frames.len() {
+                stack.extend_from_slice(&fp_user_frames[splice_idx..]);
+            }
+        } else if dwarf_truncated || stack.len() == dwarf_start {
+            // No DWARF frames at all, or truncated with no FP fallback available.
+            // Use the FP user frames directly if we have them, otherwise just the
+            // callchain frames were already added above.
+            if stack.len() == dwarf_start && !fp_user_frames.is_empty() {
+                stack.extend_from_slice(fp_user_frames);
+            } else if dwarf_truncated {
+                stack.push(StackFrame::TruncatedStackMarker);
             }
         }
 
