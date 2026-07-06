@@ -13,6 +13,12 @@ use serde_json::json;
 
 // TODO: Add tests for SubcategoryHandle, ProcessHandle, ThreadHandle
 
+/// Serialize the profile via [`Profile::to_vec`] and re-parse it into a
+/// [`serde_json::Value`] so it can be compared with [`assert_json_eq`].
+fn profile_as_json_value(profile: &Profile) -> serde_json::Value {
+    serde_json::from_slice(&profile.to_vec()).expect("profile JSON must parse")
+}
+
 /// An example marker type with some text content.
 #[derive(Debug, Clone)]
 pub struct TextMarker {
@@ -289,9 +295,9 @@ fn profile_without_js() {
         1,
     );
 
-    // eprintln!("{}", serde_json::to_string_pretty(&profile).unwrap());
+    // eprintln!("{}", String::from_utf8_lossy(&profile.to_vec()));
     assert_json_eq!(
-        profile,
+        profile_as_json_value(&profile),
         json!(
           {
             "meta": {
@@ -969,9 +975,9 @@ fn profile_with_js() {
         1,
     );
 
-    // eprintln!("{}", serde_json::to_string_pretty(&profile).unwrap());
+    // eprintln!("{}", String::from_utf8_lossy(&profile.to_vec()));
     assert_json_eq!(
-        profile,
+        profile_as_json_value(&profile),
         json!(
           {
             "meta": {
@@ -1237,9 +1243,9 @@ fn profile_counters_with_sorted_processes() {
 
     profile.set_thread_samples_weight_type(thread0, WeightType::Bytes);
 
-    // eprintln!("{}", serde_json::to_string_pretty(&profile).unwrap());
+    // eprintln!("{}", String::from_utf8_lossy(&profile.to_vec()));
     assert_json_eq!(
-        profile,
+        profile_as_json_value(&profile),
         json!(
           {
             "meta": {
@@ -1516,9 +1522,9 @@ fn test_flow_marker_fields() {
         flow_marker,
     );
 
-    // eprintln!("{}", serde_json::to_string_pretty(&profile).unwrap());
+    // eprintln!("{}", String::from_utf8_lossy(&profile.to_vec()));
     assert_json_eq!(
-        profile,
+        profile_as_json_value(&profile),
         json!(
           {
             "meta": {

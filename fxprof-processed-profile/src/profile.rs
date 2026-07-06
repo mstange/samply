@@ -172,7 +172,8 @@ pub enum TimelineUnit {
     Bytes,
 }
 
-/// Stores the profile data and can be serialized as JSON, via [`serde::Serialize`].
+/// Stores the profile data. Use [`Profile::to_writer`] or [`Profile::to_vec`]
+/// to produce the processed-profile JSON.
 ///
 /// The profile data is organized into a list of processes with threads.
 /// Each thread has its own samples and markers.
@@ -197,7 +198,7 @@ pub enum TimelineUnit {
 /// profile.add_sample(thread, Timestamp::from_millis_since_reference(0.0), Some(first_callee_node), CpuDelta::ZERO, 1);
 ///
 /// let writer = std::io::BufWriter::new(output_file);
-/// serde_json::to_writer(writer, &profile)?;
+/// profile.to_writer(writer)?;
 /// # Ok(())
 /// # }
 /// ```
@@ -1403,22 +1404,43 @@ impl Profile {
     fn contains_js_frame(&self) -> bool {
         self.shared_data.contains_js_frame()
     }
+
+    /// Serialize the profile to the given writer, as JSON.
+    ///
+    /// It's recommended to pass a [`BufWriter`](std::io::BufWriter) here.
+    pub fn to_writer<W: std::io::Write>(&self, writer: W) -> std::io::Result<()> {
+        serde_json::to_writer(writer, &SerializableProfile(self)).map_err(std::io::Error::from)
+    }
+
+    /// Serialize the profile into a Vec of bytes (as JSON) and return it.
+    pub fn to_vec(&self) -> Vec<u8> {
+        serde_json::to_vec(&SerializableProfile(self))
+            .expect("serializing a Profile to a Vec<u8> should never fail")
+    }
 }
 
-impl Serialize for Profile {
+/// Internal Serialize wrapper for [`Profile`]. Used by [`Profile::to_writer`]
+/// and [`Profile::to_vec`] to produce the processed profile JSON.
+struct SerializableProfile<'a>(&'a Profile);
+
+impl Serialize for SerializableProfile<'_> {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let profile = self.0;
         let (sorted_threads, first_thread_index_per_process, new_thread_indices) =
-            self.sorted_threads();
+            profile.sorted_threads();
         let mut map = serializer.serialize_map(None)?;
-        map.serialize_entry("meta", &SerializableProfileMeta(self, &new_thread_indices))?;
-        map.serialize_entry("libs", &self.global_libs)?;
-        map.serialize_entry("shared", &self.shared_data)?;
-        map.serialize_entry("threads", &self.serializable_threads(&sorted_threads))?;
+        map.serialize_entry(
+            "meta",
+            &SerializableProfileMeta(profile, &new_thread_indices),
+        )?;
+        map.serialize_entry("libs", &profile.global_libs)?;
+        map.serialize_entry("shared", &profile.shared_data)?;
+        map.serialize_entry("threads", &profile.serializable_threads(&sorted_threads))?;
         map.serialize_entry("pages", &[] as &[()])?;
         map.serialize_entry("profilerOverhead", &[] as &[()])?;
         map.serialize_entry(
             "counters",
-            &self.serializable_counters(&first_thread_index_per_process),
+            &profile.serializable_counters(&first_thread_index_per_process),
         )?;
         map.end()
     }
