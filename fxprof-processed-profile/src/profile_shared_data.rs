@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 use std::io::Write;
 
 use crate::fast_hash_map::FastHashSet;
-use crate::frame_table::{FrameInterner, InternalFrame};
+use crate::frame_table::{FrameInterner, FrameInternerTables, InternalFrame};
 use crate::global_lib_table::{GlobalLibIndex, UsedLibraryAddressesCollector};
 use crate::native_symbols::{NativeSymbolIndex, NativeSymbols};
 use crate::profile_symbol_info::LibSymbolInfo;
@@ -56,6 +56,10 @@ impl ProfileSharedData {
         self.frame_interner.gather_used_rvas(collector);
     }
 
+    pub fn create_tables(&self) -> FrameInternerTables {
+        self.frame_interner.create_tables()
+    }
+
     pub fn make_symbolicated_shared(
         self,
         libs: &FastHashSet<GlobalLibIndex>,
@@ -91,9 +95,17 @@ impl ProfileSharedData {
         )
     }
 
-    pub(crate) fn write_json<W: Write>(&self, ctx: &mut Writer<W>) -> std::io::Result<()> {
-        let (frame_table, func_table, source_table, resource_table) =
-            self.frame_interner.create_tables();
+    pub(crate) fn write_json<W: Write>(
+        &self,
+        ctx: &mut Writer<W>,
+        tables: FrameInternerTables,
+    ) -> std::io::Result<()> {
+        let FrameInternerTables {
+            frame_table,
+            func_table,
+            source_table,
+            resource_table,
+        } = tables;
 
         ctx.object(|w| {
             w.name("stackTable")?;

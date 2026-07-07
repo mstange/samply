@@ -16,7 +16,7 @@ use crate::cpu_delta::CpuDelta;
 use crate::fast_hash_map::{FastHashMap, FastHashSet, FastIndexSet};
 use crate::frame::FrameAddress;
 use crate::frame_table::{
-    InternalFrame, InternalFrameAddress, InternalFrameVariant, NativeFrameData,
+    FrameInternerTables, InternalFrame, InternalFrameAddress, InternalFrameVariant, NativeFrameData,
 };
 use crate::global_lib_table::{GlobalLibIndex, GlobalLibTable, LibraryHandle};
 use crate::lib_mappings::LibMappings;
@@ -1387,10 +1387,11 @@ impl Profile {
     /// It's recommended to pass a [`BufWriter`](std::io::BufWriter) here.
     pub fn to_writer<W: std::io::Write>(&self, writer: W) -> std::io::Result<()> {
         let mut json_writer = JsonStreamWriter::new(writer);
+        let tables = self.shared_data.create_tables();
         let mut ctx = Writer {
             json: &mut json_writer,
         };
-        self.write_json(&mut ctx)?;
+        self.write_json(&mut ctx, tables)?;
         json_writer.finish_document()?;
         Ok(())
     }
@@ -1403,7 +1404,11 @@ impl Profile {
         buf
     }
 
-    fn write_json<W: Write>(&self, ctx: &mut Writer<W>) -> std::io::Result<()> {
+    fn write_json<W: Write>(
+        &self,
+        ctx: &mut Writer<W>,
+        tables: FrameInternerTables,
+    ) -> std::io::Result<()> {
         let (sorted_threads, first_thread_index_per_process, new_thread_indices) =
             self.sorted_threads();
         ctx.object(|w| {
@@ -1412,7 +1417,7 @@ impl Profile {
             w.name("libs")?;
             self.global_libs.write_json(w)?;
             w.name("shared")?;
-            self.shared_data.write_json(w)?;
+            self.shared_data.write_json(w, tables)?;
             w.name("threads")?;
             w.array(|w| {
                 for thread_handle in &sorted_threads {
