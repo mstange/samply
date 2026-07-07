@@ -18,6 +18,13 @@ pub struct FrameInterner {
     contains_js_frame: bool,
 }
 
+pub struct FrameInternerTables {
+    pub frame_table: FrameTable,
+    pub func_table: FuncTable,
+    pub source_table: SourceTable,
+    pub resource_table: ResourceTable,
+}
+
 impl FrameInterner {
     pub fn new() -> Self {
         Default::default()
@@ -57,7 +64,7 @@ impl FrameInterner {
         self.contains_js_frame
     }
 
-    pub fn create_tables(&self) -> (FrameTable, FuncTable, SourceTable, ResourceTable) {
+    pub fn create_tables(&self) -> FrameInternerTables {
         let len = self.frame_key_set.len();
         let mut func_col = Vec::with_capacity(len);
         let mut category_col = Vec::with_capacity(len);
@@ -113,7 +120,12 @@ impl FrameInterner {
             inline_depth_col,
         };
 
-        (frame_table, func_table, source_table, resource_table)
+        FrameInternerTables {
+            frame_table,
+            func_table,
+            source_table,
+            resource_table,
+        }
     }
 }
 
