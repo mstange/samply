@@ -325,7 +325,7 @@ fn profile_without_js() {
                 "name": []
               },
               "interval": 1.0,
-              "preprocessedProfileVersion": 60,
+              "preprocessedProfileVersion": 61,
               "processType": 0,
               "product": "test",
               "oscpu": "macOS 14.4",
@@ -753,8 +753,11 @@ fn profile_without_js() {
               },
               "sources": {
                 "length": 0,
-                "uuid": [],
+                "id": [],
                 "filename": [],
+                "startLine": [],
+                "startColumn": [],
+                "sourceMapURL": [],
               },
               "nativeSymbols": {
                 "length": 3,
@@ -1006,7 +1009,7 @@ fn profile_with_js() {
                 "name": []
               },
               "interval": 1.0,
-              "preprocessedProfileVersion": 60,
+              "preprocessedProfileVersion": 61,
               "processType": 0,
               "product": "test with js",
               "sampleUnits": {
@@ -1114,8 +1117,11 @@ fn profile_with_js() {
               },
               "sources": {
                 "length": 0,
-                "uuid": [],
+                "id": [],
                 "filename": [],
+                "startLine": [],
+                "startColumn": [],
+                "sourceMapURL": [],
               },
               "nativeSymbols": {
                 "length": 0,
@@ -1268,7 +1274,7 @@ fn profile_counters_with_sorted_processes() {
               "initialSelectedThreads": [0],
               "initialVisibleThreads": [0],
               "interval": 1.0,
-              "preprocessedProfileVersion": 60,
+              "preprocessedProfileVersion": 61,
               "processType": 0,
               "product": "test",
               "sampleUnits": {
@@ -1315,8 +1321,11 @@ fn profile_counters_with_sorted_processes() {
               },
               "sources": {
                 "length": 0,
-                "uuid": [],
+                "id": [],
                 "filename": [],
+                "startLine": [],
+                "startColumn": [],
+                "sourceMapURL": [],
               },
               "nativeSymbols": {
                 "length": 0,
@@ -1545,7 +1554,7 @@ fn test_flow_marker_fields() {
                 "name": []
               },
               "interval": 1.0,
-              "preprocessedProfileVersion": 60,
+              "preprocessedProfileVersion": 61,
               "processType": 0,
               "product": "test",
               "sampleUnits": {
@@ -1614,8 +1623,11 @@ fn test_flow_marker_fields() {
               },
               "sources": {
                 "length": 0,
-                "uuid": [],
+                "id": [],
                 "filename": [],
+                "startLine": [],
+                "startColumn": [],
+                "sourceMapURL": [],
               },
               "nativeSymbols": {
                 "length": 0,

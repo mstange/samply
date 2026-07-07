@@ -64,11 +64,11 @@ impl Serialize for SourceTable {
         let len = self.id_col.len();
         let mut map = serializer.serialize_map(None)?;
         map.serialize_entry("length", &len)?;
-        map.serialize_entry("uuid", &self.id_col)?;
+        map.serialize_entry("id", &self.id_col)?;
         map.serialize_entry("filename", &self.file_path_col)?;
-        // map.serialize_entry("startLine", &self.start_line_col)?;
-        // map.serialize_entry("startColumn", &self.start_column_col)?;
-        // map.serialize_entry("sourceMapURL", &self.source_map_url_col)?;
+        map.serialize_entry("startLine", &self.start_line_col)?;
+        map.serialize_entry("startColumn", &self.start_column_col)?;
+        map.serialize_entry("sourceMapURL", &self.source_map_url_col)?;
         map.end()
     }
 }
