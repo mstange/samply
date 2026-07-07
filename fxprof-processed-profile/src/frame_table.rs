@@ -145,6 +145,10 @@ impl Serialize for FrameTable {
         map.serialize_entry("nativeSymbol", &self.native_symbol_col)?;
         map.serialize_entry("inlineDepth", &self.inline_depth_col)?;
         map.serialize_entry("innerWindowID", &SerializableSingleValueColumn(0, len))?;
+        map.serialize_entry(
+            "originalLocation",
+            &SerializableSingleValueColumn(Option::<u32>::None, len),
+        )?;
         map.end()
     }
 }

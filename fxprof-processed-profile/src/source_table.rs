@@ -1,6 +1,7 @@
 use serde::ser::{Serialize, SerializeMap, Serializer};
 
 use crate::fast_hash_map::FastIndexSet;
+use crate::serialization_helpers::SerializableSingleValueColumn;
 use crate::string_table::StringHandle;
 
 #[derive(Debug, Clone, Default)]
@@ -69,6 +70,10 @@ impl Serialize for SourceTable {
         map.serialize_entry("startLine", &self.start_line_col)?;
         map.serialize_entry("startColumn", &self.start_column_col)?;
         map.serialize_entry("sourceMapURL", &self.source_map_url_col)?;
+        map.serialize_entry(
+            "content",
+            &SerializableSingleValueColumn(Option::<&str>::None, len),
+        )?;
         map.end()
     }
 }

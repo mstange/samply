@@ -170,7 +170,7 @@ expression: profile_as_json_value(&profile)
     ],
     "oscpu": "macOS 14.4",
     "pausedRanges": [],
-    "preprocessedProfileVersion": 63,
+    "preprocessedProfileVersion": 64,
     "processType": 0,
     "product": "test",
     "sampleUnits": {
@@ -333,6 +333,24 @@ expression: profile_as_json_value(&profile)
         null,
         2
       ],
+      "originalLocation": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null
+      ],
       "subcategory": [
         0,
         0,
@@ -425,6 +443,24 @@ expression: profile_as_json_value(&profile)
         15,
         16,
         17
+      ],
+      "originalLocation": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null
       ],
       "relevantForJS": [
         false,
@@ -523,7 +559,14 @@ expression: profile_as_json_value(&profile)
         1
       ]
     },
+    "sourceLocationTable": {
+      "column": [],
+      "length": 0,
+      "line": [],
+      "source": []
+    },
     "sources": {
+      "content": [],
       "filename": [],
       "id": [],
       "length": 0,

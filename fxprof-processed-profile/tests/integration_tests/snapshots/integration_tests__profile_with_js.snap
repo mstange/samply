@@ -33,7 +33,7 @@ expression: profile_as_json_value(&profile)
     "interval": 1.0,
     "markerSchema": [],
     "pausedRanges": [],
-    "preprocessedProfileVersion": 63,
+    "preprocessedProfileVersion": 64,
     "processType": 0,
     "product": "test with js",
     "sampleUnits": {
@@ -84,6 +84,10 @@ expression: profile_as_json_value(&profile)
         null,
         null
       ],
+      "originalLocation": [
+        null,
+        null
+      ],
       "subcategory": [
         0,
         1
@@ -106,6 +110,10 @@ expression: profile_as_json_value(&profile)
       "name": [
         0,
         1
+      ],
+      "originalLocation": [
+        null,
+        null
       ],
       "relevantForJS": [
         false,
@@ -134,7 +142,14 @@ expression: profile_as_json_value(&profile)
       "name": [],
       "type": []
     },
+    "sourceLocationTable": {
+      "column": [],
+      "length": 0,
+      "line": [],
+      "source": []
+    },
     "sources": {
+      "content": [],
       "filename": [],
       "id": [],
       "length": 0,

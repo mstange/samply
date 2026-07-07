@@ -4,6 +4,7 @@ use crate::fast_hash_map::FastIndexSet;
 use crate::frame::FrameFlags;
 use crate::global_lib_table::GlobalLibIndex;
 use crate::resource_table::{ResourceIndex, ResourceTable};
+use crate::serialization_helpers::SerializableSingleValueColumn;
 use crate::source_table::SourceIndex;
 use crate::string_table::StringHandle;
 
@@ -94,6 +95,10 @@ impl Serialize for FuncTable {
         map.serialize_entry("source", &self.source_col)?;
         map.serialize_entry("lineNumber", &self.start_line_col)?;
         map.serialize_entry("columnNumber", &self.start_column_col)?;
+        map.serialize_entry(
+            "originalLocation",
+            &SerializableSingleValueColumn(Option::<u32>::None, len),
+        )?;
         map.end()
     }
 }
