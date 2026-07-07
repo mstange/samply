@@ -33,7 +33,7 @@ expression: profile_as_json_value(&profile)
     "interval": 1.0,
     "markerSchema": [],
     "pausedRanges": [],
-    "preprocessedProfileVersion": 64,
+    "preprocessedProfileVersion": 65,
     "processType": 0,
     "product": "test with js",
     "sampleUnits": {
