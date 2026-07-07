@@ -1,4 +1,5 @@
 use serde::ser::{Serialize, SerializeMap, Serializer};
+use serde_derive::Serialize as SerializeDerive;
 
 use crate::serialization_helpers::SliceWithPermutation;
 use crate::timestamp::{
@@ -18,6 +19,106 @@ use crate::{GraphColor, ProcessHandle, Timestamp};
 #[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash)]
 pub struct CounterHandle(pub(crate) usize);
 
+/// How a counter's samples are graphed in the profiler UI.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, SerializeDerive)]
+#[serde(rename_all = "kebab-case")]
+pub enum CounterGraphType {
+    /// Values are absolute levels (e.g. current memory usage).
+    LineAccumulated,
+    /// Values are per-sample deltas that should be displayed as a rate.
+    LineRate,
+}
+
+/// Metadata describing how a counter should be rendered in the profiler UI.
+#[derive(Debug, Clone)]
+pub struct CounterDisplayConfig {
+    /// The kind of graph used to render the counter's samples.
+    pub graph_type: CounterGraphType,
+    /// The unit of the counter's values, e.g. `"bytes"`, `"pWh"`, `"percent"`.
+    /// Use an empty string if there is no meaningful unit.
+    pub unit: String,
+    /// The color used to render the graph.
+    pub color: GraphColor,
+    /// The marker schema display location used to filter markers shown next
+    /// to the counter track (e.g. `"timeline-memory"`). `None` if no markers
+    /// should be shown.
+    pub marker_schema_location: Option<String>,
+    /// Controls the default vertical position of this counter's track.
+    /// Lower values appear closer to the top.
+    pub sort_weight: i32,
+    /// The human-readable label shown in the track sidebar.
+    pub label: String,
+}
+
+impl CounterDisplayConfig {
+    pub fn for_memory() -> Self {
+        Self {
+            graph_type: CounterGraphType::LineAccumulated,
+            unit: "bytes".to_owned(),
+            color: GraphColor::Orange,
+            marker_schema_location: Some("timeline-memory".to_owned()),
+            sort_weight: 20,
+            label: "Memory".to_owned(),
+        }
+    }
+    pub fn for_power(label: &str) -> Self {
+        Self {
+            graph_type: CounterGraphType::LineRate,
+            unit: "pWh".to_owned(),
+            color: GraphColor::Grey,
+            marker_schema_location: None,
+            sort_weight: 30,
+            label: label.to_owned(),
+        }
+    }
+
+    pub fn for_bandwidth() -> Self {
+        Self {
+            graph_type: CounterGraphType::LineRate,
+            unit: "bytes".to_owned(),
+            color: GraphColor::Blue,
+            marker_schema_location: None,
+            sort_weight: 10,
+            label: "Bandwidth".to_owned(),
+        }
+    }
+
+    pub fn for_cpu() -> Self {
+        Self {
+            graph_type: CounterGraphType::LineRate,
+            unit: "percent".to_owned(),
+            color: GraphColor::Grey,
+            marker_schema_location: None,
+            sort_weight: 40,
+            label: "Process CPU".to_owned(),
+        }
+    }
+
+    pub fn default_with_label(name: &str) -> Self {
+        Self {
+            graph_type: CounterGraphType::LineRate,
+            unit: String::new(),
+            color: GraphColor::Grey,
+            marker_schema_location: None,
+            sort_weight: 50,
+            label: name.to_owned(),
+        }
+    }
+}
+
+impl Serialize for CounterDisplayConfig {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let mut map = serializer.serialize_map(None)?;
+        map.serialize_entry("graphType", &self.graph_type)?;
+        map.serialize_entry("unit", &self.unit)?;
+        map.serialize_entry("color", &self.color)?;
+        map.serialize_entry("markerSchemaLocation", &self.marker_schema_location)?;
+        map.serialize_entry("sortWeight", &self.sort_weight)?;
+        map.serialize_entry("label", &self.label)?;
+        map.end()
+    }
+}
+
 #[derive(Debug)]
 pub struct Counter {
     name: String,
@@ -26,13 +127,14 @@ pub struct Counter {
     process: ProcessHandle,
     pid: String,
     samples: CounterSamples,
-    color: Option<GraphColor>,
+    display: CounterDisplayConfig,
 }
 
 impl Counter {
     pub fn new(
         name: &str,
         category: &str,
+        display: CounterDisplayConfig,
         description: &str,
         process: ProcessHandle,
         pid: &str,
@@ -44,7 +146,7 @@ impl Counter {
             process,
             pid: pid.to_owned(),
             samples: CounterSamples::new(),
-            color: None,
+            display,
         }
     }
 
@@ -63,7 +165,11 @@ impl Counter {
     }
 
     pub fn set_color(&mut self, color: GraphColor) {
-        self.color = Some(color);
+        self.display.color = color;
+    }
+
+    pub fn set_display(&mut self, display: CounterDisplayConfig) {
+        self.display = display;
     }
 
     pub fn as_serializable(&self, main_thread_index: usize) -> impl Serialize + '_ {
@@ -89,9 +195,7 @@ impl Serialize for SerializableCounter<'_> {
         map.serialize_entry("mainThreadIndex", &self.main_thread_index)?;
         map.serialize_entry("pid", &self.counter.pid)?;
         map.serialize_entry("samples", &self.counter.samples)?;
-        if let Some(color) = self.counter.color {
-            map.serialize_entry("color", &color)?;
-        }
+        map.serialize_entry("display", &self.counter.display)?;
         map.end()
     }
 }

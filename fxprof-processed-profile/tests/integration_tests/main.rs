@@ -3,10 +3,10 @@ use std::time::Duration;
 
 use debugid::DebugId;
 use fxprof_processed_profile::{
-    Category, CategoryColor, CpuDelta, FlowId, FrameAddress, FrameFlags, GraphColor, LibraryInfo,
-    Marker, MarkerField, MarkerGraph, MarkerGraphType, MarkerLocations, MarkerTiming, Profile,
-    ReferenceTimestamp, SamplingInterval, Schema, StringHandle, Symbol, SymbolTable, Timestamp,
-    WeightType,
+    Category, CategoryColor, CounterDisplayConfig, CpuDelta, FlowId, FrameAddress, FrameFlags,
+    GraphColor, LibraryInfo, Marker, MarkerField, MarkerGraph, MarkerGraphType, MarkerLocations,
+    MarkerTiming, Profile, ReferenceTimestamp, SamplingInterval, Schema, StringHandle, Symbol,
+    SymbolTable, Timestamp, WeightType,
 };
 
 // TODO: Add tests for SubcategoryHandle, ProcessHandle, ThreadHandle
@@ -269,8 +269,13 @@ fn profile_without_js() {
         custom_marker,
     );
 
-    let memory_counter =
-        profile.add_counter(process, "malloc", "Memory", "Amount of allocated memory");
+    let memory_counter = profile.add_counter(
+        process,
+        "malloc",
+        "Memory",
+        CounterDisplayConfig::for_memory(),
+        "Amount of allocated memory",
+    );
     profile.set_counter_color(memory_counter, GraphColor::Red);
     profile.add_counter_sample(
         memory_counter,
@@ -374,16 +379,26 @@ fn profile_counters_with_sorted_processes() {
         1,
     );
 
-    let memory_counter0 =
-        profile.add_counter(process0, "malloc", "Memory 1", "Amount of allocated memory");
+    let memory_counter0 = profile.add_counter(
+        process0,
+        "malloc",
+        "Memory 1",
+        CounterDisplayConfig::for_memory(),
+        "Amount of allocated memory",
+    );
     profile.add_counter_sample(
         memory_counter0,
         Timestamp::from_millis_since_reference(1.0),
         0.0,
         0,
     );
-    let memory_counter1 =
-        profile.add_counter(process0, "malloc", "Memory 2", "Amount of allocated memory");
+    let memory_counter1 = profile.add_counter(
+        process0,
+        "malloc",
+        "Memory 2",
+        CounterDisplayConfig::for_memory(),
+        "Amount of allocated memory",
+    );
     profile.add_counter_sample(
         memory_counter1,
         Timestamp::from_millis_since_reference(0.0),

@@ -11,7 +11,7 @@ use crate::category::{
     Category, CategoryHandle, InternalCategory, IntoSubcategoryHandle, SubcategoryHandle,
 };
 use crate::category_color::CategoryColor;
-use crate::counters::{Counter, CounterHandle};
+use crate::counters::{Counter, CounterDisplayConfig, CounterHandle};
 use crate::cpu_delta::CpuDelta;
 use crate::fast_hash_map::{FastHashMap, FastHashSet, FastIndexSet};
 use crate::frame::FrameAddress;
@@ -371,12 +371,12 @@ impl Profile {
     /// # Example
     ///
     /// ```
-    /// use fxprof_processed_profile::{Profile, CategoryHandle, CpuDelta, SamplingInterval, Timestamp};
+    /// use fxprof_processed_profile::{Profile, CategoryHandle, CounterDisplayConfig, CpuDelta, SamplingInterval, Timestamp};
     /// use std::time::SystemTime;
     ///
     /// let mut profile = Profile::new("My app", SystemTime::now().into(), SamplingInterval::from_millis(1));
     /// let process = profile.add_process("App process", 54132, Timestamp::from_millis_since_reference(0.0));
-    /// let memory_counter = profile.add_counter(process, "malloc", "Memory", "Amount of allocated memory");
+    /// let memory_counter = profile.add_counter(process, "malloc", "Memory", CounterDisplayConfig::for_memory(), "Amount of allocated memory");
     /// profile.add_counter_sample(memory_counter, Timestamp::from_millis_since_reference(0.0), 0.0, 0);
     /// profile.add_counter_sample(memory_counter, Timestamp::from_millis_since_reference(1.0), 1000.0, 2);
     /// profile.add_counter_sample(memory_counter, Timestamp::from_millis_since_reference(2.0), 800.0, 1);
@@ -386,12 +386,14 @@ impl Profile {
         process: ProcessHandle,
         name: &str,
         category: &str,
+        display: CounterDisplayConfig,
         description: &str,
     ) -> CounterHandle {
         let handle = CounterHandle(self.counters.len());
         self.counters.push(Counter::new(
             name,
             category,
+            display,
             description,
             process,
             self.processes[process.0].pid(),
@@ -402,6 +404,15 @@ impl Profile {
     /// Set the color to use when rendering the counter.
     pub fn set_counter_color(&mut self, counter: CounterHandle, color: GraphColor) {
         self.counters[counter.0].set_color(color);
+    }
+
+    /// Override the display config used when rendering the counter.
+    ///
+    /// A default is derived from the counter's `category` and `name` when the
+    /// counter is created; use this to customize graph type, unit, sort weight,
+    /// or label.
+    pub fn set_counter_display(&mut self, counter: CounterHandle, display: CounterDisplayConfig) {
+        self.counters[counter.0].set_display(display);
     }
 
     /// Change the start time of a process.
@@ -1463,7 +1474,7 @@ impl Serialize for SerializableProfileMeta<'_> {
             }),
         )?;
         map.serialize_entry("interval", &(self.0.interval.as_secs_f64() * 1000.0))?;
-        map.serialize_entry("preprocessedProfileVersion", &61)?;
+        map.serialize_entry("preprocessedProfileVersion", &62)?;
         map.serialize_entry("processType", &0)?;
         map.serialize_entry("product", &self.0.product)?;
         if let Some(os_name) = &self.0.os_name {

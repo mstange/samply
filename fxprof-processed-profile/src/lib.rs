@@ -86,7 +86,7 @@ pub use category::{
     Category, CategoryHandle, IntoSubcategoryHandle, Subcategory, SubcategoryHandle,
 };
 pub use category_color::CategoryColor;
-pub use counters::CounterHandle;
+pub use counters::{CounterDisplayConfig, CounterGraphType, CounterHandle};
 pub use cpu_delta::CpuDelta;
 pub use frame::{FrameAddress, FrameFlags};
 pub use global_lib_table::LibraryHandle;

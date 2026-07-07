@@ -6,8 +6,15 @@ expression: profile_as_json_value(&profile)
   "counters": [
     {
       "category": "Memory",
-      "color": "red",
       "description": "Amount of allocated memory",
+      "display": {
+        "color": "red",
+        "graphType": "line-accumulated",
+        "label": "Memory",
+        "markerSchemaLocation": "timeline-memory",
+        "sortWeight": 20,
+        "unit": "bytes"
+      },
       "mainThreadIndex": 0,
       "name": "malloc",
       "pid": "123",
@@ -134,7 +141,7 @@ expression: profile_as_json_value(&profile)
     ],
     "oscpu": "macOS 14.4",
     "pausedRanges": [],
-    "preprocessedProfileVersion": 61,
+    "preprocessedProfileVersion": 62,
     "processType": 0,
     "product": "test",
     "sampleUnits": {
