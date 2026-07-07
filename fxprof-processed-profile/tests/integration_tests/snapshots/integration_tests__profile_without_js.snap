@@ -13,6 +13,35 @@ expression: profile_as_json_value(&profile)
         "label": "Memory",
         "markerSchemaLocation": "timeline-memory",
         "sortWeight": 20,
+        "tooltipRows": [
+          {
+            "format": {
+              "unit": "bytes"
+            },
+            "label": "relative memory at this time",
+            "labelKey": "memory-relative",
+            "source": "accumulated",
+            "type": "value"
+          },
+          {
+            "format": {
+              "unit": "bytes"
+            },
+            "label": "memory range in graph",
+            "labelKey": "memory-range",
+            "source": "count-range",
+            "type": "value"
+          },
+          {
+            "format": {
+              "unit": "number"
+            },
+            "label": "allocations and deallocations since the previous sample",
+            "labelKey": "memory-operations",
+            "source": "sample-number",
+            "type": "value"
+          }
+        ],
         "unit": "bytes"
       },
       "mainThreadIndex": 0,
@@ -141,7 +170,7 @@ expression: profile_as_json_value(&profile)
     ],
     "oscpu": "macOS 14.4",
     "pausedRanges": [],
-    "preprocessedProfileVersion": 62,
+    "preprocessedProfileVersion": 63,
     "processType": 0,
     "product": "test",
     "sampleUnits": {
