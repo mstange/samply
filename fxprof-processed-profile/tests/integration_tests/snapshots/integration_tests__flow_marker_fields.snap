@@ -47,7 +47,7 @@ expression: profile_as_json_value(&profile)
       }
     ],
     "pausedRanges": [],
-    "preprocessedProfileVersion": 65,
+    "preprocessedProfileVersion": 66,
     "processType": 0,
     "product": "test",
     "sampleUnits": {
@@ -120,7 +120,7 @@ expression: profile_as_json_value(&profile)
     "stackTable": {
       "frame": [],
       "length": 0,
-      "prefix": []
+      "prefixOffset": []
     },
     "stringArray": [
       "Flow Start",

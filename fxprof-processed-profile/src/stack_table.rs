@@ -6,11 +6,12 @@ use serde::ser::{Serialize, SerializeMap, Serializer};
 use crate::{FrameHandle, StackHandle};
 
 /// The stack table stores the tree of stack nodes of a thread. The shape of the tree is encoded in
-/// the prefix column: Root stack nodes have null as their prefix, and every non-root stack has the
-/// stack index of its "caller" / "parent" as its prefix. Every stack node also has a frame and a
-/// category. A "call stack" is a list of frames. Every stack index in the stack table represents
-/// such a call stack; the "list of frames" is obtained by walking the path in the tree from the
-/// root to the given stack node.
+/// the `prefixOffset` column: Root stack nodes have 0 as their `prefixOffset`, and every non-root
+/// stack `i` has `prefixOffset[i] = i - parent`, where `parent` is the stack index of its "caller".
+/// Parents always come before children in the stack table, so the offset is always positive. Every
+/// stack node also has a frame and a category. A "call stack" is a list of frames. Every stack
+/// index in the stack table represents such a call stack; the "list of frames" is obtained by
+/// walking the path in the tree from the root to the given stack node.
 ///
 /// Stacks are used in the thread's samples; each sample refers to a stack index. Stacks can be
 /// shared between samples.
@@ -49,8 +50,26 @@ pub struct StackTable {
 
 #[derive(Debug, Clone, Default)]
 struct StackCols {
-    prefix: Vec<Option<StackHandle>>,
+    /// Offset from a stack's index to its parent's index. `0` means the stack
+    /// is a root. Otherwise, the parent is at `i - prefix_offset[i]`.
+    ///
+    /// Parents are always inserted before their children (the `Row` type
+    /// carries an `Option<StackHandle>` and a `StackHandle` can only refer to
+    /// an already-inserted entry), so a non-root entry's offset is always
+    /// >= 1.
+    prefix_offset: Vec<usize>,
     frame: Vec<FrameHandle>,
+}
+
+impl StackCols {
+    fn prefix_at(&self, i: usize) -> Option<StackHandle> {
+        let offset = self.prefix_offset[i];
+        if offset == 0 {
+            None
+        } else {
+            Some(StackHandle(i - offset))
+        }
+    }
 }
 
 impl ColumnarStore for StackCols {
@@ -69,17 +88,22 @@ impl ColumnarStore for StackCols {
 
     fn hash_at<H: BuildHasher>(&self, i: usize, hasher: &H) -> u64 {
         let mut h = hasher.build_hasher();
-        self.prefix[i].hash(&mut h);
+        self.prefix_at(i).hash(&mut h);
         self.frame[i].hash(&mut h);
         h.finish()
     }
 
     fn eq_at(&self, i: usize, row: &Self::Row) -> bool {
-        self.prefix[i] == row.0 && self.frame[i] == row.1
+        self.prefix_at(i) == row.0 && self.frame[i] == row.1
     }
 
     fn push(&mut self, row: Self::Row) {
-        self.prefix.push(row.0);
+        let i = self.frame.len();
+        let offset = match row.0 {
+            None => 0,
+            Some(StackHandle(p)) => i - p,
+        };
+        self.prefix_offset.push(offset);
         self.frame.push(row.1);
     }
 }
@@ -103,7 +127,18 @@ impl StackTable {
 
     pub fn into_stacks(self) -> impl Iterator<Item = (Option<StackHandle>, FrameHandle)> {
         let cols = self.set.into_store();
-        cols.prefix.into_iter().zip(cols.frame)
+        cols.prefix_offset
+            .into_iter()
+            .zip(cols.frame)
+            .enumerate()
+            .map(|(i, (offset, frame))| {
+                let prefix = if offset == 0 {
+                    None
+                } else {
+                    Some(StackHandle(i - offset))
+                };
+                (prefix, frame)
+            })
     }
 }
 
@@ -113,7 +148,7 @@ impl Serialize for StackTable {
         let len = self.set.len();
         let mut map = serializer.serialize_map(Some(3))?;
         map.serialize_entry("length", &len)?;
-        map.serialize_entry("prefix", &cols.prefix)?;
+        map.serialize_entry("prefixOffset", &cols.prefix_offset)?;
         map.serialize_entry("frame", &cols.frame)?;
         map.end()
     }
