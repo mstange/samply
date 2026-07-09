@@ -94,7 +94,7 @@ impl From<Duration> for SamplingInterval {
 /// used with any thread of the [`Profile`] it was created from. It must not be
 /// used with a different `Profile`.
 #[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash)]
-pub struct FrameHandle(pub(crate) usize);
+pub struct FrameHandle(pub(crate) i32);
 
 impl Serialize for FrameHandle {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
@@ -114,7 +114,7 @@ impl Serialize for FrameHandle {
 /// [`Profile::add_sample`], [`Profile::set_marker_stack`], etc.). It must not
 /// be used with a different `Profile`.
 #[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash)]
-pub struct StackHandle(pub(crate) usize);
+pub struct StackHandle(pub(crate) i32);
 
 impl Serialize for StackHandle {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {

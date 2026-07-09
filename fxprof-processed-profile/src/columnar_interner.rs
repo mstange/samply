@@ -85,7 +85,7 @@ macro_rules! impl_index {
         }
     )*};
 }
-impl_index!(u32, usize);
+impl_index!(u32, i32, usize);
 
 /// A deduplicating index set backed by columnar storage.
 ///

@@ -33,7 +33,7 @@ impl FrameInterner {
         {
             self.contains_js_frame = true;
         }
-        FrameHandle(frame_index)
+        FrameHandle(frame_index as i32)
     }
 
     pub fn gather_used_rvas(&self, collector: &mut UsedLibraryAddressesCollector) {

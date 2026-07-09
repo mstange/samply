@@ -45,7 +45,7 @@ use crate::{FrameHandle, StackHandle};
 /// transforms are applied.
 #[derive(Debug, Clone, Default)]
 pub struct StackTable {
-    set: ColumnarInterner<StackCols, usize>,
+    set: ColumnarInterner<StackCols, i32>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -57,8 +57,8 @@ struct StackCols {
     /// carries an `Option<StackHandle>` and a `StackHandle` can only refer to
     /// an already-inserted entry), so a non-root entry's offset is always
     /// >= 1.
-    prefix_offset: Vec<usize>,
-    frame: Vec<FrameHandle>,
+    prefix_offset: Vec<i32>,
+    frame: Vec<i32>,
 }
 
 impl StackCols {
@@ -67,7 +67,7 @@ impl StackCols {
         if offset == 0 {
             None
         } else {
-            Some(StackHandle(i - offset))
+            Some(StackHandle(i as i32 - offset))
         }
     }
 }
@@ -89,22 +89,22 @@ impl ColumnarStore for StackCols {
     fn hash_at<H: BuildHasher>(&self, i: usize, hasher: &H) -> u64 {
         let mut h = hasher.build_hasher();
         self.prefix_at(i).hash(&mut h);
-        self.frame[i].hash(&mut h);
+        FrameHandle(self.frame[i]).hash(&mut h);
         h.finish()
     }
 
     fn eq_at(&self, i: usize, row: &Self::Row) -> bool {
-        self.prefix_at(i) == row.0 && self.frame[i] == row.1
+        self.prefix_at(i) == row.0 && self.frame[i] == row.1 .0
     }
 
     fn push(&mut self, row: Self::Row) {
-        let i = self.frame.len();
+        let i = self.frame.len() as i32;
         let offset = match row.0 {
             None => 0,
             Some(StackHandle(p)) => i - p,
         };
         self.prefix_offset.push(offset);
-        self.frame.push(row.1);
+        self.frame.push(row.1 .0);
     }
 }
 
@@ -135,9 +135,9 @@ impl StackTable {
                 let prefix = if offset == 0 {
                     None
                 } else {
-                    Some(StackHandle(i - offset))
+                    Some(StackHandle(i as i32 - offset))
                 };
-                (prefix, frame)
+                (prefix, FrameHandle(frame))
             })
     }
 }

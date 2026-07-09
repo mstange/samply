@@ -116,7 +116,7 @@ impl SampleTable {
             .sample_stack_indexes
             .into_iter()
             .map(|stack| match stack {
-                Some(s) => old_stack_to_new_stack[s.0],
+                Some(s) => old_stack_to_new_stack[s.0 as usize],
                 None => None,
             })
             .collect();
@@ -227,7 +227,7 @@ impl NativeAllocationsTable {
             .stack
             .into_iter()
             .map(|stack| match stack {
-                Some(s) => old_stack_to_new_stack[s.0],
+                Some(s) => old_stack_to_new_stack[s.0 as usize],
                 None => None,
             })
             .collect();
