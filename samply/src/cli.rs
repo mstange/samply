@@ -96,7 +96,7 @@ pub struct ImportArgs {
     pub save_only: bool,
 
     /// Output filename.
-    #[arg(short, long, default_value = "profile.json.gz")]
+    #[arg(short, long, default_value = "profile.jslb.gz")]
     pub output: PathBuf,
 
     #[command(flatten)]
@@ -153,7 +153,7 @@ pub struct RecordArgs {
     pub save_only: bool,
 
     /// Output filename.
-    #[arg(short, long, default_value = "profile.json.gz")]
+    #[arg(short, long, default_value = "profile.jslb.gz")]
     pub output: PathBuf,
 
     #[command(flatten)]
