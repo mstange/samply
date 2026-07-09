@@ -55,6 +55,7 @@ pub use debugid;
 
 mod category;
 mod category_color;
+mod columnar_interner;
 mod counters;
 mod cpu_delta;
 mod fast_hash_map;

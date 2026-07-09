@@ -1,6 +1,9 @@
+use std::hash::{BuildHasher, Hash, Hasher};
+
+use crate::columnar_interner::{ColumnarInterner, ColumnarStore};
 use serde::ser::{Serialize, SerializeMap, Serializer};
 
-use crate::{fast_hash_map::FastIndexSet, FrameHandle, StackHandle};
+use crate::{FrameHandle, StackHandle};
 
 /// The stack table stores the tree of stack nodes of a thread. The shape of the tree is encoded in
 /// the prefix column: Root stack nodes have null as their prefix, and every non-root stack has the
@@ -40,7 +43,46 @@ use crate::{fast_hash_map::FastIndexSet, FrameHandle, StackHandle};
 /// would be lost if it wasn't inherited into the nsAttrAndChildArray::InsertChildAt stack before
 /// transforms are applied.
 #[derive(Debug, Clone, Default)]
-pub struct StackTable(FastIndexSet<(Option<StackHandle>, FrameHandle)>);
+pub struct StackTable {
+    set: ColumnarInterner<StackCols, usize>,
+}
+
+#[derive(Debug, Clone, Default)]
+struct StackCols {
+    prefix: Vec<Option<StackHandle>>,
+    frame: Vec<FrameHandle>,
+}
+
+impl ColumnarStore for StackCols {
+    type Row = (Option<StackHandle>, FrameHandle);
+
+    fn len(&self) -> usize {
+        self.frame.len()
+    }
+
+    fn hash_row<H: BuildHasher>(row: &Self::Row, hasher: &H) -> u64 {
+        let mut h = hasher.build_hasher();
+        row.0.hash(&mut h);
+        row.1.hash(&mut h);
+        h.finish()
+    }
+
+    fn hash_at<H: BuildHasher>(&self, i: usize, hasher: &H) -> u64 {
+        let mut h = hasher.build_hasher();
+        self.prefix[i].hash(&mut h);
+        self.frame[i].hash(&mut h);
+        h.finish()
+    }
+
+    fn eq_at(&self, i: usize, row: &Self::Row) -> bool {
+        self.prefix[i] == row.0 && self.frame[i] == row.1
+    }
+
+    fn push(&mut self, row: Self::Row) {
+        self.prefix.push(row.0);
+        self.frame.push(row.1);
+    }
+}
 
 impl StackTable {
     pub fn new() -> Self {
@@ -52,27 +94,27 @@ impl StackTable {
         prefix: Option<StackHandle>,
         frame: FrameHandle,
     ) -> StackHandle {
-        StackHandle(self.0.insert_full((prefix, frame)).0)
+        StackHandle(self.set.insert((prefix, frame)))
     }
 
     pub fn len(&self) -> usize {
-        self.0.len()
+        self.set.len()
     }
 
     pub fn into_stacks(self) -> impl Iterator<Item = (Option<StackHandle>, FrameHandle)> {
-        self.0.into_iter()
+        let cols = self.set.into_store();
+        cols.prefix.into_iter().zip(cols.frame)
     }
 }
 
 impl Serialize for StackTable {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        let len = self.0.len();
+        let cols = self.set.store();
+        let len = self.set.len();
         let mut map = serializer.serialize_map(Some(3))?;
         map.serialize_entry("length", &len)?;
-        let prefix_col: Vec<_> = self.0.iter().map(|(prefix, _)| *prefix).collect();
-        let frame_col: Vec<_> = self.0.iter().map(|(_, frame)| *frame).collect();
-        map.serialize_entry("prefix", &prefix_col)?;
-        map.serialize_entry("frame", &frame_col)?;
+        map.serialize_entry("prefix", &cols.prefix)?;
+        map.serialize_entry("frame", &cols.frame)?;
         map.end()
     }
 }
