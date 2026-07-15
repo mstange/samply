@@ -19,4 +19,4 @@ rustc-hash = "2"
 indexmap = { version = "2.7", features = ["serde"] }
 
 [dev-dependencies]
-assert-json-diff = "2.0.1"
+insta = { version = "1.48", features = ["json"] }
