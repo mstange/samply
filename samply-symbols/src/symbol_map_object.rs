@@ -145,6 +145,23 @@ fn relative_address_u32(address: u64, base_address: u64) -> Option<u32> {
     u32::try_from(address.checked_sub(base_address)?).ok()
 }
 
+fn is_executable_section<'data, S: ObjectSection<'data>>(section: &S) -> bool {
+    match (section.kind(), section.flags()) {
+        (SectionKind::Text, _) => true,
+        (_, SectionFlags::MachO { flags })
+            if flags & object::macho::S_ATTR_PURE_INSTRUCTIONS != 0 =>
+        {
+            true
+        }
+        (SectionKind::UninitializedData, SectionFlags::Elf { sh_flags })
+            if sh_flags & u64::from(object::elf::SHF_EXECINSTR) != 0 =>
+        {
+            true
+        }
+        _ => false,
+    }
+}
+
 fn dynamic_symbol_name<'a, SymbolTable>(
     symbol_table: Option<&SymbolTable>,
     index: object::SymbolIndex,
@@ -213,23 +230,20 @@ impl<'a, Symbol: object::ObjectSymbol<'a> + 'a> SymbolList<'a, Symbol> {
     {
         let mut entries: Vec<_> = Vec::new();
 
+        // On Mach-O, executable sections other than `__TEXT,__text` (e.g. `__TEXT,__objc_stubs`,
+        // `__TEXT,__jsc_int`) contain real function-like symbols, but the `object` crate doesn't
+        // know to classify them as `SymbolKind::Text` -- it reports them as `SymbolKind::Unknown`.
+        // We therefore accept `Unknown` symbols on Mach-O. We don't do this on ELF, where
+        // `Unknown` corresponds to `STT_NOTYPE`.
+        let allow_unknown_kind = object_file
+            .sections()
+            .any(|s| matches!(s.flags(), SectionFlags::MachO { .. }));
+
         // Compute the executable sections upfront. This will be used to filter out uninteresting symbols.
         let executable_sections: Vec<SectionIndex> = object_file
             .sections()
-            .filter_map(|section| match (section.kind(), section.flags()) {
-                // Match executable sections.
-                (SectionKind::Text, _) => Some(section.index()),
-
-                // Match sections in debug files which correspond to executable sections in the original binary.
-                // "SectionKind::EmptyButUsedToBeText"
-                (SectionKind::UninitializedData, SectionFlags::Elf { sh_flags })
-                    if sh_flags & u64::from(object::elf::SHF_EXECINSTR) != 0 =>
-                {
-                    Some(section.index())
-                }
-
-                _ => None,
-            })
+            .filter(is_executable_section)
+            .map(|section| section.index())
             .collect();
 
         // Build a list of symbol start and end entries. We add entries in the order "best to worst".
@@ -246,6 +260,15 @@ impl<'a, Symbol: object::ObjectSymbol<'a> + 'a> SymbolList<'a, Symbol> {
                         return false;
                     }
 
+                    // Filter out symbols from non-executable sections.
+                    let in_executable_section = match symbol.section_index() {
+                        Some(section_index) => executable_sections.contains(&section_index),
+                        None => false,
+                    };
+                    if !in_executable_section {
+                        return false;
+                    }
+
                     // Filter out non-Text symbols which don't have a symbol size.
                     match symbol.kind() {
                         SymbolKind::Text => {
@@ -259,14 +282,13 @@ impl<'a, Symbol: object::ObjectSymbol<'a> + 'a> SymbolList<'a, Symbol> {
                             // bad symbols in the middle of functions. For example, the android32-local/libmozglue.so
                             // fixture has a NOTYPE symbol with zero size at 0x9850f.
                         }
+                        SymbolKind::Unknown if allow_unknown_kind => {
+                            // On mach-O __TEXT,__objc_stubs etc. can be reported as Unknown
+                        }
                         _ => return false, // Cull.
                     }
 
-                    // Filter out symbols from non-executable sections.
-                    match symbol.section_index() {
-                        Some(section_index) => executable_sections.contains(&section_index),
-                        _ => false,
-                    }
+                    true
                 })
                 .filter_map(|symbol| {
                     Some((
@@ -322,7 +344,7 @@ impl<'a, Symbol: object::ObjectSymbol<'a> + 'a> SymbolList<'a, Symbol> {
         entries.extend(
             object_file
                 .sections()
-                .filter(|s| s.kind() == SectionKind::Text)
+                .filter(is_executable_section)
                 .filter_map(|section| {
                     let vma_end_address = section.address().checked_add(section.size())?;
                     let end_address = vma_end_address.checked_sub(base_address)?;
