@@ -43,11 +43,24 @@ impl Serialize for ReferenceTimestamp {
     }
 }
 
-/// An additional reference timestamp in a platform-specific unit.
+/// An additional reference point in a platform-native clock.
+///
+/// This is supplementary to [`ReferenceTimestamp`] — the primary anchor for
+/// the profile is still the wall-clock reference timestamp. Storing a
+/// platform-specific reference value alongside it allows tools to correlate
+/// sample or marker data from different data sources on the same timeline.
+///
+/// This enum is `#[non_exhaustive]`; new platforms may be added in minor releases.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum PlatformSpecificReferenceTimestamp {
+    /// Linux / Android: a value from `clock_gettime(CLOCK_MONOTONIC)`, in
+    /// nanoseconds.
     ClockMonotonicNanosecondsSinceBoot(u64),
+    /// macOS / iOS: a value from `mach_absolute_time()`, converted to
+    /// nanoseconds (via `mach_timebase_info`).
     MachAbsoluteTimeNanoseconds(u64),
+    /// Windows: a raw value from `QueryPerformanceCounter`. The unit is
+    /// performance-counter ticks (not nanoseconds); the tick rate is not stored.
     QueryPerformanceCounterValue(u64),
 }

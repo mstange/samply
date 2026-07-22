@@ -12,6 +12,8 @@ const ENTITLEMENTS_XML: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
 "#;
 
 pub fn codesign_setup(skip_prompt: bool) {
+    let exe_path = env::current_exe().unwrap();
+
     if !skip_prompt {
         print!(
             r#"
@@ -24,12 +26,12 @@ will be run:
       --entitlements entitlements.xml {}
 
 entitlements.xml contains:
-    
+
     {}
 
 Press any key to continue, or Ctrl-C to cancel.
 "#,
-            env::current_exe().unwrap().display(),
+            exe_path.display(),
             ENTITLEMENTS_XML
         );
 
@@ -53,7 +55,7 @@ Press any key to continue, or Ctrl-C to cancel.
 
     // codesign for the current machine:
     //    codesign --force --options runtime --sign - --entitlements ent.xml target/debug/usamply
-    std::process::Command::new("codesign")
+    let output = std::process::Command::new("codesign")
         .arg("--force")
         .arg("--options")
         .arg("runtime")
@@ -61,9 +63,19 @@ Press any key to continue, or Ctrl-C to cancel.
         .arg("-")
         .arg("--entitlements")
         .arg(entitlements_path)
-        .arg(env::current_exe().unwrap())
+        .arg(&exe_path)
         .output()
         .expect("Failed to run codesign!");
+
+    if !output.status.success() {
+        println!(
+            "codesign failed with status: {}\noutput:\n{}{}",
+            output.status,
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        return;
+    }
 
     println!(r"Code signing successful!");
 }
