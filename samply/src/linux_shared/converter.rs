@@ -624,7 +624,7 @@ where
         fold_recursive_prefix: bool,
         call_chain_return_addresses_are_preadjusted: bool,
     ) {
-        stack.truncate(0);
+        stack.clear();
 
         // CpuMode::from_misc(e.raw.misc)
 
