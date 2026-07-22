@@ -575,16 +575,9 @@ fn read_uleb128(mut bytes: &[u8]) -> Option<(u64, &[u8])> {
     None
 }
 
-/// State machine for loading a dyld shared cache and its numeric/`.symbols`
-/// subcaches.
+/// State machine for loading a dyld shared cache and its subcaches.
 pub struct DyldCacheLoad<FT: FileTypes> {
     state: DyldCacheLoadState<FT>,
-}
-
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum SuffixAttempt {
-    Plain,
-    ZeroPadded,
 }
 
 enum DyldCacheLoadState<FT: FileTypes> {
@@ -594,22 +587,14 @@ enum DyldCacheLoadState<FT: FileTypes> {
         dylib_path: String,
         pending: FT::FL,
     },
-    /// Awaiting the bytes for `.{N}` or `.{NN}` numeric subcache.
-    AwaitingNumericSubcache {
+    /// Awaiting a subcache file listed in the root cache header.
+    AwaitingSubcache {
         root: FileContentsWrapper<FT::F>,
         dyld_cache_path: FT::FL,
         dylib_path: String,
         collected: Vec<FileContentsWrapper<FT::F>>,
-        index: usize,
-        attempt: SuffixAttempt,
-        pending: FT::FL,
-    },
-    /// Awaiting the optional `.symbols` subcache.
-    AwaitingSymbolsSubcache {
-        root: FileContentsWrapper<FT::F>,
-        dyld_cache_path: FT::FL,
-        dylib_path: String,
-        collected: Vec<FileContentsWrapper<FT::F>>,
+        suffixes: Vec<String>,
+        next: usize,
         pending: FT::FL,
     },
     Done(Result<DyldCacheFileData<FT::F>, Error>),
@@ -641,69 +626,27 @@ impl<FT: FileTypes> DyldCacheLoad<FT> {
         dyld_cache_path: FT::FL,
         dylib_path: String,
         collected: Vec<FileContentsWrapper<FT::F>>,
-        index: usize,
-        mut attempt: SuffixAttempt,
+        suffixes: Vec<String>,
+        next: usize,
     ) {
-        loop {
-            let suffix = match attempt {
-                SuffixAttempt::Plain => format!(".{index}"),
-                SuffixAttempt::ZeroPadded => format!(".{index:02}"),
-            };
-            match dyld_cache_path.location_for_dyld_subcache(&suffix) {
-                Some(pending) => {
-                    self.state = DyldCacheLoadState::AwaitingNumericSubcache {
-                        root,
-                        dyld_cache_path,
-                        dylib_path,
-                        collected,
-                        index,
-                        attempt,
-                        pending,
-                    };
-                    return;
-                }
-                None => match attempt {
-                    SuffixAttempt::Plain => {
-                        attempt = SuffixAttempt::ZeroPadded;
-                    }
-                    SuffixAttempt::ZeroPadded => {
-                        self.advance_to_symbols_or_finalize(
-                            root,
-                            dyld_cache_path,
-                            dylib_path,
-                            collected,
-                        );
-                        return;
-                    }
-                },
-            }
-        }
-    }
-
-    fn advance_to_symbols_or_finalize(
-        &mut self,
-        root: FileContentsWrapper<FT::F>,
-        dyld_cache_path: FT::FL,
-        dylib_path: String,
-        collected: Vec<FileContentsWrapper<FT::F>>,
-    ) {
-        match dyld_cache_path.location_for_dyld_subcache(".symbols") {
-            Some(pending) => {
-                self.state = DyldCacheLoadState::AwaitingSymbolsSubcache {
-                    root,
-                    dyld_cache_path,
-                    dylib_path,
-                    collected,
-                    pending,
-                };
-            }
-            None => {
-                self.state = DyldCacheLoadState::Done(Ok(DyldCacheFileData::new(
-                    root, collected, dylib_path,
-                )));
-                let _ = dyld_cache_path;
-            }
-        }
+        let Some(suffix) = suffixes.get(next) else {
+            self.state =
+                DyldCacheLoadState::Done(Ok(DyldCacheFileData::new(root, collected, dylib_path)));
+            return;
+        };
+        let Some(pending) = dyld_cache_path.location_for_dyld_subcache(suffix) else {
+            self.state = DyldCacheLoadState::Done(Err(Error::FileLocationRefusedSubcacheLocation));
+            return;
+        };
+        self.state = DyldCacheLoadState::AwaitingSubcache {
+            root,
+            dyld_cache_path,
+            dylib_path,
+            collected,
+            suffixes,
+            next,
+            pending,
+        };
     }
 }
 
@@ -714,10 +657,9 @@ impl<FT: FileTypes> NeedsFiles<FT> for DyldCacheLoad<FT> {
                 location: pending,
                 required: true,
             },
-            DyldCacheLoadState::AwaitingNumericSubcache { pending, .. }
-            | DyldCacheLoadState::AwaitingSymbolsSubcache { pending, .. } => LoadStep::NeedFile {
+            DyldCacheLoadState::AwaitingSubcache { pending, .. } => LoadStep::NeedFile {
                 location: pending,
-                required: false,
+                required: true,
             },
             DyldCacheLoadState::Done(_) => LoadStep::Done,
             DyldCacheLoadState::Poisoned => unreachable!("invalid DyldCacheLoad state"),
@@ -734,28 +676,37 @@ impl<FT: FileTypes> NeedsFiles<FT> for DyldCacheLoad<FT> {
             } => match result {
                 Ok(file) => {
                     let root = FileContentsWrapper::new(file);
-                    self.advance_to_next_subcache(
-                        root,
-                        dyld_cache_path,
-                        dylib_path,
-                        Vec::new(),
-                        1,
-                        SuffixAttempt::Plain,
-                    );
+                    match object::read::macho::DyldCache::<Endianness, _>::subcache_suffixes(&root)
+                    {
+                        Ok(suffixes) => {
+                            self.advance_to_next_subcache(
+                                root,
+                                dyld_cache_path,
+                                dylib_path,
+                                Vec::new(),
+                                suffixes,
+                                0,
+                            );
+                        }
+                        Err(e) => {
+                            self.state =
+                                DyldCacheLoadState::Done(Err(Error::DyldCacheParseError(e)));
+                        }
+                    }
                 }
                 Err(e) => {
                     self.state =
                         DyldCacheLoadState::Done(Err(Error::OpenFile(pending.to_string(), e)));
                 }
             },
-            DyldCacheLoadState::AwaitingNumericSubcache {
+            DyldCacheLoadState::AwaitingSubcache {
                 root,
                 dyld_cache_path,
                 dylib_path,
                 mut collected,
-                index,
-                attempt,
-                pending: _pending,
+                suffixes,
+                next,
+                pending,
             } => match result {
                 Ok(file) => {
                     collected.push(FileContentsWrapper::new(file));
@@ -764,46 +715,15 @@ impl<FT: FileTypes> NeedsFiles<FT> for DyldCacheLoad<FT> {
                         dyld_cache_path,
                         dylib_path,
                         collected,
-                        index + 1,
-                        SuffixAttempt::Plain,
+                        suffixes,
+                        next + 1,
                     );
                 }
-                Err(_) => match attempt {
-                    SuffixAttempt::Plain => {
-                        self.advance_to_next_subcache(
-                            root,
-                            dyld_cache_path,
-                            dylib_path,
-                            collected,
-                            index,
-                            SuffixAttempt::ZeroPadded,
-                        );
-                    }
-                    SuffixAttempt::ZeroPadded => {
-                        self.advance_to_symbols_or_finalize(
-                            root,
-                            dyld_cache_path,
-                            dylib_path,
-                            collected,
-                        );
-                    }
-                },
-            },
-            DyldCacheLoadState::AwaitingSymbolsSubcache {
-                root,
-                dyld_cache_path,
-                dylib_path,
-                mut collected,
-                pending: _pending,
-            } => {
-                if let Ok(file) = result {
-                    collected.push(FileContentsWrapper::new(file));
+                Err(e) => {
+                    self.state =
+                        DyldCacheLoadState::Done(Err(Error::OpenFile(pending.to_string(), e)));
                 }
-                self.state = DyldCacheLoadState::Done(Ok(DyldCacheFileData::new(
-                    root, collected, dylib_path,
-                )));
-                let _ = dyld_cache_path; // intentionally dropped
-            }
+            },
             DyldCacheLoadState::Done(_) | DyldCacheLoadState::Poisoned => {
                 panic!("DyldCacheLoad::provide called when not awaiting a file")
             }
