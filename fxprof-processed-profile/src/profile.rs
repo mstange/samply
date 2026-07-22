@@ -85,9 +85,14 @@ impl From<Duration> for SamplingInterval {
     }
 }
 
-/// A handle to a frame, specific to a thread. Can be created with
-/// [`Profile::handle_for_frame_with_label`], [`Profile::handle_for_frame_with_address`],
-/// and so on.
+/// A handle to a frame in a [`Profile`]'s profile-wide frame table. Can be
+/// created with [`Profile::handle_for_frame_with_label`],
+/// [`Profile::handle_for_frame_with_address`], and so on.
+///
+/// Frame handles are deduplicated: calling the same `handle_for_frame_*` method
+/// with identical arguments returns the same handle. A `FrameHandle` can be
+/// used with any thread of the [`Profile`] it was created from. It must not be
+/// used with a different `Profile`.
 #[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash)]
 pub struct FrameHandle(pub(crate) usize);
 
@@ -97,7 +102,17 @@ impl Serialize for FrameHandle {
     }
 }
 
-/// A handle to a stack, specific to a thread. Can be created with [`Profile::handle_for_stack`](crate::Profile::handle_for_stack).
+/// A handle to a stack node in a [`Profile`]'s profile-wide stack table. Can
+/// be created with [`Profile::handle_for_stack`](crate::Profile::handle_for_stack).
+///
+/// A stack node represents a call stack as a parent pointer into the stack
+/// table: the chain from a node up to the root spells out the full call stack
+/// frame-by-frame.
+///
+/// Stack handles are deduplicated. A `StackHandle` can be used with any thread
+/// of the [`Profile`] it was created from (as the `stack` argument to
+/// [`Profile::add_sample`], [`Profile::set_marker_stack`], etc.). It must not
+/// be used with a different `Profile`.
 #[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash)]
 pub struct StackHandle(pub(crate) usize);
 
@@ -145,8 +160,15 @@ pub struct SourceLocation {
 /// Used in [`Profile::set_timeline_unit`].
 #[derive(Debug, Default, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash)]
 pub enum TimelineUnit {
+    /// Time-based profile: the timeline is labeled in milliseconds. This is the
+    /// default and appropriate for almost all profiles.
     #[default]
     Milliseconds,
+    /// Size-based profile: the timeline is labeled in bytes. Use this for
+    /// profiles whose "samples" represent byte offsets into something (e.g. a
+    /// memory snapshot or a file layout) rather than points in time. The sample
+    /// weight type should usually be set to [`WeightType::Bytes`](crate::WeightType::Bytes)
+    /// as well.
     Bytes,
 }
 
@@ -666,8 +688,6 @@ impl Profile {
     }
 
     /// Get the [`FrameHandle`] for a label frame with source location information.
-    ///
-    /// The returned handle can only be used with this thread.
     pub fn handle_for_frame_with_label_and_source_location<SC: IntoSubcategoryHandle>(
         &mut self,
         label: StringHandle,
@@ -699,8 +719,6 @@ impl Profile {
     }
 
     /// Get the [`FrameHandle`] for an address-based stack frame with symbol information.
-    ///
-    /// The returned handle can only be used with this thread.
     pub fn handle_for_frame_with_address_and_symbol<SC: IntoSubcategoryHandle>(
         &mut self,
         frame_address: FrameAddress,
@@ -775,8 +793,6 @@ impl Profile {
     }
 
     /// Get the [`NativeSymbolHandle`] for a native symbol, for use in [`FrameSymbolInfo`].
-    ///
-    /// The returned handle can only be used with this thread.
     pub fn handle_for_native_symbol(
         &mut self,
         lib: LibraryHandle,
@@ -796,12 +812,11 @@ impl Profile {
         NativeSymbolHandle(native_symbol_index)
     }
 
-    /// Get the [`StackHandle`] for a stack with the given `frame` and `parent`,
-    /// for the given thread.
+    /// Get the [`StackHandle`] for a stack with the given `frame` and `parent`.
     ///
-    /// The returned stack handle can be used with [`Profile::add_sample`] and
-    /// [`Profile::set_marker_stack`], but only for samples / markers of the same
-    /// thread.
+    /// The returned stack handle can be used with [`Profile::add_sample`],
+    /// [`Profile::set_marker_stack`], and so on, for any thread of this
+    /// [`Profile`].
     ///
     /// If `parent` is `None`, this creates a root stack node. Otherwise, `parent`
     /// is the caller of the returned stack node.
@@ -877,12 +892,11 @@ impl Profile {
         self.threads[thread.0].add_sample_same_stack_zero_cpu(timestamp, weight);
     }
 
-    /// Add an allocation or deallocation sample to the *main* thread of the given
-    /// process. This is used to collect stacks showing where allocations and
-    /// deallocations happened.
+    /// Add an allocation or deallocation sample. The sample is recorded on the
+    /// *main* thread of `process`, regardless of which thread the allocation
+    /// actually happened on — see [Main thread attachment](#main-thread-attachment).
     ///
-    /// Can only be called once the main thread for `process` has been created.
-    /// `stack` must be a stack handle which is valid for that main thread.
+    /// Can only be called once a main thread has been created for `process`.
     ///
     /// # Details
     ///
@@ -911,18 +925,15 @@ impl Profile {
     ///
     /// # Panics
     ///
-    /// Panics if the `stack` handle is not valid for the main thread of `process`.
+    /// Panics if `process` does not have a main thread yet.
     ///
-    /// # Main thread requirement
+    /// # Main thread attachment
     ///
-    /// Allocations are per-process, because you can allocate something one one thread
-    /// and then free it on a different thread, and you'll still want those two operations
-    /// to be matched up in a view that shows the retained memory.
-    ///
-    /// Unfortunately, `StackHandle` is currently per-thread. This method will become more
-    /// ergonomic once the profile format has changed so that `StackHandle`s can be used
-    /// across all threads of a profile. In the meantime, unfortunately you must manually
-    /// ensure that you create the stack handle for the main thread of the given process.
+    /// Allocations are recorded per-process, because an object can be allocated
+    /// on one thread and freed on another, and we want those two operations to
+    /// be matched up in a view that shows the retained memory. To represent
+    /// per-process state in a profile that is otherwise per-thread, this method
+    /// stores the sample on the process's main thread.
     pub fn add_allocation_sample(
         &mut self,
         process: ProcessHandle,

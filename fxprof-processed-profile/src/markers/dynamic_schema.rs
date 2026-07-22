@@ -137,7 +137,7 @@ pub struct DynamicSchemaMarkerSchema {
     /// Defaults to `{marker.name}` if set to `None`.
     pub tooltip_label: Option<String>,
 
-    /// A template string defining the label shown within each marker's box in the marker chart.
+    /// A template string defining the label shown in each marker's row in the marker table.
     ///
     /// Usable template literals are `{marker.name}` and `{marker.data.fieldkey}`.
     ///
@@ -167,10 +167,13 @@ pub struct DynamicSchemaMarkerSchema {
 /// when using [`Marker`](super::static_schema::Marker).
 #[derive(Clone, Debug, Serialize)]
 pub struct DynamicSchemaMarkerGraph {
-    /// The key of a number field that's declared in the marker schema.
+    /// Must match the `key` of one of the [`DynamicSchemaMarkerField`]s in the
+    /// containing [`DynamicSchemaMarkerSchema::fields`], and that field must
+    /// have a numeric format (a
+    /// [`MarkerNumberFieldFormat`](crate::MarkerNumberFieldFormat)).
     ///
-    /// The values of this field are the values of this graph line /
-    /// bar graph segment.
+    /// The values of that field across markers of this type become the values
+    /// of this graph line / bar graph segment.
     pub key: String,
     /// Whether this marker graph segment is a line or a bar graph segment.
     #[serde(rename = "type")]

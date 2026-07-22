@@ -52,6 +52,11 @@ impl<T> LibMappings<T> {
     /// For mach-O binaries, the base address is the vmaddr of the `__TEXT` segment.
     ///
     /// For Windows binaries, the base address is the image load address.
+    ///
+    /// This mapping table is what
+    /// [`FrameAddress::InstructionPointer`](crate::FrameAddress::InstructionPointer)
+    /// and the other absolute-address variants get resolved against when you
+    /// later add frames to the profile.
     pub fn add_mapping(
         &mut self,
         start_avma: u64,

@@ -12,7 +12,15 @@ use crate::{
     DynamicSchemaMarker, MarkerHandle, MarkerTiming, MarkerTypeHandle, StackHandle, Timestamp,
 };
 
-/// A process. Can be created with [`Profile::add_process`](crate::Profile::add_process).
+/// A handle that identifies a process in a [`Profile`](crate::Profile). Created
+/// with [`Profile::add_process`](crate::Profile::add_process).
+///
+/// A process is the container for threads ([`ThreadHandle`](crate::ThreadHandle))
+/// and for the per-process library mappings used to resolve native frame
+/// addresses (see [`Profile::add_lib_mapping`](crate::Profile::add_lib_mapping)).
+///
+/// The handle is specific to the [`Profile`](crate::Profile) instance it was
+/// created from and cannot be used with a different profile.
 #[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash)]
 pub struct ProcessHandle(pub(crate) usize);
 

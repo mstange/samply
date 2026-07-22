@@ -7,7 +7,16 @@ use crate::lib_mappings::LibMappings;
 use crate::string_table::ProfileStringTable;
 use crate::Timestamp;
 
-/// A thread. Can be created with [`Profile::add_thread`](crate::Profile::add_thread).
+/// A handle that identifies a thread within a process in a
+/// [`Profile`](crate::Profile). Created with
+/// [`Profile::add_thread`](crate::Profile::add_thread).
+///
+/// Each thread has its own samples and markers. Frame and stack handles
+/// ([`FrameHandle`](crate::FrameHandle), [`StackHandle`](crate::StackHandle))
+/// are profile-wide and can be reused across threads of the same profile.
+///
+/// The handle is specific to the [`Profile`](crate::Profile) instance it was
+/// created from and cannot be used with a different profile.
 #[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash)]
 pub struct ThreadHandle(pub(crate) usize);
 

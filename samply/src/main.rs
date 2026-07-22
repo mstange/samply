@@ -76,13 +76,10 @@ fn do_load_action(load_args: cli::LoadArgs) {
 
 fn do_import_action(import_args: cli::ImportArgs) {
     let input_path = &import_args.file;
-    let input_file = match File::open(input_path) {
-        Ok(file) => file,
-        Err(err) => {
-            eprintln!("Could not open file {input_path:?}: {err}");
-            std::process::exit(1)
-        }
-    };
+    let input_file = File::open(input_path).unwrap_or_else(|err| {
+        eprintln!("Could not open file {input_path:?}: {err}");
+        std::process::exit(1)
+    });
 
     let import_props = import_args.import_props();
     let presymbolicate = import_props.profile_creation_props.presymbolicate;
@@ -125,13 +122,12 @@ fn do_record_action(record_args: cli::RecordArgs) {
     let presymbolicate = profile_creation_props.presymbolicate;
 
     let (mut profile, exit_status) =
-        match profiler::run(recording_mode, recording_props, profile_creation_props) {
-            Ok(exit_status) => exit_status,
-            Err(err) => {
+        profiler::run(recording_mode, recording_props, profile_creation_props).unwrap_or_else(
+            |err| {
                 eprintln!("Encountered an error during profiling: {err:?}");
                 std::process::exit(1);
-            }
-        };
+            },
+        );
 
     if presymbolicate {
         eprintln!("Symbolicating...");
@@ -196,19 +192,17 @@ fn convert_file_to_profile(
         aux_file_lookup_dirs.push(parent_dir.into());
     }
     let reader = BufReader::new(input_file);
-    match import::perf::convert(
+    import::perf::convert(
         reader,
         file_mod_time,
         binary_lookup_dirs,
         aux_file_lookup_dirs,
         import_props.profile_creation_props,
-    ) {
-        Ok(profile) => profile,
-        Err(error) => {
-            eprintln!("Error importing perf.data file: {error:?}");
-            std::process::exit(1);
-        }
-    }
+    )
+    .unwrap_or_else(|error| {
+        eprintln!("Error importing perf.data file: {error:?}");
+        std::process::exit(1);
+    })
 }
 
 fn run_server_serving_profile(
@@ -217,13 +211,10 @@ fn run_server_serving_profile(
     symbol_props: SymbolProps,
 ) {
     let libinfo_map = {
-        let profile_file = match File::open(profile_path) {
-            Ok(file) => file,
-            Err(err) => {
-                eprintln!("Could not open file {profile_path:?}: {err}");
-                std::process::exit(1)
-            }
-        };
+        let profile_file = File::open(profile_path).unwrap_or_else(|err| {
+            eprintln!("Could not open file {profile_path:?}: {err}");
+            std::process::exit(1)
+        });
 
         parse_libinfo_map_from_profile_file(profile_file, profile_path)
             .expect("Couldn't parse libinfo map from profile file")

@@ -9,10 +9,17 @@ pub struct Timestamp {
 }
 
 impl Timestamp {
+    /// Create a timestamp from nanoseconds since the profile's
+    /// [`ReferenceTimestamp`](crate::ReferenceTimestamp).
     pub fn from_nanos_since_reference(nanos: u64) -> Self {
         Self { nanos }
     }
 
+    /// Create a timestamp from fractional milliseconds since the profile's
+    /// [`ReferenceTimestamp`](crate::ReferenceTimestamp).
+    ///
+    /// This is the unit used in the profile JSON, so it's the most natural form
+    /// for callers that have already done the conversion.
     pub fn from_millis_since_reference(millis: f64) -> Self {
         Self {
             nanos: (millis * 1_000_000.0) as u64,
