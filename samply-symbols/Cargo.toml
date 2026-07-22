@@ -62,3 +62,4 @@ crc32fast = "1.4.2"
 [dev-dependencies]
 memmap2 = "0.9.9"
 anyhow = "1"
+tempfile = "3"

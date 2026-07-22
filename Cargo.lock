@@ -2663,6 +2663,7 @@ dependencies = [
  "samply-object",
  "scala-native-demangle",
  "srcsrv",
+ "tempfile",
  "thiserror 2.0.18",
  "uuid",
  "yoke",
