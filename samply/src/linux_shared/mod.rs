@@ -1,3 +1,5 @@
+#![cfg_attr(not(any(target_os = "android", target_os = "linux")), allow(dead_code))]
+
 mod avma_range;
 mod convert_regs;
 mod converter;
