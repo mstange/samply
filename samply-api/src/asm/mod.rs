@@ -613,7 +613,7 @@ where
                 let s = remaining_bytes
                     .iter()
                     .take(A::ADJUST_BY_AFTER_ERROR)
-                    .map(|b| format!("{b:#02x}"))
+                    .map(|b| format!("{b:#04x}"))
                     .collect::<Vec<_>>()
                     .join(", ");
                 let s2 = remaining_bytes
