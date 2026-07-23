@@ -18,5 +18,5 @@ tempfile = "3.10.1"
 tokio = { version = "1.52", features = ["macros", "rt", "rt-multi-thread"] }
 cab = "0.6.0"
 flate2 = "1.1"
-tar = "0.4.45"
+tar = "0.4.46"
 bzip2 = "0.6.0"
