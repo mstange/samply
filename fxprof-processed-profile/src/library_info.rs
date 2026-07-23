@@ -1,5 +1,8 @@
+use std::io::Write;
+
 use debugid::DebugId;
-use serde::ser::{Serialize, SerializeMap, Serializer};
+
+use crate::writer::Writer;
 
 /// A library ("binary" / "module" / "DSO") which is loaded into a process.
 /// This can be the main executable file or a dynamic library, or any other
@@ -40,19 +43,31 @@ pub struct LibraryInfo {
     pub arch: Option<String>,
 }
 
-impl Serialize for LibraryInfo {
-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        let breakpad_id = self.debug_id.breakpad().to_string();
-        let code_id = self.code_id.as_ref().map(|cid| cid.to_string());
-        let mut map = serializer.serialize_map(None)?;
-        map.serialize_entry("name", &self.name)?;
-        map.serialize_entry("path", &self.path)?;
-        map.serialize_entry("debugName", &self.debug_name)?;
-        map.serialize_entry("debugPath", &self.debug_path)?;
-        map.serialize_entry("breakpadId", &breakpad_id)?;
-        map.serialize_entry("codeId", &code_id)?;
-        map.serialize_entry("arch", &self.arch)?;
-        map.end()
+impl LibraryInfo {
+    pub(crate) fn write_json<W: Write>(&self, w: &mut Writer<W>) -> std::io::Result<()> {
+        w.object(|w| {
+            w.name("name")?;
+            w.string_value(&self.name)?;
+            w.name("path")?;
+            w.string_value(&self.path)?;
+            w.name("debugName")?;
+            w.string_value(&self.debug_name)?;
+            w.name("debugPath")?;
+            w.string_value(&self.debug_path)?;
+            w.name("breakpadId")?;
+            w.string_value(&self.debug_id.breakpad().to_string())?;
+            w.name("codeId")?;
+            match &self.code_id {
+                Some(cid) => w.string_value(cid)?,
+                None => w.null_value()?,
+            }
+            w.name("arch")?;
+            match &self.arch {
+                Some(a) => w.string_value(a)?,
+                None => w.null_value()?,
+            }
+            Ok(())
+        })
     }
 }
 

@@ -49,14 +49,14 @@ expression: profile_as_json_value(&profile)
       "pid": "123",
       "samples": {
         "count": [
-          0.0
+          0
         ],
         "length": 1,
         "number": [
           0
         ],
         "timeDeltas": [
-          1.0
+          1
         ]
       }
     },
@@ -105,14 +105,14 @@ expression: profile_as_json_value(&profile)
       "pid": "123",
       "samples": {
         "count": [
-          0.0
+          0
         ],
         "length": 1,
         "number": [
           0
         ],
         "timeDeltas": [
-          0.0
+          0
         ]
       }
     }
@@ -141,7 +141,7 @@ expression: profile_as_json_value(&profile)
     "initialVisibleThreads": [
       0
     ],
-    "interval": 1.0,
+    "interval": 1,
     "markerSchema": [],
     "pausedRanges": [],
     "preprocessedProfileVersion": 66,
@@ -153,7 +153,7 @@ expression: profile_as_json_value(&profile)
       "time": "ms"
     },
     "sourceCodeIsNotOnSearchfox": true,
-    "startTime": 1636162232627.0,
+    "startTime": 1636162232627,
     "symbolicated": true,
     "usesOnlyOneStackType": true,
     "version": 24
@@ -238,9 +238,9 @@ expression: profile_as_json_value(&profile)
       "pid": "123.1",
       "processName": "test 2",
       "processShutdownTime": null,
-      "processStartupTime": 0.0,
+      "processStartupTime": 0,
       "processType": "default",
-      "registerTime": 1.0,
+      "registerTime": 1,
       "samples": {
         "length": 1,
         "stack": [
@@ -250,7 +250,7 @@ expression: profile_as_json_value(&profile)
           0
         ],
         "timeDeltas": [
-          0.0
+          0
         ],
         "weight": [
           1
@@ -277,9 +277,9 @@ expression: profile_as_json_value(&profile)
       "pid": "123",
       "processName": "test 1",
       "processShutdownTime": null,
-      "processStartupTime": 1.0,
+      "processStartupTime": 1,
       "processType": "default",
-      "registerTime": 0.0,
+      "registerTime": 0,
       "samples": {
         "length": 1,
         "stack": [
@@ -289,7 +289,7 @@ expression: profile_as_json_value(&profile)
           0
         ],
         "timeDeltas": [
-          1.0
+          1
         ],
         "weight": [
           1

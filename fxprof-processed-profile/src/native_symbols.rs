@@ -1,11 +1,11 @@
 use std::hash::{BuildHasher, Hash, Hasher};
-
-use serde::ser::{Serialize, SerializeMap, Serializer};
+use std::io::Write;
 
 use crate::columnar_interner::{ColumnarInterner, ColumnarStore};
 use crate::fast_hash_map::FastHashSet;
 use crate::global_lib_table::GlobalLibIndex;
 use crate::string_table::StringHandle;
+use crate::writer::Writer;
 
 /// Represents a symbol from the symbol table of a library. Obtained from [`Profile::handle_for_native_symbol`](crate::Profile::handle_for_native_symbol).
 ///
@@ -160,27 +160,46 @@ impl NativeSymbols {
     pub fn get_native_symbol_name(&self, native_symbol_index: NativeSymbolIndex) -> StringHandle {
         self.set.store().names[native_symbol_index.0 as usize]
     }
+
+    pub(crate) fn write_json<W: Write>(&self, w: &mut Writer<W>) -> std::io::Result<()> {
+        let cols = self.set.store();
+        let len = self.set.len();
+        w.object(|w| {
+            w.name("length")?;
+            w.number_value(len)?;
+            w.name("address")?;
+            w.number_array(&cols.addresses)?;
+            w.name("functionSize")?;
+            w.optional_number_array(&cols.function_sizes)?;
+            w.name("libIndex")?;
+            w.array(|w| {
+                for li in &cols.lib_indexes {
+                    li.write_json(w)?;
+                }
+                Ok(())
+            })?;
+            w.name("name")?;
+            w.array(|w| {
+                for n in &cols.names {
+                    n.write_json(w)?;
+                }
+                Ok(())
+            })
+        })
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash)]
 pub struct NativeSymbolIndex(u32);
 
-impl Serialize for NativeSymbolIndex {
-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        serializer.serialize_u32(self.0)
-    }
-}
-
-impl Serialize for NativeSymbols {
-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        let cols = self.set.store();
-        let len = self.set.len();
-        let mut map = serializer.serialize_map(None)?;
-        map.serialize_entry("length", &len)?;
-        map.serialize_entry("address", &cols.addresses)?;
-        map.serialize_entry("functionSize", &cols.function_sizes)?;
-        map.serialize_entry("libIndex", &cols.lib_indexes)?;
-        map.serialize_entry("name", &cols.names)?;
-        map.end()
+impl NativeSymbolIndex {
+    pub(crate) fn write_optional<W: Write>(
+        this: Option<NativeSymbolIndex>,
+        w: &mut Writer<W>,
+    ) -> std::io::Result<()> {
+        match this {
+            Some(n) => w.number_value(n.0),
+            None => w.null_value(),
+        }
     }
 }

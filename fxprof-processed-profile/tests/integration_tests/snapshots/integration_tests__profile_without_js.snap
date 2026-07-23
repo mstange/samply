@@ -49,9 +49,9 @@ expression: profile_as_json_value(&profile)
       "pid": "123",
       "samples": {
         "count": [
-          0.0,
-          1000.0,
-          800.0
+          0,
+          1000,
+          800
         ],
         "length": 3,
         "number": [
@@ -60,9 +60,9 @@ expression: profile_as_json_value(&profile)
           1
         ],
         "timeDeltas": [
-          0.0,
-          1.0,
-          1.0
+          0,
+          1,
+          1
         ]
       }
     }
@@ -111,7 +111,7 @@ expression: profile_as_json_value(&profile)
       "length": 0,
       "name": []
     },
-    "interval": 1.0,
+    "interval": 1,
     "markerSchema": [
       {
         "chartLabel": "{marker.data.name}",
@@ -179,7 +179,7 @@ expression: profile_as_json_value(&profile)
       "time": "ms"
     },
     "sourceCodeIsNotOnSearchfox": true,
-    "startTime": 1636162232627.0,
+    "startTime": 1636162232627,
     "symbolicated": false,
     "usesOnlyOneStackType": true,
     "version": 24
@@ -653,16 +653,16 @@ expression: profile_as_json_value(&profile)
             "type": "Text"
           },
           {
-            "allocationSize": 512000.0,
+            "allocationSize": 512000,
             "eventName": 20,
-            "latency": 123.0,
+            "latency": 123,
             "type": "custom",
             "url": "https://mozilla.org/"
           }
         ],
         "endTime": [
-          0.0,
-          2.0
+          0,
+          2
         ],
         "length": 2,
         "name": [
@@ -674,8 +674,8 @@ expression: profile_as_json_value(&profile)
           1
         ],
         "startTime": [
-          0.0,
-          0.0
+          0,
+          0
         ]
       },
       "name": "test",
@@ -683,9 +683,9 @@ expression: profile_as_json_value(&profile)
       "pid": "123",
       "processName": "test",
       "processShutdownTime": null,
-      "processStartupTime": 0.0,
+      "processStartupTime": 0,
       "processType": "default",
-      "registerTime": 0.0,
+      "registerTime": 0,
       "samples": {
         "length": 4,
         "stack": [
@@ -701,10 +701,10 @@ expression: profile_as_json_value(&profile)
           0
         ],
         "timeDeltas": [
-          0.0,
-          1.0,
-          1.0,
-          1.0
+          0,
+          1,
+          1,
+          1
         ],
         "weight": [
           1,

@@ -1,8 +1,9 @@
-use serde_derive::Serialize;
+use std::io::Write;
+
+use crate::writer::Writer;
 
 /// The field format for marker fields of kind [`MarkerFieldKind::String`](super::types::MarkerFieldKind::String).
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
-#[serde(rename_all = "kebab-case")]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MarkerStringFieldFormat {
     // ----------------------------------------------------
     // String types.
@@ -22,13 +23,26 @@ pub enum MarkerStringFieldFormat {
     /// Important: Do not put URL or file path information here, as it will not
     /// be sanitized during profile upload. Please be careful with including
     /// other types of PII here as well.
-    #[serde(rename = "unique-string")]
     String,
 }
 
+impl MarkerStringFieldFormat {
+    fn as_json_str(&self) -> &'static str {
+        match self {
+            MarkerStringFieldFormat::Url => "url",
+            MarkerStringFieldFormat::FilePath => "file-path",
+            MarkerStringFieldFormat::SanitizedString => "sanitized-string",
+            MarkerStringFieldFormat::String => "unique-string",
+        }
+    }
+
+    pub(crate) fn write_json<W: Write>(&self, w: &mut Writer<W>) -> std::io::Result<()> {
+        w.string_value(self.as_json_str())
+    }
+}
+
 /// The field format for marker fields of kind [`MarkerFieldKind::Number`](super::types::MarkerFieldKind::Number).
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
-#[serde(rename_all = "kebab-case")]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MarkerNumberFieldFormat {
     // ----------------------------------------------------
     // Numeric types
@@ -86,19 +100,50 @@ pub enum MarkerNumberFieldFormat {
     Decimal,
 }
 
+impl MarkerNumberFieldFormat {
+    fn as_json_str(&self) -> &'static str {
+        match self {
+            MarkerNumberFieldFormat::Duration => "duration",
+            MarkerNumberFieldFormat::Time => "time",
+            MarkerNumberFieldFormat::Seconds => "seconds",
+            MarkerNumberFieldFormat::Milliseconds => "milliseconds",
+            MarkerNumberFieldFormat::Microseconds => "microseconds",
+            MarkerNumberFieldFormat::Nanoseconds => "nanoseconds",
+            MarkerNumberFieldFormat::Bytes => "bytes",
+            MarkerNumberFieldFormat::Percentage => "percentage",
+            MarkerNumberFieldFormat::Integer => "integer",
+            MarkerNumberFieldFormat::Decimal => "decimal",
+        }
+    }
+
+    pub(crate) fn write_json<W: Write>(&self, w: &mut Writer<W>) -> std::io::Result<()> {
+        w.string_value(self.as_json_str())
+    }
+}
+
 /// The field format for marker fields of kind [`MarkerFieldKind::Flow`](super::types::MarkerFieldKind::Flow).
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
-#[serde(rename_all = "kebab-case")]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MarkerFlowFieldFormat {
     /// A flow is a u64 identifier that's unique across processes. All of
     /// the markers with same flow id before a terminating flow id will be
     /// considered part of the same "flow" and linked together.
-    #[serde(rename = "flow-id")]
     Flow,
 
     /// A terminating flow ends a flow of a particular id and allows that id
     /// to be reused again. It often makes sense for destructors to create
     /// a marker with a field of this type.
-    #[serde(rename = "terminating-flow-id")]
     TerminatingFlow,
+}
+
+impl MarkerFlowFieldFormat {
+    fn as_json_str(&self) -> &'static str {
+        match self {
+            MarkerFlowFieldFormat::Flow => "flow-id",
+            MarkerFlowFieldFormat::TerminatingFlow => "terminating-flow-id",
+        }
+    }
+
+    pub(crate) fn write_json<W: Write>(&self, w: &mut Writer<W>) -> std::io::Result<()> {
+        w.string_value(self.as_json_str())
+    }
 }

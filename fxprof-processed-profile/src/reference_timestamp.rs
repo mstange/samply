@@ -1,6 +1,7 @@
+use std::io::Write;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use serde::ser::{Serialize, Serializer};
+use crate::writer::Writer;
 
 /// A timestamp which anchors the profile in absolute time.
 ///
@@ -29,17 +30,15 @@ impl ReferenceTimestamp {
     pub fn from_system_time(system_time: SystemTime) -> Self {
         Self::from_duration_since_unix_epoch(system_time.duration_since(UNIX_EPOCH).unwrap())
     }
+
+    pub(crate) fn write_json<W: Write>(self, w: &mut Writer<W>) -> std::io::Result<()> {
+        w.fp(self.ms_since_unix_epoch)
+    }
 }
 
 impl From<SystemTime> for ReferenceTimestamp {
     fn from(system_time: SystemTime) -> Self {
         Self::from_system_time(system_time)
-    }
-}
-
-impl Serialize for ReferenceTimestamp {
-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        self.ms_since_unix_epoch.serialize(serializer)
     }
 }
 

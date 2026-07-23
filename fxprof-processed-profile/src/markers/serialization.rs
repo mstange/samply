@@ -1,51 +1,48 @@
-use serde::ser::{Serialize, SerializeMap, SerializeSeq};
+use std::io::Write;
 
 use super::dynamic_schema::DynamicSchemaMarkerField;
 use super::types::MarkerLocations;
+use crate::writer::Writer;
 
-pub struct SerializableSchemaField<'a>(pub &'a DynamicSchemaMarkerField);
-
-impl Serialize for SerializableSchemaField<'_> {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        let mut map = serializer.serialize_map(None)?;
-        map.serialize_entry("key", &self.0.key)?;
-        if !self.0.label.is_empty() {
-            map.serialize_entry("label", &self.0.label)?;
+pub(super) fn write_schema_field<W: Write>(
+    w: &mut Writer<W>,
+    field: &DynamicSchemaMarkerField,
+) -> std::io::Result<()> {
+    w.object(|w| {
+        w.name("key")?;
+        w.string_value(&field.key)?;
+        if !field.label.is_empty() {
+            w.name("label")?;
+            w.string_value(&field.label)?;
         }
-        map.serialize_entry("format", &self.0.format)?;
-        map.end()
-    }
+        w.name("format")?;
+        field.format.write_json(w)
+    })
 }
 
-pub struct SerializableSchemaDisplay(pub MarkerLocations);
-
-impl Serialize for SerializableSchemaDisplay {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        let mut seq = serializer.serialize_seq(None)?;
-        if self.0.contains(MarkerLocations::MARKER_CHART) {
-            seq.serialize_element("marker-chart")?;
+pub(super) fn write_schema_display<W: Write>(
+    w: &mut Writer<W>,
+    locations: MarkerLocations,
+) -> std::io::Result<()> {
+    w.array(|w| {
+        if locations.contains(MarkerLocations::MARKER_CHART) {
+            w.string_value("marker-chart")?;
         }
-        if self.0.contains(MarkerLocations::MARKER_TABLE) {
-            seq.serialize_element("marker-table")?;
+        if locations.contains(MarkerLocations::MARKER_TABLE) {
+            w.string_value("marker-table")?;
         }
-        if self.0.contains(MarkerLocations::TIMELINE_OVERVIEW) {
-            seq.serialize_element("timeline-overview")?;
+        if locations.contains(MarkerLocations::TIMELINE_OVERVIEW) {
+            w.string_value("timeline-overview")?;
         }
-        if self.0.contains(MarkerLocations::TIMELINE_MEMORY) {
-            seq.serialize_element("timeline-memory")?;
+        if locations.contains(MarkerLocations::TIMELINE_MEMORY) {
+            w.string_value("timeline-memory")?;
         }
-        if self.0.contains(MarkerLocations::TIMELINE_IPC) {
-            seq.serialize_element("timeline-ipc")?;
+        if locations.contains(MarkerLocations::TIMELINE_IPC) {
+            w.string_value("timeline-ipc")?;
         }
-        if self.0.contains(MarkerLocations::TIMELINE_FILEIO) {
-            seq.serialize_element("timeline-fileio")?;
+        if locations.contains(MarkerLocations::TIMELINE_FILEIO) {
+            w.string_value("timeline-fileio")?;
         }
-        seq.end()
-    }
+        Ok(())
+    })
 }

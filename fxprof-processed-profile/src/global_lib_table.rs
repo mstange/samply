@@ -1,11 +1,11 @@
 use std::collections::BTreeSet;
+use std::io::Write;
 use std::sync::Arc;
 
-use serde::ser::{Serialize, Serializer};
-
 use crate::fast_hash_map::{FastHashMap, FastIndexSet};
-use crate::string_table::ProfileStringTable;
-use crate::{LibraryInfo, StringHandle, SymbolTable};
+use crate::string_table::{ProfileStringTable, StringHandle};
+use crate::writer::Writer;
+use crate::{LibraryInfo, SymbolTable};
 
 #[derive(Debug)]
 pub struct GlobalLibTable {
@@ -84,6 +84,16 @@ impl GlobalLibTable {
             used_libs_seen_rvas: vec![BTreeSet::new(); self.used_libs.len()],
         }
     }
+
+    pub(crate) fn write_json<W: Write>(&self, w: &mut Writer<W>) -> std::io::Result<()> {
+        w.array(|w| {
+            for handle in &self.used_libs {
+                let lib = &self.all_libs[handle.0];
+                lib.write_json(w)?;
+            }
+            Ok(())
+        })
+    }
 }
 
 impl UsedLibraryAddressesCollector {
@@ -103,26 +113,18 @@ impl UsedLibraryAddressesCollector {
     }
 }
 
-impl Serialize for GlobalLibTable {
-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        serializer.collect_seq(self.used_libs.iter().map(|handle| &self.all_libs[handle.0]))
-    }
-}
-
 /// An index for a *used* library, i.e. a library for which there exists at
 /// least one frame in any process's frame table which refers to this lib.
 #[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash)]
 pub struct GlobalLibIndex(usize, StringHandle);
 
-impl Serialize for GlobalLibIndex {
-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        serializer.serialize_u32(self.0 as u32)
-    }
-}
-
 impl GlobalLibIndex {
     pub fn name_string_index(&self) -> StringHandle {
         self.1
+    }
+
+    pub(crate) fn write_json<W: Write>(self, w: &mut Writer<W>) -> std::io::Result<()> {
+        w.number_value(self.0 as u32)
     }
 }
 

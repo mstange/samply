@@ -1,6 +1,6 @@
-use serde::ser::Serialize;
-use serde_derive::Serialize;
+use std::io::Write;
 
+use crate::writer::Writer;
 use crate::{CategoryHandle, Profile, StringHandle};
 
 use super::field_format::{
@@ -165,7 +165,7 @@ pub struct DynamicSchemaMarkerSchema {
 ///
 /// Used with runtime-generated marker schemas. Use [`MarkerGraph`](super::static_schema::MarkerGraph)
 /// when using [`Marker`](super::static_schema::Marker).
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug)]
 pub struct DynamicSchemaMarkerGraph {
     /// Must match the `key` of one of the [`DynamicSchemaMarkerField`]s in the
     /// containing [`DynamicSchemaMarkerSchema::fields`], and that field must
@@ -176,11 +176,25 @@ pub struct DynamicSchemaMarkerGraph {
     /// of this graph line / bar graph segment.
     pub key: String,
     /// Whether this marker graph segment is a line or a bar graph segment.
-    #[serde(rename = "type")]
     pub graph_type: MarkerGraphType,
     /// The color of the graph segment. If `None`, the choice is up to the front-end.
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub color: Option<GraphColor>,
+}
+
+impl DynamicSchemaMarkerGraph {
+    pub(crate) fn write_json<W: Write>(&self, w: &mut Writer<W>) -> std::io::Result<()> {
+        w.object(|w| {
+            w.name("key")?;
+            w.string_value(&self.key)?;
+            w.name("type")?;
+            self.graph_type.write_json(w)?;
+            if let Some(color) = self.color {
+                w.name("color")?;
+                color.write_json(w)?;
+            }
+            Ok(())
+        })
+    }
 }
 
 /// Passed to [`DynamicSchemaMarker::push_field_values`].
@@ -206,23 +220,12 @@ impl DynamicSchemaMarkerFieldFormat {
             DynamicSchemaMarkerFieldFormat::Flow(_) => MarkerFieldKind::Flow,
         }
     }
-}
 
-impl Serialize for DynamicSchemaMarkerFieldFormat {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
+    pub(crate) fn write_json<W: Write>(&self, w: &mut Writer<W>) -> std::io::Result<()> {
         match self {
-            DynamicSchemaMarkerFieldFormat::String(marker_string_field_format) => {
-                marker_string_field_format.serialize(serializer)
-            }
-            DynamicSchemaMarkerFieldFormat::Number(marker_number_field_format) => {
-                marker_number_field_format.serialize(serializer)
-            }
-            DynamicSchemaMarkerFieldFormat::Flow(marker_flow_field_format) => {
-                marker_flow_field_format.serialize(serializer)
-            }
+            DynamicSchemaMarkerFieldFormat::String(f) => f.write_json(w),
+            DynamicSchemaMarkerFieldFormat::Number(f) => f.write_json(w),
+            DynamicSchemaMarkerFieldFormat::Flow(f) => f.write_json(w),
         }
     }
 }

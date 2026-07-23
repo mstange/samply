@@ -1,13 +1,11 @@
 use std::fmt::{Display, Formatter};
-
-use serde::ser::{Serialize, SerializeMap, Serializer};
+use std::io::Write;
 
 use crate::cpu_delta::CpuDelta;
-use crate::serialization_helpers::{SerializableSingleValueColumn, SliceWithPermutation};
 use crate::timestamp::{
-    SerializableTimestampSliceAsDeltas, SerializableTimestampSliceAsDeltasWithPermutation,
-    Timestamp,
+    write_timestamps_as_deltas, write_timestamps_as_deltas_with_permutation, Timestamp,
 };
+use crate::writer::Writer;
 use crate::StackHandle;
 
 /// The sample table contains stacks with timestamps and some extra information.
@@ -52,24 +50,51 @@ pub enum WeightType {
     Bytes,
 }
 
-impl Display for WeightType {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+impl WeightType {
+    pub(crate) fn as_json_str(&self) -> &'static str {
         match self {
-            WeightType::Samples => write!(f, "samples"),
-            WeightType::TracingMs => write!(f, "tracing-ms"),
-            WeightType::Bytes => write!(f, "bytes"),
+            WeightType::Samples => "samples",
+            WeightType::TracingMs => "tracing-ms",
+            WeightType::Bytes => "bytes",
         }
     }
 }
 
-impl Serialize for WeightType {
-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        match self {
-            WeightType::Samples => serializer.serialize_str("samples"),
-            WeightType::TracingMs => serializer.serialize_str("tracing-ms"),
-            WeightType::Bytes => serializer.serialize_str("bytes"),
-        }
+impl Display for WeightType {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_json_str())
     }
+}
+
+fn write_stack_column<W: Write>(
+    w: &mut Writer<W>,
+    stacks: &[Option<StackHandle>],
+) -> std::io::Result<()> {
+    w.array(|w| {
+        for s in stacks {
+            match s {
+                Some(s) => w.number_value(s.0)?,
+                None => w.null_value()?,
+            }
+        }
+        Ok(())
+    })
+}
+
+fn write_stack_column_permuted<W: Write>(
+    w: &mut Writer<W>,
+    stacks: &[Option<StackHandle>],
+    indexes: &[usize],
+) -> std::io::Result<()> {
+    w.array(|w| {
+        for &i in indexes {
+            match stacks[i] {
+                Some(s) => w.number_value(s.0)?,
+                None => w.null_value()?,
+            }
+        }
+        Ok(())
+    })
 }
 
 impl SampleTable {
@@ -122,47 +147,53 @@ impl SampleTable {
             .collect();
         self
     }
-}
 
-impl Serialize for SampleTable {
-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+    pub(crate) fn write_json<W: Write>(&self, w: &mut Writer<W>) -> std::io::Result<()> {
         let len = self.sample_timestamps.len();
-        let mut map = serializer.serialize_map(None)?;
-        map.serialize_entry("length", &len)?;
-        map.serialize_entry("weightType", &self.sample_weight_type.to_string())?;
+        w.object(|w| {
+            w.name("length")?;
+            w.number_value(len)?;
+            w.name("weightType")?;
+            w.string_value(self.sample_weight_type.as_json_str())?;
 
-        if self.is_sorted_by_time {
-            map.serialize_entry("stack", &self.sample_stack_indexes)?;
-            map.serialize_entry(
-                "timeDeltas",
-                &SerializableTimestampSliceAsDeltas(&self.sample_timestamps),
-            )?;
-            map.serialize_entry("weight", &self.sample_weights)?;
-            map.serialize_entry("threadCPUDelta", &self.sample_cpu_deltas)?;
-        } else {
-            let mut indexes: Vec<usize> = (0..self.sample_timestamps.len()).collect();
-            indexes.sort_unstable_by_key(|index| self.sample_timestamps[*index]);
-            map.serialize_entry(
-                "stack",
-                &SliceWithPermutation(&self.sample_stack_indexes, &indexes),
-            )?;
-            map.serialize_entry(
-                "timeDeltas",
-                &SerializableTimestampSliceAsDeltasWithPermutation(
-                    &self.sample_timestamps,
-                    &indexes,
-                ),
-            )?;
-            map.serialize_entry(
-                "weight",
-                &SliceWithPermutation(&self.sample_weights, &indexes),
-            )?;
-            map.serialize_entry(
-                "threadCPUDelta",
-                &SliceWithPermutation(&self.sample_cpu_deltas, &indexes),
-            )?;
-        }
-        map.end()
+            if self.is_sorted_by_time {
+                w.name("stack")?;
+                write_stack_column(w, &self.sample_stack_indexes)?;
+                w.name("timeDeltas")?;
+                write_timestamps_as_deltas(w, &self.sample_timestamps)?;
+                w.name("weight")?;
+                w.number_array(&self.sample_weights)?;
+                w.name("threadCPUDelta")?;
+                w.array(|w| {
+                    for cd in &self.sample_cpu_deltas {
+                        cd.write_json(w)?;
+                    }
+                    Ok(())
+                })?;
+            } else {
+                let mut indexes: Vec<usize> = (0..self.sample_timestamps.len()).collect();
+                indexes.sort_unstable_by_key(|index| self.sample_timestamps[*index]);
+                w.name("stack")?;
+                write_stack_column_permuted(w, &self.sample_stack_indexes, &indexes)?;
+                w.name("timeDeltas")?;
+                write_timestamps_as_deltas_with_permutation(w, &self.sample_timestamps, &indexes)?;
+                w.name("weight")?;
+                w.array(|w| {
+                    for &i in &indexes {
+                        w.number_value(self.sample_weights[i])?;
+                    }
+                    Ok(())
+                })?;
+                w.name("threadCPUDelta")?;
+                w.array(|w| {
+                    for &i in &indexes {
+                        self.sample_cpu_deltas[i].write_json(w)?;
+                    }
+                    Ok(())
+                })?;
+            }
+            Ok(())
+        })
     }
 }
 
@@ -233,96 +264,68 @@ impl NativeAllocationsTable {
             .collect();
         self
     }
-}
 
-impl Serialize for NativeAllocationsTable {
-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+    pub(crate) fn write_json<W: Write>(&self, w: &mut Writer<W>) -> std::io::Result<()> {
         let len = self.time.len();
-        let mut map = serializer.serialize_map(None)?;
-        map.serialize_entry("time", &self.time)?;
-        map.serialize_entry("weight", &self.allocation_size)?;
-        map.serialize_entry("weightType", &WeightType::Bytes)?;
-        map.serialize_entry("stack", &self.stack)?;
-        map.serialize_entry("memoryAddress", &self.allocation_address)?;
-
-        // The threadId column is currently unused by the Firefox Profiler.
-        // Fill the column with zeros because the type definitions require it to be a number.
-        // A better alternative would be to use thread indexes or the threads' string TIDs.
-        map.serialize_entry("threadId", &SerializableSingleValueColumn(0, len))?;
-
-        map.serialize_entry("length", &len)?;
-        map.end()
+        w.object(|w| {
+            w.name("time")?;
+            w.array(|w| {
+                for t in &self.time {
+                    t.write_json(w)?;
+                }
+                Ok(())
+            })?;
+            w.name("weight")?;
+            w.number_array(&self.allocation_size)?;
+            w.name("weightType")?;
+            w.string_value(WeightType::Bytes.as_json_str())?;
+            w.name("stack")?;
+            write_stack_column(w, &self.stack)?;
+            w.name("memoryAddress")?;
+            w.number_array(&self.allocation_address)?;
+            // The threadId column is currently unused by the Firefox Profiler.
+            // Fill the column with zeros because the type definitions require it to be a number.
+            // A better alternative would be to use thread indexes or the threads' string TIDs.
+            w.name("threadId")?;
+            w.array(|w| {
+                for _ in 0..len {
+                    w.number_value(0u32)?;
+                }
+                Ok(())
+            })?;
+            w.name("length")?;
+            w.number_value(len)
+        })
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use struson::writer::{JsonStreamWriter, JsonWriter};
+
+    fn to_json(table: &NativeAllocationsTable) -> serde_json::Value {
+        let mut buf = Vec::new();
+        let mut json = JsonStreamWriter::new(&mut buf);
+        let mut ctx = Writer { json: &mut json };
+        table.write_json(&mut ctx).unwrap();
+        json.finish_document().unwrap();
+        serde_json::from_slice(&buf).unwrap()
+    }
 
     #[test]
     fn test_serialize_native_allocations() {
         // example of `nativeAllocations`:
         //
         // "nativeAllocations": {
-        //     "time": [
-        //         274364.1082197344,
-        //         274364.17226073437,
-        //         274364.2063027344,
-        //         274364.2229277344,
-        //         274364.44117773435,
-        //         274366.4713027344,
-        //         274366.48871973436,
-        //         274366.6601777344,
-        //         274366.6705107344
-        //     ],
-        //     "weight": [
-        //         4096,
-        //         -4096,
-        //         4096,
-        //         -4096,
-        //         147456,
-        //         4096,
-        //         -4096,
-        //         96,
-        //         -96
-        //     ],
+        //     "time": [ ... ],
+        //     "weight": [ ... ],
         //     "weightType": "bytes",
-        //     "stack": [
-        //         71,
-        //         88,
-        //         119,
-        //         138,
-        //         null,
-        //         171,
-        //         190,
-        //         210,
-        //         214
-        //     ],
-        //     "memoryAddress": [
-        //         4388749312,
-        //         4388749312,
-        //         4388749312,
-        //         4388749312,
-        //         4376330240,
-        //         4388749312,
-        //         4388749312,
-        //         4377576256,
-        //         4377576256
-        //     ],
-        //     "threadId": [
-        //         0,
-        //         0,
-        //         0,
-        //         0,
-        //         0,
-        //         0,
-        //         0,
-        //         0,
-        //         0
-        //     ],
-        //     "length": 9
-        // },
-
+        //     "stack": [ ... ],
+        //     "memoryAddress": [ ... ],
+        //     "threadId": [ ... ],
+        //     "length": ...
+        // }
         let mut native_allocations_table = NativeAllocationsTable::default();
         native_allocations_table.add_sample(
             Timestamp::from_millis_since_reference(274_363.248_375),
@@ -331,25 +334,25 @@ mod tests {
             147456,
         );
 
-        insta::assert_json_snapshot!(native_allocations_table, @r#"
+        insta::assert_json_snapshot!(to_json(&native_allocations_table), @r#"
         {
+          "length": 1,
+          "memoryAddress": [
+            5969772544
+          ],
+          "stack": [
+            null
+          ],
+          "threadId": [
+            0
+          ],
           "time": [
             274363.248375
           ],
           "weight": [
             147456
           ],
-          "weightType": "bytes",
-          "stack": [
-            null
-          ],
-          "memoryAddress": [
-            5969772544
-          ],
-          "threadId": [
-            0
-          ],
-          "length": 1
+          "weightType": "bytes"
         }
         "#);
     }

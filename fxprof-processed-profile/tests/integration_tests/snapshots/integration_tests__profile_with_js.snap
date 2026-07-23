@@ -30,7 +30,7 @@ expression: profile_as_json_value(&profile)
       "length": 0,
       "name": []
     },
-    "interval": 1.0,
+    "interval": 1,
     "markerSchema": [],
     "pausedRanges": [],
     "preprocessedProfileVersion": 66,
@@ -42,7 +42,7 @@ expression: profile_as_json_value(&profile)
       "time": "ms"
     },
     "sourceCodeIsNotOnSearchfox": true,
-    "startTime": 1636162232627.0,
+    "startTime": 1636162232627,
     "symbolicated": false,
     "usesOnlyOneStackType": false,
     "version": 24
@@ -190,9 +190,9 @@ expression: profile_as_json_value(&profile)
       "pid": "123",
       "processName": "test2",
       "processShutdownTime": null,
-      "processStartupTime": 0.0,
+      "processStartupTime": 0,
       "processType": "default",
-      "registerTime": 0.0,
+      "registerTime": 0,
       "samples": {
         "length": 1,
         "stack": [
@@ -202,7 +202,7 @@ expression: profile_as_json_value(&profile)
           0
         ],
         "timeDeltas": [
-          1.0
+          1
         ],
         "weight": [
           1

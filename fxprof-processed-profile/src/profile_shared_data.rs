@@ -1,7 +1,5 @@
 use std::collections::BTreeMap;
-
-use serde::ser::{Serialize, SerializeMap, Serializer};
-use serde_json::json;
+use std::io::Write;
 
 use crate::fast_hash_map::FastHashSet;
 use crate::frame_table::{FrameInterner, InternalFrame};
@@ -12,6 +10,7 @@ use crate::stack_table::StackTable;
 use crate::string_table::{ProfileStringTable, StringHandle};
 use crate::symbol_info::SymbolStringTable;
 use crate::symbolication::{apply_symbol_information, StringTableAdapter};
+use crate::writer::Writer;
 use crate::{FrameHandle, StackHandle};
 
 #[derive(Debug)]
@@ -91,30 +90,39 @@ impl ProfileSharedData {
             old_stack_to_new_stack,
         )
     }
-}
 
-impl Serialize for ProfileSharedData {
-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+    pub(crate) fn write_json<W: Write>(&self, ctx: &mut Writer<W>) -> std::io::Result<()> {
         let (frame_table, func_table, source_table, resource_table) =
             self.frame_interner.create_tables();
 
-        let mut map = serializer.serialize_map(None)?;
-        map.serialize_entry("stackTable", &self.stack_table)?;
-        map.serialize_entry("frameTable", &frame_table)?;
-        map.serialize_entry("funcTable", &func_table)?;
-        map.serialize_entry("nativeSymbols", &self.native_symbols)?;
-        map.serialize_entry("resourceTable", &resource_table)?;
-        map.serialize_entry("sources", &source_table)?;
-        map.serialize_entry(
-            "sourceLocationTable",
-            &json!({
-                "length": 0,
-                "source": [],
-                "line": [],
-                "column": [],
-            }),
-        )?;
-        map.serialize_entry("stringArray", &self.string_table)?;
-        map.end()
+        ctx.object(|w| {
+            w.name("stackTable")?;
+            self.stack_table.write_json(w)?;
+            w.name("frameTable")?;
+            frame_table.write_json(w)?;
+            w.name("funcTable")?;
+            func_table.write_json(w)?;
+
+            w.name("nativeSymbols")?;
+            self.native_symbols.write_json(w)?;
+            w.name("resourceTable")?;
+            resource_table.write_json(w)?;
+            w.name("sources")?;
+            source_table.write_json(w)?;
+            w.name("sourceLocationTable")?;
+            w.object(|w| {
+                w.name("length")?;
+                w.number_value(0u32)?;
+                w.name("source")?;
+                w.array(|_| Ok(()))?;
+                w.name("line")?;
+                w.array(|_| Ok(()))?;
+                w.name("column")?;
+                w.array(|_| Ok(()))
+            })?;
+
+            w.name("stringArray")?;
+            self.string_table.write_json(w)
+        })
     }
 }

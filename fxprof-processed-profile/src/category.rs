@@ -1,10 +1,11 @@
 use std::hash::Hash;
+use std::io::Write;
 
 use indexmap::Equivalent;
-use serde::ser::{Serialize, SerializeMap, Serializer};
 
 use super::category_color::CategoryColor;
 use super::fast_hash_map::FastIndexSet;
+use crate::writer::Writer;
 use crate::Profile;
 
 /// Conversion trait for arguments that name a subcategory.
@@ -52,17 +53,15 @@ pub struct CategoryHandle(pub(crate) u16);
 impl CategoryHandle {
     /// The "Other" category. All profiles have this category.
     pub const OTHER: Self = CategoryHandle(0);
+
+    pub(crate) fn write_json<W: Write>(self, w: &mut Writer<W>) -> std::io::Result<()> {
+        w.number_value(self.0)
+    }
 }
 
 impl IntoSubcategoryHandle for CategoryHandle {
     fn into_subcategory_handle(self, _profile: &mut Profile) -> SubcategoryHandle {
         self.into()
-    }
-}
-
-impl Serialize for CategoryHandle {
-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        self.0.serialize(serializer)
     }
 }
 
@@ -90,6 +89,10 @@ pub struct SubcategoryIndex(pub u16);
 impl SubcategoryIndex {
     /// The "Other" subcategory. All categories have this subcategory as their first subcategory.
     pub const OTHER: Self = SubcategoryIndex(0);
+
+    pub(crate) fn write_json<W: Write>(self, w: &mut Writer<W>) -> std::io::Result<()> {
+        w.number_value(self.0)
+    }
 }
 
 /// A handle for a [`Subcategory`], or for the default subcategory of a [`CategoryHandle`].
@@ -101,7 +104,7 @@ impl SubcategoryIndex {
 ///
 /// Subcategory handles for named subcategories can be obtained from
 /// [`Profile::handle_for_subcategory`](crate::Profile::handle_for_subcategory).
-/// Storing and reusing the handle avoids repeated lookups and can improve performance.
+/// Storing and reusing the handle avoids repeated lookups.
 ///
 /// The handle is specific to a Profile instance and cannot be reused across profiles.
 #[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash)]
@@ -180,20 +183,20 @@ impl InternalCategory {
     pub fn as_category(&self) -> Category<'_> {
         Category(&self.name, self.color)
     }
-}
 
-impl Serialize for InternalCategory {
-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        let mut map = serializer.serialize_map(None)?;
-        map.serialize_entry("name", &self.name)?;
-        map.serialize_entry("color", &self.color)?;
-        map.serialize_entry("subcategories", &self.subcategories)?;
-        map.end()
-    }
-}
-
-impl Serialize for SubcategoryIndex {
-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        self.0.serialize(serializer)
+    pub(crate) fn write_json<W: Write>(&self, w: &mut Writer<W>) -> std::io::Result<()> {
+        w.object(|w| {
+            w.name("name")?;
+            w.string_value(&self.name)?;
+            w.name("color")?;
+            self.color.write_json(w)?;
+            w.name("subcategories")?;
+            w.array(|w| {
+                for sc in &self.subcategories {
+                    w.string_value(sc)?;
+                }
+                Ok(())
+            })
+        })
     }
 }

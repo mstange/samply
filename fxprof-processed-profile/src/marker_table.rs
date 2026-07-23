@@ -1,11 +1,13 @@
-use serde::ser::{Serialize, SerializeMap, SerializeSeq, Serializer};
+use std::io::Write;
 
+use crate::category::CategoryHandle;
 use crate::markers::{InternalMarkerSchema, MarkerFieldValueConsumer};
-use crate::serialization_helpers::SerializableOptionalTimestampColumn;
 use crate::string_table::{ProfileStringTable, StringHandle};
+use crate::timestamp::write_optional_timestamp_column_as_zero_default;
+use crate::writer::Writer;
 use crate::{
-    CategoryHandle, DynamicSchemaMarker, DynamicSchemaMarkerFieldFormat, MarkerHandle,
-    MarkerStringFieldFormat, MarkerTiming, MarkerTypeHandle, StackHandle, Timestamp,
+    DynamicSchemaMarker, DynamicSchemaMarkerFieldFormat, MarkerHandle, MarkerStringFieldFormat,
+    MarkerTiming, MarkerTypeHandle, StackHandle, Timestamp,
 };
 
 #[derive(Debug, Clone, Default)]
@@ -109,16 +111,83 @@ impl MarkerTable {
         self
     }
 
-    pub fn as_serializable<'a>(
-        &'a self,
-        schemas: &'a [InternalMarkerSchema],
-        string_table: &'a ProfileStringTable,
-    ) -> impl Serialize + 'a {
-        SerializableMarkerTable {
-            marker_table: self,
-            string_table,
-            schemas,
-        }
+    pub(crate) fn write_json<W: Write>(
+        &self,
+        w: &mut Writer<W>,
+        schemas: &[InternalMarkerSchema],
+        string_table: &ProfileStringTable,
+    ) -> std::io::Result<()> {
+        let len = self.marker_name_string_indexes.len();
+        w.object(|w| {
+            w.name("length")?;
+            w.number_value(len)?;
+            w.name("category")?;
+            w.array(|w| {
+                for c in &self.marker_categories {
+                    c.write_json(w)?;
+                }
+                Ok(())
+            })?;
+            w.name("data")?;
+            self.write_data_column(w, schemas, string_table)?;
+            w.name("endTime")?;
+            write_optional_timestamp_column_as_zero_default(w, &self.marker_ends)?;
+            w.name("name")?;
+            w.array(|w| {
+                for n in &self.marker_name_string_indexes {
+                    n.write_json(w)?;
+                }
+                Ok(())
+            })?;
+            w.name("phase")?;
+            w.array(|w| {
+                for p in &self.marker_phases {
+                    w.number_value(*p as u8)?;
+                }
+                Ok(())
+            })?;
+            w.name("startTime")?;
+            write_optional_timestamp_column_as_zero_default(w, &self.marker_starts)?;
+            Ok(())
+        })
+    }
+
+    fn write_data_column<W: Write>(
+        &self,
+        w: &mut Writer<W>,
+        schemas: &[InternalMarkerSchema],
+        string_table: &ProfileStringTable,
+    ) -> std::io::Result<()> {
+        let len = self.marker_name_string_indexes.len();
+        let mut remaining_string_fields = &self.marker_field_string_values[..];
+        let mut remaining_number_fields = &self.marker_field_number_values[..];
+        let mut remaining_flow_fields = &self.marker_field_flow_values[..];
+        w.array(|w| {
+            for i in 0..len {
+                let marker_type_handle = self.marker_type_handles[i];
+                let stack_index = self.marker_stacks[i];
+                let schema = &schemas[marker_type_handle.0];
+                let string_fields;
+                let number_fields;
+                let flow_fields;
+                (string_fields, remaining_string_fields) =
+                    remaining_string_fields.split_at(schema.string_field_count());
+                (number_fields, remaining_number_fields) =
+                    remaining_number_fields.split_at(schema.number_field_count());
+                (flow_fields, remaining_flow_fields) =
+                    remaining_flow_fields.split_at(schema.flow_field_count());
+                write_marker_data_element(
+                    w,
+                    string_table,
+                    stack_index,
+                    schema,
+                    string_fields,
+                    number_fields,
+                    flow_fields,
+                )?;
+            }
+            Ok(())
+        })
     }
 }
 
@@ -146,132 +215,54 @@ impl<'a> MarkerFieldValueConsumer for MarkerTableFieldValueConsumer<'a> {
     }
 }
 
-struct SerializableMarkerTable<'a> {
-    marker_table: &'a MarkerTable,
-    string_table: &'a ProfileStringTable,
-    schemas: &'a [InternalMarkerSchema],
-}
-
-impl Serialize for SerializableMarkerTable<'_> {
-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        let Self { marker_table, .. } = self;
-        let len = marker_table.marker_name_string_indexes.len();
-        let mut map = serializer.serialize_map(None)?;
-        map.serialize_entry("length", &len)?;
-        map.serialize_entry("category", &marker_table.marker_categories)?;
-        map.serialize_entry("data", &SerializableMarkerTableDataColumn(self))?;
-        map.serialize_entry(
-            "endTime",
-            &SerializableOptionalTimestampColumn(&marker_table.marker_ends),
-        )?;
-        map.serialize_entry("name", &marker_table.marker_name_string_indexes)?;
-        map.serialize_entry("phase", &marker_table.marker_phases)?;
-        map.serialize_entry(
-            "startTime",
-            &SerializableOptionalTimestampColumn(&marker_table.marker_starts),
-        )?;
-        map.end()
-    }
-}
-
-struct SerializableMarkerTableDataColumn<'a>(&'a SerializableMarkerTable<'a>);
-
-impl Serialize for SerializableMarkerTableDataColumn<'_> {
-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        let marker_table = self.0.marker_table;
-        let schemas = self.0.schemas;
-        let string_table = self.0.string_table;
-        let len = marker_table.marker_name_string_indexes.len();
-        let mut seq = serializer.serialize_seq(Some(len))?;
-        let mut remaining_string_fields = &marker_table.marker_field_string_values[..];
-        let mut remaining_number_fields = &marker_table.marker_field_number_values[..];
-        let mut remaining_flow_fields = &marker_table.marker_field_flow_values[..];
-        for i in 0..len {
-            let marker_type_handle = marker_table.marker_type_handles[i];
-            let stack_index = marker_table.marker_stacks[i];
-            let schema = &schemas[marker_type_handle.0];
-            let string_fields;
-            let number_fields;
-            let flow_fields;
-            (string_fields, remaining_string_fields) =
-                remaining_string_fields.split_at(schema.string_field_count());
-            (number_fields, remaining_number_fields) =
-                remaining_number_fields.split_at(schema.number_field_count());
-            (flow_fields, remaining_flow_fields) =
-                remaining_flow_fields.split_at(schema.flow_field_count());
-            seq.serialize_element(&SerializableMarkerDataElement {
-                string_table,
-                stack_index,
-                schema,
-                string_fields,
-                number_fields,
-                flow_fields,
-            })?;
-        }
-        seq.end()
-    }
-}
-
-struct SerializableMarkerDataElement<'a> {
-    string_table: &'a ProfileStringTable,
+fn write_marker_data_element<W: Write>(
+    w: &mut Writer<W>,
+    string_table: &ProfileStringTable,
     stack_index: Option<StackHandle>,
-    schema: &'a InternalMarkerSchema,
-    string_fields: &'a [StringHandle],
-    number_fields: &'a [f64],
-    flow_fields: &'a [StringHandle],
-}
-
-impl Serialize for SerializableMarkerDataElement<'_> {
-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        let Self {
-            string_table,
-            stack_index,
-            schema,
-            mut string_fields,
-            mut number_fields,
-            mut flow_fields,
-        } = self;
-        let mut map = serializer.serialize_map(None)?;
-        map.serialize_entry("type", &schema.type_name())?;
+    schema: &InternalMarkerSchema,
+    mut string_fields: &[StringHandle],
+    mut number_fields: &[f64],
+    mut flow_fields: &[StringHandle],
+) -> std::io::Result<()> {
+    w.object(|w| {
+        w.name("type")?;
+        w.string_value(schema.type_name())?;
         if let Some(stack_index) = stack_index {
-            map.serialize_entry("cause", &SerializableMarkerCause(*stack_index))?;
+            w.name("cause")?;
+            w.object(|w| {
+                w.name("stack")?;
+                w.number_value(stack_index.0)
+            })?;
         }
         for field in schema.fields() {
             match &field.format {
                 DynamicSchemaMarkerFieldFormat::String(format) => {
                     let value;
                     (value, string_fields) = string_fields.split_first().unwrap();
+                    w.name(&field.key)?;
                     if *format == MarkerStringFieldFormat::String {
-                        map.serialize_entry(&field.key, value)?;
+                        value.write_json(w)?;
                     } else {
                         let str_val = string_table.get_string(*value);
-                        map.serialize_entry(&field.key, str_val)?;
+                        w.string_value(str_val)?;
                     }
                 }
                 DynamicSchemaMarkerFieldFormat::Number(_) => {
                     let value;
                     (value, number_fields) = number_fields.split_first().unwrap();
-                    map.serialize_entry(&field.key, value)?;
+                    w.name(&field.key)?;
+                    w.fp(*value)?;
                 }
                 DynamicSchemaMarkerFieldFormat::Flow(_) => {
                     let value;
                     (value, flow_fields) = flow_fields.split_first().unwrap();
-                    map.serialize_entry(&field.key, value)?;
+                    w.name(&field.key)?;
+                    value.write_json(w)?;
                 }
             }
         }
-
-        map.end()
-    }
-}
-
-struct SerializableMarkerCause(StackHandle);
-impl Serialize for SerializableMarkerCause {
-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        let mut map = serializer.serialize_map(Some(1))?;
-        map.serialize_entry("stack", &self.0)?;
-        map.end()
-    }
+        Ok(())
+    })
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -281,10 +272,4 @@ enum Phase {
     Interval = 1,
     IntervalStart = 2,
     IntervalEnd = 3,
-}
-
-impl Serialize for Phase {
-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        serializer.serialize_u8(*self as u8)
-    }
 }

@@ -1,16 +1,15 @@
 use std::borrow::Cow;
 use std::cmp::Ordering;
-
-use serde::ser::{SerializeMap, Serializer};
+use std::io::Write;
 
 use crate::cpu_delta::CpuDelta;
 use crate::marker_table::MarkerTable;
 use crate::markers::InternalMarkerSchema;
 use crate::sample_table::{NativeAllocationsTable, SampleTable, WeightType};
 use crate::string_table::{ProfileStringTable, StringHandle};
-use crate::{
-    DynamicSchemaMarker, MarkerHandle, MarkerTiming, MarkerTypeHandle, StackHandle, Timestamp,
-};
+use crate::timestamp::Timestamp;
+use crate::writer::Writer;
+use crate::{DynamicSchemaMarker, MarkerHandle, MarkerTiming, MarkerTypeHandle, StackHandle};
 
 /// A handle that identifies a process in a [`Profile`](crate::Profile). Created
 /// with [`Profile::add_process`](crate::Profile::add_process).
@@ -209,16 +208,16 @@ impl Thread {
     }
 
     #[allow(clippy::too_many_arguments)]
-    pub fn serialize_with<S: Serializer>(
+    pub(crate) fn write_json<W: Write>(
         &self,
-        serializer: S,
+        w: &mut Writer<W>,
         process_start_time: Timestamp,
         process_end_time: Option<Timestamp>,
         process_name: &str,
         pid: &str,
         marker_schemas: &[InternalMarkerSchema],
         string_table: &ProfileStringTable,
-    ) -> Result<S::Ok, S::Error> {
+    ) -> std::io::Result<()> {
         let thread_name: Cow<str> = match (self.is_main, &self.name) {
             (true, _) => process_name.into(),
             (false, Some(name)) => name.into(),
@@ -228,27 +227,39 @@ impl Thread {
         let thread_register_time = self.start_time;
         let thread_unregister_time = self.end_time;
 
-        let mut map = serializer.serialize_map(None)?;
-        map.serialize_entry("name", &thread_name)?;
-        map.serialize_entry("isMainThread", &self.is_main)?;
-        map.serialize_entry("pausedRanges", &[] as &[()])?;
-        map.serialize_entry("pid", &pid)?;
-        map.serialize_entry("processName", process_name)?;
-        map.serialize_entry("processShutdownTime", &process_end_time)?;
-        map.serialize_entry("processStartupTime", &process_start_time)?;
-        map.serialize_entry("processType", &"default")?;
-        map.serialize_entry("registerTime", &thread_register_time)?;
-        map.serialize_entry("tid", &self.tid)?;
-        map.serialize_entry("unregisterTime", &thread_unregister_time)?;
-        map.serialize_entry("showMarkersInTimeline", &self.show_markers_in_timeline)?;
-        map.serialize_entry("samples", &self.samples)?;
-        if let Some(allocations) = &self.native_allocations {
-            map.serialize_entry("nativeAllocations", &allocations)?;
-        }
-        map.serialize_entry(
-            "markers",
-            &self.markers.as_serializable(marker_schemas, string_table),
-        )?;
-        map.end()
+        w.object(|w| {
+            w.name("name")?;
+            w.string_value(&thread_name)?;
+            w.name("isMainThread")?;
+            w.bool_value(self.is_main)?;
+            w.name("pausedRanges")?;
+            w.array(|_| Ok(()))?;
+            w.name("pid")?;
+            w.string_value(pid)?;
+            w.name("processName")?;
+            w.string_value(process_name)?;
+            w.name("processShutdownTime")?;
+            Timestamp::write_optional(process_end_time, w)?;
+            w.name("processStartupTime")?;
+            process_start_time.write_json(w)?;
+            w.name("processType")?;
+            w.string_value("default")?;
+            w.name("registerTime")?;
+            thread_register_time.write_json(w)?;
+            w.name("tid")?;
+            w.string_value(&self.tid)?;
+            w.name("unregisterTime")?;
+            Timestamp::write_optional(thread_unregister_time, w)?;
+            w.name("showMarkersInTimeline")?;
+            w.bool_value(self.show_markers_in_timeline)?;
+            w.name("samples")?;
+            self.samples.write_json(w)?;
+            if let Some(allocations) = &self.native_allocations {
+                w.name("nativeAllocations")?;
+                allocations.write_json(w)?;
+            }
+            w.name("markers")?;
+            self.markers.write_json(w, marker_schemas, string_table)
+        })
     }
 }

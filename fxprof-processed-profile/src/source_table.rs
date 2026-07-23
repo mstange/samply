@@ -1,10 +1,9 @@
 use std::hash::{BuildHasher, Hash, Hasher};
+use std::io::Write;
 
 use crate::columnar_interner::{ColumnarInterner, ColumnarStore};
-use serde::ser::{Serialize, SerializeMap, Serializer};
-
-use crate::serialization_helpers::SerializableSingleValueColumn;
 use crate::string_table::StringHandle;
+use crate::writer::Writer;
 
 #[derive(Debug, Clone, Default)]
 pub struct SourceTable {
@@ -77,32 +76,49 @@ impl SourceTable {
     pub fn index_for_source(&mut self, source_key: SourceKey) -> SourceIndex {
         SourceIndex(self.set.insert(source_key))
     }
+
+    pub(crate) fn write_json<W: Write>(&self, w: &mut Writer<W>) -> std::io::Result<()> {
+        let cols = self.set.store();
+        let len = self.set.len();
+        w.object(|w| {
+            w.name("length")?;
+            w.number_value(len)?;
+            w.name("id")?;
+            w.array(|w| {
+                for id in &cols.id {
+                    StringHandle::write_optional(*id, w)?;
+                }
+                Ok(())
+            })?;
+            w.name("filename")?;
+            w.array(|w| {
+                for fp in &cols.file_path {
+                    fp.write_json(w)?;
+                }
+                Ok(())
+            })?;
+            w.name("startLine")?;
+            w.number_array(&cols.start_line)?;
+            w.name("startColumn")?;
+            w.number_array(&cols.start_column)?;
+            w.name("sourceMapURL")?;
+            w.array(|w| {
+                for url in &cols.source_map_url {
+                    StringHandle::write_optional(*url, w)?;
+                }
+                Ok(())
+            })?;
+            w.name("content")?;
+            w.null_array(len)
+        })
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash)]
 pub struct SourceIndex(u32);
 
-impl Serialize for SourceIndex {
-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        serializer.serialize_u32(self.0)
-    }
-}
-
-impl Serialize for SourceTable {
-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        let cols = self.set.store();
-        let len = self.set.len();
-        let mut map = serializer.serialize_map(None)?;
-        map.serialize_entry("length", &len)?;
-        map.serialize_entry("id", &cols.id)?;
-        map.serialize_entry("filename", &cols.file_path)?;
-        map.serialize_entry("startLine", &cols.start_line)?;
-        map.serialize_entry("startColumn", &cols.start_column)?;
-        map.serialize_entry("sourceMapURL", &cols.source_map_url)?;
-        map.serialize_entry(
-            "content",
-            &SerializableSingleValueColumn(Option::<&str>::None, len),
-        )?;
-        map.end()
+impl SourceIndex {
+    pub(crate) fn write_json<W: Write>(self, w: &mut Writer<W>) -> std::io::Result<()> {
+        w.number_value(self.0)
     }
 }

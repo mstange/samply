@@ -1,10 +1,7 @@
-use serde::ser::{Serialize, SerializeMap, Serializer};
-use serde_derive::Serialize as SerializeDerive;
+use std::io::Write;
 
-use crate::serialization_helpers::SliceWithPermutation;
-use crate::timestamp::{
-    SerializableTimestampSliceAsDeltas, SerializableTimestampSliceAsDeltasWithPermutation,
-};
+use crate::timestamp::{write_timestamps_as_deltas, write_timestamps_as_deltas_with_permutation};
+use crate::writer::Writer;
 use crate::{GraphColor, ProcessHandle, Timestamp};
 
 /// A handle that identifies a counter in a [`Profile`](crate::Profile). Created
@@ -20,8 +17,7 @@ use crate::{GraphColor, ProcessHandle, Timestamp};
 pub struct CounterHandle(pub(crate) usize);
 
 /// How a counter's samples are graphed in the profiler UI.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, SerializeDerive)]
-#[serde(rename_all = "kebab-case")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CounterGraphType {
     /// Values are absolute levels (e.g. current memory usage).
     LineAccumulated,
@@ -29,9 +25,17 @@ pub enum CounterGraphType {
     LineRate,
 }
 
+impl CounterGraphType {
+    fn as_json_str(self) -> &'static str {
+        match self {
+            CounterGraphType::LineAccumulated => "line-accumulated",
+            CounterGraphType::LineRate => "line-rate",
+        }
+    }
+}
+
 /// The per-sample data source a counter tooltip row reads from.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, SerializeDerive)]
-#[serde(rename_all = "kebab-case")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CounterTooltipDataSource {
     /// `samples.count[i]`.
     Count,
@@ -53,9 +57,24 @@ pub enum CounterTooltipDataSource {
     SampleNumber,
 }
 
+impl CounterTooltipDataSource {
+    fn as_json_str(self) -> &'static str {
+        match self {
+            CounterTooltipDataSource::Count => "count",
+            CounterTooltipDataSource::Rate => "rate",
+            CounterTooltipDataSource::CpuRatio => "cpu-ratio",
+            CounterTooltipDataSource::Accumulated => "accumulated",
+            CounterTooltipDataSource::CountRange => "count-range",
+            CounterTooltipDataSource::SelectionTotal => "selection-total",
+            CounterTooltipDataSource::SelectionRate => "selection-rate",
+            CounterTooltipDataSource::CommittedRangeTotal => "committed-range-total",
+            CounterTooltipDataSource::SampleNumber => "sample-number",
+        }
+    }
+}
+
 /// The base unit used to format a tooltip row's value.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, SerializeDerive)]
-#[serde(rename_all = "kebab-case")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CounterTooltipUnit {
     Bytes,
     BytesPerSecond,
@@ -63,22 +82,49 @@ pub enum CounterTooltipUnit {
     Number,
 }
 
+impl CounterTooltipUnit {
+    fn as_json_str(self) -> &'static str {
+        match self {
+            CounterTooltipUnit::Bytes => "bytes",
+            CounterTooltipUnit::BytesPerSecond => "bytes-per-second",
+            CounterTooltipUnit::Percent => "percent",
+            CounterTooltipUnit::Number => "number",
+        }
+    }
+}
+
 /// Optional CO₂e estimate rendered alongside the value.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, SerializeDerive)]
-#[serde(rename_all = "kebab-case")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CounterTooltipCo2 {
     PerByte,
     PerWatthour,
 }
 
+impl CounterTooltipCo2 {
+    fn as_json_str(self) -> &'static str {
+        match self {
+            CounterTooltipCo2::PerByte => "per-byte",
+            CounterTooltipCo2::PerWatthour => "per-watthour",
+        }
+    }
+}
+
 /// Auto-scaling unit ladder applied to a tooltip row's value.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, SerializeDerive)]
-#[serde(rename_all = "lowercase")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CounterTooltipScale {
     /// kW / W / mW / µW.
     Power,
     /// Energy units (Wh / mWh / µWh / ...).
     Energy,
+}
+
+impl CounterTooltipScale {
+    fn as_json_str(self) -> &'static str {
+        match self {
+            CounterTooltipScale::Power => "power",
+            CounterTooltipScale::Energy => "energy",
+        }
+    }
 }
 
 /// How a counter tooltip row's value should be formatted.
@@ -93,17 +139,21 @@ pub struct CounterTooltipFormat {
     pub scale: Option<CounterTooltipScale>,
 }
 
-impl Serialize for CounterTooltipFormat {
-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        let mut map = serializer.serialize_map(None)?;
-        map.serialize_entry("unit", &self.unit)?;
-        if let Some(co2) = &self.co2 {
-            map.serialize_entry("co2", co2)?;
-        }
-        if let Some(scale) = &self.scale {
-            map.serialize_entry("scale", scale)?;
-        }
-        map.end()
+impl CounterTooltipFormat {
+    fn write_json<W: Write>(&self, w: &mut Writer<W>) -> std::io::Result<()> {
+        w.object(|w| {
+            w.name("unit")?;
+            w.string_value(self.unit.as_json_str())?;
+            if let Some(co2) = self.co2 {
+                w.name("co2")?;
+                w.string_value(co2.as_json_str())?;
+            }
+            if let Some(scale) = self.scale {
+                w.name("scale")?;
+                w.string_value(scale.as_json_str())?;
+            }
+            Ok(())
+        })
     }
 }
 
@@ -128,33 +178,41 @@ pub enum CounterTooltipRow {
     Separator,
 }
 
-impl Serialize for CounterTooltipRow {
-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        let mut map = serializer.serialize_map(None)?;
-        match self {
-            CounterTooltipRow::Value {
-                source,
-                format,
-                label,
-                label_key,
-                requires_preview_selection,
-            } => {
-                map.serialize_entry("type", "value")?;
-                map.serialize_entry("source", source)?;
-                map.serialize_entry("format", format)?;
-                map.serialize_entry("label", label)?;
-                if let Some(key) = label_key {
-                    map.serialize_entry("labelKey", key)?;
+impl CounterTooltipRow {
+    fn write_json<W: Write>(&self, w: &mut Writer<W>) -> std::io::Result<()> {
+        w.object(|w| {
+            match self {
+                CounterTooltipRow::Value {
+                    source,
+                    format,
+                    label,
+                    label_key,
+                    requires_preview_selection,
+                } => {
+                    w.name("type")?;
+                    w.string_value("value")?;
+                    w.name("source")?;
+                    w.string_value(source.as_json_str())?;
+                    w.name("format")?;
+                    format.write_json(w)?;
+                    w.name("label")?;
+                    w.string_value(label)?;
+                    if let Some(key) = label_key {
+                        w.name("labelKey")?;
+                        w.string_value(key)?;
+                    }
+                    if *requires_preview_selection {
+                        w.name("requiresPreviewSelection")?;
+                        w.bool_value(true)?;
+                    }
                 }
-                if *requires_preview_selection {
-                    map.serialize_entry("requiresPreviewSelection", &true)?;
+                CounterTooltipRow::Separator => {
+                    w.name("type")?;
+                    w.string_value("separator")?;
                 }
             }
-            CounterTooltipRow::Separator => {
-                map.serialize_entry("type", "separator")?;
-            }
-        }
-        map.end()
+            Ok(())
+        })
     }
 }
 
@@ -239,6 +297,33 @@ impl CounterDisplayConfig {
             label: name.to_owned(),
             tooltip_rows: generic_tooltip_rows(name),
         }
+    }
+
+    fn write_json<W: Write>(&self, w: &mut Writer<W>) -> std::io::Result<()> {
+        w.object(|w| {
+            w.name("graphType")?;
+            w.string_value(self.graph_type.as_json_str())?;
+            w.name("unit")?;
+            w.string_value(&self.unit)?;
+            w.name("color")?;
+            self.color.write_json(w)?;
+            w.name("markerSchemaLocation")?;
+            match &self.marker_schema_location {
+                Some(s) => w.string_value(s)?,
+                None => w.null_value()?,
+            }
+            w.name("sortWeight")?;
+            w.number_value(self.sort_weight)?;
+            w.name("label")?;
+            w.string_value(&self.label)?;
+            w.name("tooltipRows")?;
+            w.array(|w| {
+                for row in &self.tooltip_rows {
+                    row.write_json(w)?;
+                }
+                Ok(())
+            })
+        })
     }
 }
 
@@ -417,20 +502,6 @@ fn generic_tooltip_rows(name: &str) -> Vec<CounterTooltipRow> {
     )]
 }
 
-impl Serialize for CounterDisplayConfig {
-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        let mut map = serializer.serialize_map(None)?;
-        map.serialize_entry("graphType", &self.graph_type)?;
-        map.serialize_entry("unit", &self.unit)?;
-        map.serialize_entry("color", &self.color)?;
-        map.serialize_entry("markerSchemaLocation", &self.marker_schema_location)?;
-        map.serialize_entry("sortWeight", &self.sort_weight)?;
-        map.serialize_entry("label", &self.label)?;
-        map.serialize_entry("tooltipRows", &self.tooltip_rows)?;
-        map.end()
-    }
-}
-
 #[derive(Debug)]
 pub struct Counter {
     name: String,
@@ -484,31 +555,27 @@ impl Counter {
         self.display = display;
     }
 
-    pub fn as_serializable(&self, main_thread_index: usize) -> impl Serialize + '_ {
-        SerializableCounter {
-            counter: self,
-            main_thread_index,
-        }
-    }
-}
-
-struct SerializableCounter<'a> {
-    counter: &'a Counter,
-    /// The index of the main thread for the counter's process in the profile threads list.
-    main_thread_index: usize,
-}
-
-impl Serialize for SerializableCounter<'_> {
-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        let mut map = serializer.serialize_map(None)?;
-        map.serialize_entry("category", &self.counter.category)?;
-        map.serialize_entry("name", &self.counter.name)?;
-        map.serialize_entry("description", &self.counter.description)?;
-        map.serialize_entry("mainThreadIndex", &self.main_thread_index)?;
-        map.serialize_entry("pid", &self.counter.pid)?;
-        map.serialize_entry("samples", &self.counter.samples)?;
-        map.serialize_entry("display", &self.counter.display)?;
-        map.end()
+    pub(crate) fn write_json<W: Write>(
+        &self,
+        w: &mut Writer<W>,
+        main_thread_index: usize,
+    ) -> std::io::Result<()> {
+        w.object(|w| {
+            w.name("category")?;
+            w.string_value(&self.category)?;
+            w.name("name")?;
+            w.string_value(&self.name)?;
+            w.name("description")?;
+            w.string_value(&self.description)?;
+            w.name("mainThreadIndex")?;
+            w.number_value(main_thread_index)?;
+            w.name("pid")?;
+            w.string_value(&self.pid)?;
+            w.name("samples")?;
+            self.samples.write_json(w)?;
+            w.name("display")?;
+            self.display.write_json(w)
+        })
     }
 }
 
@@ -549,32 +616,47 @@ impl CounterSamples {
         }
         self.last_sample_timestamp = timestamp;
     }
-}
 
-impl Serialize for CounterSamples {
-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+    fn write_json<W: Write>(&self, w: &mut Writer<W>) -> std::io::Result<()> {
         let len = self.time.len();
-        let mut map = serializer.serialize_map(None)?;
-        map.serialize_entry("length", &len)?;
+        w.object(|w| {
+            w.name("length")?;
+            w.number_value(len)?;
 
-        if self.is_sorted_by_time {
-            map.serialize_entry("count", &self.count)?;
-            map.serialize_entry("number", &self.number)?;
-            map.serialize_entry(
-                "timeDeltas",
-                &SerializableTimestampSliceAsDeltas(&self.time),
-            )?;
-        } else {
-            let mut indexes: Vec<usize> = (0..self.time.len()).collect();
-            indexes.sort_unstable_by_key(|index| self.time[*index]);
-            map.serialize_entry("count", &SliceWithPermutation(&self.count, &indexes))?;
-            map.serialize_entry("number", &SliceWithPermutation(&self.number, &indexes))?;
-            map.serialize_entry(
-                "timeDeltas",
-                &SerializableTimestampSliceAsDeltasWithPermutation(&self.time, &indexes),
-            )?;
-        }
+            if self.is_sorted_by_time {
+                w.name("count")?;
+                w.array(|w| {
+                    for c in &self.count {
+                        w.fp(*c)?;
+                    }
+                    Ok(())
+                })?;
+                w.name("number")?;
+                w.number_array(&self.number)?;
+                w.name("timeDeltas")?;
+                write_timestamps_as_deltas(w, &self.time)?;
+            } else {
+                let mut indexes: Vec<usize> = (0..self.time.len()).collect();
+                indexes.sort_unstable_by_key(|index| self.time[*index]);
+                w.name("count")?;
+                w.array(|w| {
+                    for &i in &indexes {
+                        w.fp(self.count[i])?;
+                    }
+                    Ok(())
+                })?;
+                w.name("number")?;
+                w.array(|w| {
+                    for &i in &indexes {
+                        w.number_value(self.number[i])?;
+                    }
+                    Ok(())
+                })?;
+                w.name("timeDeltas")?;
+                write_timestamps_as_deltas_with_permutation(w, &self.time, &indexes)?;
+            }
 
-        map.end()
+            Ok(())
+        })
     }
 }
