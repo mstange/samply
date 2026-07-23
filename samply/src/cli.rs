@@ -544,28 +544,22 @@ impl ProfileCreationArgs {
 impl ServerArgs {
     pub fn server_props(&self) -> ServerProps {
         let open_in_browser = !self.no_open;
-        let port_selection = match PortSelection::try_from_str(&self.port) {
-            Ok(p) => p,
-            Err(e) => {
-                eprintln!(
-                    "Could not parse port as <u16> or <u16>+, got port {}, error: {}",
-                    self.port, e
-                );
-                std::process::exit(1)
-            }
-        };
+        let port_selection = PortSelection::try_from_str(&self.port).unwrap_or_else(|e| {
+            eprintln!(
+                "Could not parse port as <u16> or <u16>+, got port {}, error: {}",
+                self.port, e
+            );
+            std::process::exit(1)
+        });
 
         // parse address from string
-        let address = match IpAddr::from_str(&self.address) {
-            Ok(addr) => addr,
-            Err(e) => {
-                eprintln!(
-                    "Could not parse address as IpAddr, got address {:?}, error: {}",
-                    self.address, e
-                );
-                std::process::exit(1)
-            }
-        };
+        let address = IpAddr::from_str(&self.address).unwrap_or_else(|e| {
+            eprintln!(
+                "Could not parse address as IpAddr, got address {:?}, error: {}",
+                self.address, e
+            );
+            std::process::exit(1)
+        });
 
         ServerProps {
             address,
