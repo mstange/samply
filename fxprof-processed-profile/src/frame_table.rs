@@ -33,7 +33,7 @@ impl FrameInterner {
         {
             self.contains_js_frame = true;
         }
-        FrameHandle(frame_index)
+        FrameHandle(frame_index as i32)
     }
 
     pub fn gather_used_rvas(&self, collector: &mut UsedLibraryAddressesCollector) {
@@ -73,8 +73,8 @@ impl FrameInterner {
         let mut source_table = SourceTable::default();
 
         for frame in &self.frame_key_set {
-            let func_key = frame.func_key(&mut source_table);
-            let func = func_table.index_for_func(func_key, &mut resource_table);
+            let func_key = frame.func_key(&mut source_table, &mut resource_table);
+            let func = func_table.index_for_func(func_key);
 
             func_col.push(func);
             let SubcategoryHandle(category, subcategory) = frame.subcategory;
@@ -145,6 +145,10 @@ impl Serialize for FrameTable {
         map.serialize_entry("nativeSymbol", &self.native_symbol_col)?;
         map.serialize_entry("inlineDepth", &self.inline_depth_col)?;
         map.serialize_entry("innerWindowID", &SerializableSingleValueColumn(0, len))?;
+        map.serialize_entry(
+            "originalLocation",
+            &SerializableSingleValueColumn(Option::<u32>::None, len),
+        )?;
         map.end()
     }
 }
@@ -188,7 +192,11 @@ pub enum InternalFrameVariant {
 }
 
 impl InternalFrame {
-    pub fn func_key(&self, source_table: &mut SourceTable) -> FuncKey {
+    pub fn func_key(
+        &self,
+        source_table: &mut SourceTable,
+        resource_table: &mut ResourceTable,
+    ) -> FuncKey {
         let InternalFrame {
             name,
             variant,
@@ -214,12 +222,13 @@ impl InternalFrame {
             InternalFrameVariant::Label => None,
             InternalFrameVariant::Native(NativeFrameData { lib, .. }) => Some(lib),
         };
+        let resource = lib.map(|lib| resource_table.resource_for_lib(lib));
         FuncKey {
             name,
             source,
             start_line: function_start_line,
             start_column: function_start_col,
-            lib,
+            resource,
             flags,
         }
     }

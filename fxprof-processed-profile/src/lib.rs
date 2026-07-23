@@ -4,8 +4,8 @@
 //! Specifically, this uses the ["Processed profile format"](https://github.com/firefox-devtools/profiler/blob/main/docs-developer/processed-profile-format.md).
 //!
 //! Use [`Profile::new`] to create a new [`Profile`] object. Then add all the
-//! information into it. To convert it to JSON, use [`serde_json`], for
-//! example [`serde_json::to_writer`] or [`serde_json::to_string`].
+//! information into it. To convert it to JSON, call [`Profile::to_writer`] to
+//! stream it into a writer, or [`Profile::to_vec`] to obtain a byte vector.
 //!
 //! ## Example
 //!
@@ -36,7 +36,7 @@
 //! profile.add_sample(thread, Timestamp::from_millis_since_reference(0.0), Some(first_callee_node), CpuDelta::ZERO, 1);
 //!
 //! let writer = std::io::BufWriter::new(output_file);
-//! serde_json::to_writer(writer, &profile)?;
+//! profile.to_writer(writer)?;
 //! # Ok(())
 //! # }
 //! ```
@@ -55,6 +55,7 @@ pub use debugid;
 
 mod category;
 mod category_color;
+mod columnar_interner;
 mod counters;
 mod cpu_delta;
 mod fast_hash_map;
@@ -86,7 +87,11 @@ pub use category::{
     Category, CategoryHandle, IntoSubcategoryHandle, Subcategory, SubcategoryHandle,
 };
 pub use category_color::CategoryColor;
-pub use counters::CounterHandle;
+pub use counters::{
+    CounterDisplayConfig, CounterGraphType, CounterHandle, CounterTooltipCo2,
+    CounterTooltipDataSource, CounterTooltipFormat, CounterTooltipRow, CounterTooltipScale,
+    CounterTooltipUnit,
+};
 pub use cpu_delta::CpuDelta;
 pub use frame::{FrameAddress, FrameFlags};
 pub use global_lib_table::LibraryHandle;

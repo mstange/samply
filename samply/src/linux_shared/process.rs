@@ -2,8 +2,8 @@ use std::path::{Path, PathBuf};
 
 use framehop::Unwinder;
 use fxprof_processed_profile::{
-    CounterHandle, LibraryHandle, MarkerTiming, ProcessHandle, Profile, StringHandle, ThreadHandle,
-    Timestamp,
+    CounterDisplayConfig, CounterHandle, LibraryHandle, MarkerTiming, ProcessHandle, Profile,
+    StringHandle, ThreadHandle, Timestamp,
 };
 
 use super::process_threads::ProcessThreads;
@@ -355,6 +355,7 @@ where
                 self.profile_process,
                 "malloc",
                 "Memory",
+                CounterDisplayConfig::for_memory(),
                 "Amount of allocated memory",
             )
         })

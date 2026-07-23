@@ -396,7 +396,7 @@ fn create_symbolicated_frames_for_frame(
             source_location: SourceLocation::default(),
             flags: frame_flags,
         });
-        return CompactFrameSequence::single_frame(new_frame.0);
+        return CompactFrameSequence::single_frame(new_frame.0 as usize);
     };
 
     // We have symbol information for this address!
@@ -436,7 +436,7 @@ fn create_symbolicated_frames_for_frame(
             source_location: SourceLocation::default(),
             flags: frame_flags,
         });
-        return CompactFrameSequence::single_frame(new_frame.0);
+        return CompactFrameSequence::single_frame(new_frame.0 as usize);
     }
 
     // We have function name + file path + line info for this address, and it
@@ -476,7 +476,7 @@ fn create_symbolicated_frames_for_frame(
                 },
                 flags: frame_flags,
             })
-            .0
+            .0 as usize
     }))
 }
 
@@ -506,24 +506,26 @@ fn create_symbolicated_stacks(
         Vec::with_capacity(stack_table.len());
 
     for (old_prefix, old_frame) in stack_table.into_stacks() {
-        let old_prefix = old_prefix.map(|StackHandle(index)| index);
+        let old_prefix = old_prefix.map(|StackHandle(index)| index as usize);
         let new_prefix = old_prefix.and_then(|old_prefix| old_stack_to_new_stack[old_prefix]);
-        let new_stack: Option<StackHandle> = match &conversion_action_for_stack_frame[old_frame.0] {
-            StackNodeConversionAction::RemapIndex(new_frame) => {
-                Some(new_stack_table.index_for_stack(new_prefix, *new_frame))
-            }
-            StackNodeConversionAction::DiscardInlined => new_prefix,
-            StackNodeConversionAction::Symbolicate(frame_key_for_symbolication) => {
-                let expanded_frames = symbolicated_frames_by_key[frame_key_for_symbolication];
-                let mut current_stack = new_prefix;
-                for frame_index in expanded_frames.frame_index_iter() {
-                    current_stack = Some(
-                        new_stack_table.index_for_stack(current_stack, FrameHandle(frame_index)),
-                    );
+        let new_stack: Option<StackHandle> =
+            match &conversion_action_for_stack_frame[old_frame.0 as usize] {
+                StackNodeConversionAction::RemapIndex(new_frame) => {
+                    Some(new_stack_table.index_for_stack(new_prefix, *new_frame))
                 }
-                current_stack
-            }
-        };
+                StackNodeConversionAction::DiscardInlined => new_prefix,
+                StackNodeConversionAction::Symbolicate(frame_key_for_symbolication) => {
+                    let expanded_frames = symbolicated_frames_by_key[frame_key_for_symbolication];
+                    let mut current_stack = new_prefix;
+                    for frame_index in expanded_frames.frame_index_iter() {
+                        current_stack = Some(
+                            new_stack_table
+                                .index_for_stack(current_stack, FrameHandle(frame_index as i32)),
+                        );
+                    }
+                    current_stack
+                }
+            };
         old_stack_to_new_stack.push(new_stack);
     }
 

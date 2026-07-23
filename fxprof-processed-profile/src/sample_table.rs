@@ -116,7 +116,7 @@ impl SampleTable {
             .sample_stack_indexes
             .into_iter()
             .map(|stack| match stack {
-                Some(s) => old_stack_to_new_stack[s.0],
+                Some(s) => old_stack_to_new_stack[s.0 as usize],
                 None => None,
             })
             .collect();
@@ -227,7 +227,7 @@ impl NativeAllocationsTable {
             .stack
             .into_iter()
             .map(|stack| match stack {
-                Some(s) => old_stack_to_new_stack[s.0],
+                Some(s) => old_stack_to_new_stack[s.0 as usize],
                 None => None,
             })
             .collect();
@@ -257,9 +257,6 @@ impl Serialize for NativeAllocationsTable {
 
 #[cfg(test)]
 mod tests {
-    use assert_json_diff::assert_json_eq;
-    use serde_json::json;
-
     use super::*;
 
     #[test]
@@ -334,27 +331,26 @@ mod tests {
             147456,
         );
 
-        assert_json_eq!(
-            native_allocations_table,
-            json!({
-              "time": [
-                274363.248375
-              ],
-              "weight": [
-                147456
-              ],
-              "weightType": "bytes",
-              "stack": [
-                null
-              ],
-              "memoryAddress": [
-                5969772544u64
-              ],
-              "threadId": [
-                0
-              ],
-              "length": 1
-            })
-        );
+        insta::assert_json_snapshot!(native_allocations_table, @r#"
+        {
+          "time": [
+            274363.248375
+          ],
+          "weight": [
+            147456
+          ],
+          "weightType": "bytes",
+          "stack": [
+            null
+          ],
+          "memoryAddress": [
+            5969772544
+          ],
+          "threadId": [
+            0
+          ],
+          "length": 1
+        }
+        "#);
     }
 }

@@ -1,13 +1,17 @@
+use std::hash::{BuildHasher, Hash, Hasher};
+
+use crate::columnar_interner::{ColumnarInterner, ColumnarStore};
 use serde::ser::{Serialize, SerializeMap, Serializer};
 
-use crate::{fast_hash_map::FastIndexSet, FrameHandle, StackHandle};
+use crate::{FrameHandle, StackHandle};
 
 /// The stack table stores the tree of stack nodes of a thread. The shape of the tree is encoded in
-/// the prefix column: Root stack nodes have null as their prefix, and every non-root stack has the
-/// stack index of its "caller" / "parent" as its prefix. Every stack node also has a frame and a
-/// category. A "call stack" is a list of frames. Every stack index in the stack table represents
-/// such a call stack; the "list of frames" is obtained by walking the path in the tree from the
-/// root to the given stack node.
+/// the `prefixOffset` column: Root stack nodes have 0 as their `prefixOffset`, and every non-root
+/// stack `i` has `prefixOffset[i] = i - parent`, where `parent` is the stack index of its "caller".
+/// Parents always come before children in the stack table, so the offset is always positive. Every
+/// stack node also has a frame and a category. A "call stack" is a list of frames. Every stack
+/// index in the stack table represents such a call stack; the "list of frames" is obtained by
+/// walking the path in the tree from the root to the given stack node.
 ///
 /// Stacks are used in the thread's samples; each sample refers to a stack index. Stacks can be
 /// shared between samples.
@@ -40,7 +44,69 @@ use crate::{fast_hash_map::FastIndexSet, FrameHandle, StackHandle};
 /// would be lost if it wasn't inherited into the nsAttrAndChildArray::InsertChildAt stack before
 /// transforms are applied.
 #[derive(Debug, Clone, Default)]
-pub struct StackTable(FastIndexSet<(Option<StackHandle>, FrameHandle)>);
+pub struct StackTable {
+    set: ColumnarInterner<StackCols, i32>,
+}
+
+#[derive(Debug, Clone, Default)]
+struct StackCols {
+    /// Offset from a stack's index to its parent's index. `0` means the stack
+    /// is a root. Otherwise, the parent is at `i - prefix_offset[i]`.
+    ///
+    /// Parents are always inserted before their children (the `Row` type
+    /// carries an `Option<StackHandle>` and a `StackHandle` can only refer to
+    /// an already-inserted entry), so a non-root entry's offset is always
+    /// >= 1.
+    prefix_offset: Vec<i32>,
+    frame: Vec<i32>,
+}
+
+impl StackCols {
+    fn prefix_at(&self, i: usize) -> Option<StackHandle> {
+        let offset = self.prefix_offset[i];
+        if offset == 0 {
+            None
+        } else {
+            Some(StackHandle(i as i32 - offset))
+        }
+    }
+}
+
+impl ColumnarStore for StackCols {
+    type Row = (Option<StackHandle>, FrameHandle);
+
+    fn len(&self) -> usize {
+        self.frame.len()
+    }
+
+    fn hash_row<H: BuildHasher>(row: &Self::Row, hasher: &H) -> u64 {
+        let mut h = hasher.build_hasher();
+        row.0.hash(&mut h);
+        row.1.hash(&mut h);
+        h.finish()
+    }
+
+    fn hash_at<H: BuildHasher>(&self, i: usize, hasher: &H) -> u64 {
+        let mut h = hasher.build_hasher();
+        self.prefix_at(i).hash(&mut h);
+        FrameHandle(self.frame[i]).hash(&mut h);
+        h.finish()
+    }
+
+    fn eq_at(&self, i: usize, row: &Self::Row) -> bool {
+        self.prefix_at(i) == row.0 && self.frame[i] == row.1 .0
+    }
+
+    fn push(&mut self, row: Self::Row) {
+        let i = self.frame.len() as i32;
+        let offset = match row.0 {
+            None => 0,
+            Some(StackHandle(p)) => i - p,
+        };
+        self.prefix_offset.push(offset);
+        self.frame.push(row.1 .0);
+    }
+}
 
 impl StackTable {
     pub fn new() -> Self {
@@ -52,27 +118,38 @@ impl StackTable {
         prefix: Option<StackHandle>,
         frame: FrameHandle,
     ) -> StackHandle {
-        StackHandle(self.0.insert_full((prefix, frame)).0)
+        StackHandle(self.set.insert((prefix, frame)))
     }
 
     pub fn len(&self) -> usize {
-        self.0.len()
+        self.set.len()
     }
 
     pub fn into_stacks(self) -> impl Iterator<Item = (Option<StackHandle>, FrameHandle)> {
-        self.0.into_iter()
+        let cols = self.set.into_store();
+        cols.prefix_offset
+            .into_iter()
+            .zip(cols.frame)
+            .enumerate()
+            .map(|(i, (offset, frame))| {
+                let prefix = if offset == 0 {
+                    None
+                } else {
+                    Some(StackHandle(i as i32 - offset))
+                };
+                (prefix, FrameHandle(frame))
+            })
     }
 }
 
 impl Serialize for StackTable {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        let len = self.0.len();
+        let cols = self.set.store();
+        let len = self.set.len();
         let mut map = serializer.serialize_map(Some(3))?;
         map.serialize_entry("length", &len)?;
-        let prefix_col: Vec<_> = self.0.iter().map(|(prefix, _)| *prefix).collect();
-        let frame_col: Vec<_> = self.0.iter().map(|(_, frame)| *frame).collect();
-        map.serialize_entry("prefix", &prefix_col)?;
-        map.serialize_entry("frame", &frame_col)?;
+        map.serialize_entry("prefixOffset", &cols.prefix_offset)?;
+        map.serialize_entry("frame", &cols.frame)?;
         map.end()
     }
 }

@@ -1,0 +1,180 @@
+---
+source: fxprof-processed-profile/tests/integration_tests/main.rs
+expression: profile_as_json_value(&profile)
+---
+{
+  "counters": [],
+  "libs": [],
+  "meta": {
+    "categories": [
+      {
+        "color": "grey",
+        "name": "Other",
+        "subcategories": [
+          "Other"
+        ]
+      }
+    ],
+    "debug": false,
+    "extensions": {
+      "baseURL": [],
+      "id": [],
+      "length": 0,
+      "name": []
+    },
+    "interval": 1.0,
+    "markerSchema": [
+      {
+        "chartLabel": "{marker.name}",
+        "display": [
+          "marker-chart",
+          "marker-table"
+        ],
+        "fields": [
+          {
+            "format": "flow-id",
+            "key": "flowId",
+            "label": "Flow ID"
+          },
+          {
+            "format": "terminating-flow-id",
+            "key": "termFlowId",
+            "label": "Terminating Flow ID"
+          }
+        ],
+        "name": "FlowTest",
+        "tableLabel": "{marker.name} - flow:{marker.data.flowId} term:{marker.data.termFlowId}"
+      }
+    ],
+    "pausedRanges": [],
+    "preprocessedProfileVersion": 66,
+    "processType": 0,
+    "product": "test",
+    "sampleUnits": {
+      "eventDelay": "ms",
+      "threadCPUDelta": "µs",
+      "time": "ms"
+    },
+    "sourceCodeIsNotOnSearchfox": true,
+    "startTime": 1636162232627.0,
+    "symbolicated": false,
+    "usesOnlyOneStackType": true,
+    "version": 24
+  },
+  "pages": [],
+  "profilerOverhead": [],
+  "shared": {
+    "frameTable": {
+      "address": [],
+      "category": [],
+      "column": [],
+      "func": [],
+      "inlineDepth": [],
+      "innerWindowID": [],
+      "length": 0,
+      "line": [],
+      "nativeSymbol": [],
+      "originalLocation": [],
+      "subcategory": []
+    },
+    "funcTable": {
+      "columnNumber": [],
+      "isJS": [],
+      "length": 0,
+      "lineNumber": [],
+      "name": [],
+      "originalLocation": [],
+      "relevantForJS": [],
+      "resource": [],
+      "source": []
+    },
+    "nativeSymbols": {
+      "address": [],
+      "functionSize": [],
+      "length": 0,
+      "libIndex": [],
+      "name": []
+    },
+    "resourceTable": {
+      "host": [],
+      "length": 0,
+      "lib": [],
+      "name": [],
+      "type": []
+    },
+    "sourceLocationTable": {
+      "column": [],
+      "length": 0,
+      "line": [],
+      "source": []
+    },
+    "sources": {
+      "content": [],
+      "filename": [],
+      "id": [],
+      "length": 0,
+      "sourceMapURL": [],
+      "startColumn": [],
+      "startLine": []
+    },
+    "stackTable": {
+      "frame": [],
+      "length": 0,
+      "prefixOffset": []
+    },
+    "stringArray": [
+      "Flow Start",
+      "ab54a98ceb1f0ad2",
+      "891087b8e3b70cb1"
+    ]
+  },
+  "threads": [
+    {
+      "isMainThread": true,
+      "markers": {
+        "category": [
+          0
+        ],
+        "data": [
+          {
+            "flowId": 1,
+            "termFlowId": 2,
+            "type": "FlowTest"
+          }
+        ],
+        "endTime": [
+          0.0
+        ],
+        "length": 1,
+        "name": [
+          0
+        ],
+        "phase": [
+          0
+        ],
+        "startTime": [
+          10.0
+        ]
+      },
+      "name": "test",
+      "pausedRanges": [],
+      "pid": "123",
+      "processName": "test",
+      "processShutdownTime": null,
+      "processStartupTime": 0.0,
+      "processType": "default",
+      "registerTime": 0.0,
+      "samples": {
+        "length": 0,
+        "stack": [],
+        "threadCPUDelta": [],
+        "timeDeltas": [],
+        "weight": [],
+        "weightType": "samples"
+      },
+      "showMarkersInTimeline": false,
+      "tid": "12345",
+      "unregisterTime": null
+    }
+  ]
+}

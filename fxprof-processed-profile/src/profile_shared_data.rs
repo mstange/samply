@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 
 use serde::ser::{Serialize, SerializeMap, Serializer};
+use serde_json::json;
 
 use crate::fast_hash_map::FastHashSet;
 use crate::frame_table::{FrameInterner, InternalFrame};
@@ -104,6 +105,15 @@ impl Serialize for ProfileSharedData {
         map.serialize_entry("nativeSymbols", &self.native_symbols)?;
         map.serialize_entry("resourceTable", &resource_table)?;
         map.serialize_entry("sources", &source_table)?;
+        map.serialize_entry(
+            "sourceLocationTable",
+            &json!({
+                "length": 0,
+                "source": [],
+                "line": [],
+                "column": [],
+            }),
+        )?;
         map.serialize_entry("stringArray", &self.string_table)?;
         map.end()
     }

@@ -4,9 +4,10 @@ use std::time::Duration;
 
 use debugid::DebugId;
 use fxprof_processed_profile::{
-    Category, CategoryColor, CategoryHandle, CounterHandle, CpuDelta, FrameFlags, LibraryHandle,
-    LibraryInfo, Marker, MarkerField, MarkerHandle, MarkerLocations, MarkerTiming, ProcessHandle,
-    Profile, SamplingInterval, Schema, StringHandle, ThreadHandle, Timestamp,
+    Category, CategoryColor, CategoryHandle, CounterDisplayConfig, CounterHandle, CpuDelta,
+    FrameFlags, LibraryHandle, LibraryInfo, Marker, MarkerField, MarkerHandle, MarkerLocations,
+    MarkerTiming, ProcessHandle, Profile, SamplingInterval, Schema, StringHandle, ThreadHandle,
+    Timestamp,
 };
 use shlex::Shlex;
 use wholesym::PeCodeId;
@@ -366,6 +367,7 @@ impl Process {
                 process_handle,
                 "VM",
                 "Memory",
+                CounterDisplayConfig::for_memory(),
                 "Amount of VirtualAlloc allocated memory",
             );
             MemoryUsage {
