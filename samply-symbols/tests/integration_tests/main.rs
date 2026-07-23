@@ -2,10 +2,12 @@ use std::fs::File;
 use std::io::{BufWriter, Read, Write};
 use std::path::{Path, PathBuf};
 
+use object::macho::{DyldSubCacheEntryV1, DyldSubCacheEntryV2};
+use object::Endianness;
 use samply_symbols::debugid::DebugId;
 use samply_symbols::{
-    CompactSymbolTable, Error, FileLoadResult, FileLocation, FileTypes, LoadSymbolMap,
-    LookupAddress, MultiArchDisambiguator, SymbolMap, SymbolMapLoadStep,
+    CompactSymbolTable, DyldCacheLoad, Error, FileLoadResult, FileLocation, FileTypes, LoadStep,
+    LoadSymbolMap, LookupAddress, MultiArchDisambiguator, NeedsFiles, SymbolMap, SymbolMapLoadStep,
 };
 
 fn drive_symbol_map_load(sm: &mut LoadSymbolMap<TestFileTypes>) {
@@ -552,4 +554,155 @@ fn compare_snapshot() {
     let expected = std::str::from_utf8(&expected).unwrap();
 
     assert_eq!(output, expected);
+}
+
+fn synth_dyld_cache_root(
+    v2_suffixes: Option<&[&str]>,
+    v1_count: usize,
+    with_symbols_file: bool,
+) -> Vec<u8> {
+    use std::mem::size_of;
+
+    const SUBCACHE_ARRAY_OFFSET: usize = 0x800;
+    const MAPPING_OFFSET_FIELD: usize = 0x10;
+    const SUBCACHE_ARRAY_OFFSET_FIELD: usize = 0x188;
+    const SUBCACHE_ARRAY_COUNT_FIELD: usize = 0x18c;
+    const SYMBOL_FILE_UUID_FIELD: usize = 0x190;
+    const V2_FILE_SUFFIX_FIELD: usize = 0x18;
+
+    // The header size in mapping_offset determines the subcache entry version.
+    let (mapping_offset, entry_size, entry_count) = match v2_suffixes {
+        Some(suffixes) => (
+            0x1d0u32,
+            size_of::<DyldSubCacheEntryV2<Endianness>>(),
+            suffixes.len(),
+        ),
+        None => (
+            0x1c8u32,
+            size_of::<DyldSubCacheEntryV1<Endianness>>(),
+            v1_count,
+        ),
+    };
+
+    let mut data = vec![0u8; SUBCACHE_ARRAY_OFFSET + entry_count * entry_size];
+    let put_u32 = |data: &mut [u8], offset: usize, value: u32| {
+        data[offset..offset + 4].copy_from_slice(&value.to_le_bytes())
+    };
+    data[..16].copy_from_slice(b"dyld_v1  arm64e\0");
+    put_u32(&mut data, MAPPING_OFFSET_FIELD, mapping_offset);
+    put_u32(
+        &mut data,
+        SUBCACHE_ARRAY_OFFSET_FIELD,
+        SUBCACHE_ARRAY_OFFSET as u32,
+    );
+    put_u32(&mut data, SUBCACHE_ARRAY_COUNT_FIELD, entry_count as u32);
+    if with_symbols_file {
+        data[SYMBOL_FILE_UUID_FIELD..SYMBOL_FILE_UUID_FIELD + 16].copy_from_slice(&[0xab; 16]);
+    }
+    if let Some(suffixes) = v2_suffixes {
+        for (index, suffix) in suffixes.iter().enumerate() {
+            let offset = SUBCACHE_ARRAY_OFFSET + index * entry_size + V2_FILE_SUFFIX_FIELD;
+            data[offset..offset + suffix.len()].copy_from_slice(suffix.as_bytes());
+        }
+    }
+    data
+}
+
+fn drive_dyld_cache_load(root_path: &Path) -> (Vec<String>, Result<(), Error>) {
+    let mut load = DyldCacheLoad::<TestFileTypes>::new(
+        FileLocationType(root_path.to_owned()),
+        "/usr/lib/system/libsystem_c.dylib".to_string(),
+    );
+    let mut requested = Vec::new();
+    while let LoadStep::NeedFile { location, .. } = load.poll() {
+        let location = location.clone();
+        requested.push(
+            location
+                .0
+                .file_name()
+                .unwrap()
+                .to_string_lossy()
+                .into_owned(),
+        );
+        let result = load_file(location);
+        load.provide(result);
+    }
+    (requested, load.finish().map(|_| ()))
+}
+
+#[test]
+fn dyld_cache_load_uses_header_listed_subcache_names() {
+    let dir = tempfile::tempdir().unwrap();
+    let suffixes = [".01", ".02.dylddata", ".03.dyldreadonly"];
+    let root = dir.path().join("dyld_shared_cache_arm64e");
+    std::fs::write(&root, synth_dyld_cache_root(Some(&suffixes), 0, true)).unwrap();
+    for suffix in suffixes.iter().copied().chain([".symbols"]) {
+        std::fs::write(
+            dir.path().join(format!("dyld_shared_cache_arm64e{suffix}")),
+            b"subcache",
+        )
+        .unwrap();
+    }
+
+    let (requested, result) = drive_dyld_cache_load(&root);
+    assert_eq!(
+        requested,
+        [
+            "dyld_shared_cache_arm64e",
+            "dyld_shared_cache_arm64e.01",
+            "dyld_shared_cache_arm64e.02.dylddata",
+            "dyld_shared_cache_arm64e.03.dyldreadonly",
+            "dyld_shared_cache_arm64e.symbols",
+        ]
+    );
+    result.unwrap();
+}
+
+#[test]
+fn dyld_cache_load_v1_numeric_subcache_names() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("dyld_shared_cache_arm64e");
+    std::fs::write(&root, synth_dyld_cache_root(None, 2, false)).unwrap();
+    for suffix in [".1", ".2"] {
+        std::fs::write(
+            dir.path().join(format!("dyld_shared_cache_arm64e{suffix}")),
+            b"subcache",
+        )
+        .unwrap();
+    }
+
+    let (requested, result) = drive_dyld_cache_load(&root);
+    assert_eq!(
+        requested,
+        [
+            "dyld_shared_cache_arm64e",
+            "dyld_shared_cache_arm64e.1",
+            "dyld_shared_cache_arm64e.2",
+        ]
+    );
+    result.unwrap();
+}
+
+#[test]
+fn dyld_cache_load_missing_listed_subcache_is_an_error_naming_the_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("dyld_shared_cache_arm64e");
+    std::fs::write(
+        &root,
+        synth_dyld_cache_root(Some(&[".01", ".02.dylddata"]), 0, false),
+    )
+    .unwrap();
+    std::fs::write(dir.path().join("dyld_shared_cache_arm64e.01"), b"subcache").unwrap();
+
+    let (requested, result) = drive_dyld_cache_load(&root);
+    assert!(requested
+        .last()
+        .unwrap()
+        .ends_with("dyld_shared_cache_arm64e.02.dylddata"));
+    match result {
+        Err(Error::OpenFile(path, _)) => {
+            assert!(path.ends_with(".02.dylddata"), "unexpected path: {path}")
+        }
+        other => panic!("expected OpenFile error for the missing subcache, got {other:?}"),
+    }
 }

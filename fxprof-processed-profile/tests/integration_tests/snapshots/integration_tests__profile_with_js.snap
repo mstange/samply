@@ -1,0 +1,217 @@
+---
+source: fxprof-processed-profile/tests/integration_tests/main.rs
+expression: profile_as_json_value(&profile)
+---
+{
+  "counters": [],
+  "libs": [],
+  "meta": {
+    "categories": [
+      {
+        "color": "grey",
+        "name": "Other",
+        "subcategories": [
+          "Other"
+        ]
+      },
+      {
+        "color": "orange",
+        "name": "Cycle Collection",
+        "subcategories": [
+          "Other",
+          "Graph Reduction"
+        ]
+      }
+    ],
+    "debug": false,
+    "extensions": {
+      "baseURL": [],
+      "id": [],
+      "length": 0,
+      "name": []
+    },
+    "interval": 1.0,
+    "markerSchema": [],
+    "pausedRanges": [],
+    "preprocessedProfileVersion": 66,
+    "processType": 0,
+    "product": "test with js",
+    "sampleUnits": {
+      "eventDelay": "ms",
+      "threadCPUDelta": "µs",
+      "time": "ms"
+    },
+    "sourceCodeIsNotOnSearchfox": true,
+    "startTime": 1636162232627.0,
+    "symbolicated": false,
+    "usesOnlyOneStackType": false,
+    "version": 24
+  },
+  "pages": [],
+  "profilerOverhead": [],
+  "shared": {
+    "frameTable": {
+      "address": [
+        -1,
+        -1
+      ],
+      "category": [
+        1,
+        1
+      ],
+      "column": [
+        null,
+        null
+      ],
+      "func": [
+        0,
+        1
+      ],
+      "inlineDepth": [
+        0,
+        0
+      ],
+      "innerWindowID": [
+        0,
+        0
+      ],
+      "length": 2,
+      "line": [
+        null,
+        null
+      ],
+      "nativeSymbol": [
+        null,
+        null
+      ],
+      "originalLocation": [
+        null,
+        null
+      ],
+      "subcategory": [
+        0,
+        1
+      ]
+    },
+    "funcTable": {
+      "columnNumber": [
+        null,
+        null
+      ],
+      "isJS": [
+        true,
+        false
+      ],
+      "length": 2,
+      "lineNumber": [
+        null,
+        null
+      ],
+      "name": [
+        0,
+        1
+      ],
+      "originalLocation": [
+        null,
+        null
+      ],
+      "relevantForJS": [
+        false,
+        false
+      ],
+      "resource": [
+        -1,
+        -1
+      ],
+      "source": [
+        null,
+        null
+      ]
+    },
+    "nativeSymbols": {
+      "address": [],
+      "functionSize": [],
+      "length": 0,
+      "libIndex": [],
+      "name": []
+    },
+    "resourceTable": {
+      "host": [],
+      "length": 0,
+      "lib": [],
+      "name": [],
+      "type": []
+    },
+    "sourceLocationTable": {
+      "column": [],
+      "length": 0,
+      "line": [],
+      "source": []
+    },
+    "sources": {
+      "content": [],
+      "filename": [],
+      "id": [],
+      "length": 0,
+      "sourceMapURL": [],
+      "startColumn": [],
+      "startLine": []
+    },
+    "stackTable": {
+      "frame": [
+        0,
+        1
+      ],
+      "length": 2,
+      "prefixOffset": [
+        0,
+        1
+      ]
+    },
+    "stringArray": [
+      "Some label string",
+      "0x7f76b7ffc0e6"
+    ]
+  },
+  "threads": [
+    {
+      "isMainThread": true,
+      "markers": {
+        "category": [],
+        "data": [],
+        "endTime": [],
+        "length": 0,
+        "name": [],
+        "phase": [],
+        "startTime": []
+      },
+      "name": "test2",
+      "pausedRanges": [],
+      "pid": "123",
+      "processName": "test2",
+      "processShutdownTime": null,
+      "processStartupTime": 0.0,
+      "processType": "default",
+      "registerTime": 0.0,
+      "samples": {
+        "length": 1,
+        "stack": [
+          1
+        ],
+        "threadCPUDelta": [
+          0
+        ],
+        "timeDeltas": [
+          1.0
+        ],
+        "weight": [
+          1
+        ],
+        "weightType": "samples"
+      },
+      "showMarkersInTimeline": false,
+      "tid": "12346",
+      "unregisterTime": null
+    }
+  ]
+}

@@ -26,9 +26,9 @@ pub fn save_profile_to_file(profile: &Profile, output_path: &Path) -> std::io::R
         let builder = GzBuilder::new().filename(name_without_gz.as_bytes());
         let gz = builder.write(writer, Compression::new(GZIP_COMPRESSION_LEVEL));
         let gz = BufWriter::new(gz);
-        serde_json::to_writer(gz, &profile)?;
+        profile.to_writer(gz)?;
     } else {
-        serde_json::to_writer(writer, &profile)?;
+        profile.to_writer(writer)?;
     }
     Ok(())
 }

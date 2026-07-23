@@ -190,7 +190,7 @@ impl Thread {
         });
         let markers = markers.with_remapped_stacks(old_stack_to_new_stack);
         let last_sample_stack = last_sample_stack
-            .and_then(|last_sample_stack| old_stack_to_new_stack[last_sample_stack.0]);
+            .and_then(|last_sample_stack| old_stack_to_new_stack[last_sample_stack.0 as usize]);
 
         Thread {
             process,

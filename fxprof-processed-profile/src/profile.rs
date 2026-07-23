@@ -11,7 +11,7 @@ use crate::category::{
     Category, CategoryHandle, InternalCategory, IntoSubcategoryHandle, SubcategoryHandle,
 };
 use crate::category_color::CategoryColor;
-use crate::counters::{Counter, CounterHandle};
+use crate::counters::{Counter, CounterDisplayConfig, CounterHandle};
 use crate::cpu_delta::CpuDelta;
 use crate::fast_hash_map::{FastHashMap, FastHashSet, FastIndexSet};
 use crate::frame::FrameAddress;
@@ -94,7 +94,7 @@ impl From<Duration> for SamplingInterval {
 /// used with any thread of the [`Profile`] it was created from. It must not be
 /// used with a different `Profile`.
 #[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash)]
-pub struct FrameHandle(pub(crate) usize);
+pub struct FrameHandle(pub(crate) i32);
 
 impl Serialize for FrameHandle {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
@@ -114,7 +114,7 @@ impl Serialize for FrameHandle {
 /// [`Profile::add_sample`], [`Profile::set_marker_stack`], etc.). It must not
 /// be used with a different `Profile`.
 #[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash)]
-pub struct StackHandle(pub(crate) usize);
+pub struct StackHandle(pub(crate) i32);
 
 impl Serialize for StackHandle {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
@@ -172,7 +172,8 @@ pub enum TimelineUnit {
     Bytes,
 }
 
-/// Stores the profile data and can be serialized as JSON, via [`serde::Serialize`].
+/// Stores the profile data. Use [`Profile::to_writer`] or [`Profile::to_vec`]
+/// to produce the processed-profile JSON.
 ///
 /// The profile data is organized into a list of processes with threads.
 /// Each thread has its own samples and markers.
@@ -197,7 +198,7 @@ pub enum TimelineUnit {
 /// profile.add_sample(thread, Timestamp::from_millis_since_reference(0.0), Some(first_callee_node), CpuDelta::ZERO, 1);
 ///
 /// let writer = std::io::BufWriter::new(output_file);
-/// serde_json::to_writer(writer, &profile)?;
+/// profile.to_writer(writer)?;
 /// # Ok(())
 /// # }
 /// ```
@@ -370,12 +371,12 @@ impl Profile {
     /// # Example
     ///
     /// ```
-    /// use fxprof_processed_profile::{Profile, CategoryHandle, CpuDelta, SamplingInterval, Timestamp};
+    /// use fxprof_processed_profile::{Profile, CategoryHandle, CounterDisplayConfig, CpuDelta, SamplingInterval, Timestamp};
     /// use std::time::SystemTime;
     ///
     /// let mut profile = Profile::new("My app", SystemTime::now().into(), SamplingInterval::from_millis(1));
     /// let process = profile.add_process("App process", 54132, Timestamp::from_millis_since_reference(0.0));
-    /// let memory_counter = profile.add_counter(process, "malloc", "Memory", "Amount of allocated memory");
+    /// let memory_counter = profile.add_counter(process, "malloc", "Memory", CounterDisplayConfig::for_memory(), "Amount of allocated memory");
     /// profile.add_counter_sample(memory_counter, Timestamp::from_millis_since_reference(0.0), 0.0, 0);
     /// profile.add_counter_sample(memory_counter, Timestamp::from_millis_since_reference(1.0), 1000.0, 2);
     /// profile.add_counter_sample(memory_counter, Timestamp::from_millis_since_reference(2.0), 800.0, 1);
@@ -385,12 +386,14 @@ impl Profile {
         process: ProcessHandle,
         name: &str,
         category: &str,
+        display: CounterDisplayConfig,
         description: &str,
     ) -> CounterHandle {
         let handle = CounterHandle(self.counters.len());
         self.counters.push(Counter::new(
             name,
             category,
+            display,
             description,
             process,
             self.processes[process.0].pid(),
@@ -401,6 +404,15 @@ impl Profile {
     /// Set the color to use when rendering the counter.
     pub fn set_counter_color(&mut self, counter: CounterHandle, color: GraphColor) {
         self.counters[counter.0].set_color(color);
+    }
+
+    /// Override the display config used when rendering the counter.
+    ///
+    /// A default is derived from the counter's `category` and `name` when the
+    /// counter is created; use this to customize graph type, unit, sort weight,
+    /// or label.
+    pub fn set_counter_display(&mut self, counter: CounterHandle, display: CounterDisplayConfig) {
+        self.counters[counter.0].set_display(display);
     }
 
     /// Change the start time of a process.
@@ -1403,22 +1415,43 @@ impl Profile {
     fn contains_js_frame(&self) -> bool {
         self.shared_data.contains_js_frame()
     }
+
+    /// Serialize the profile to the given writer, as JSON.
+    ///
+    /// It's recommended to pass a [`BufWriter`](std::io::BufWriter) here.
+    pub fn to_writer<W: std::io::Write>(&self, writer: W) -> std::io::Result<()> {
+        serde_json::to_writer(writer, &SerializableProfile(self)).map_err(std::io::Error::from)
+    }
+
+    /// Serialize the profile into a Vec of bytes (as JSON) and return it.
+    pub fn to_vec(&self) -> Vec<u8> {
+        serde_json::to_vec(&SerializableProfile(self))
+            .expect("serializing a Profile to a Vec<u8> should never fail")
+    }
 }
 
-impl Serialize for Profile {
+/// Internal Serialize wrapper for [`Profile`]. Used by [`Profile::to_writer`]
+/// and [`Profile::to_vec`] to produce the processed profile JSON.
+struct SerializableProfile<'a>(&'a Profile);
+
+impl Serialize for SerializableProfile<'_> {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let profile = self.0;
         let (sorted_threads, first_thread_index_per_process, new_thread_indices) =
-            self.sorted_threads();
+            profile.sorted_threads();
         let mut map = serializer.serialize_map(None)?;
-        map.serialize_entry("meta", &SerializableProfileMeta(self, &new_thread_indices))?;
-        map.serialize_entry("libs", &self.global_libs)?;
-        map.serialize_entry("shared", &self.shared_data)?;
-        map.serialize_entry("threads", &self.serializable_threads(&sorted_threads))?;
+        map.serialize_entry(
+            "meta",
+            &SerializableProfileMeta(profile, &new_thread_indices),
+        )?;
+        map.serialize_entry("libs", &profile.global_libs)?;
+        map.serialize_entry("shared", &profile.shared_data)?;
+        map.serialize_entry("threads", &profile.serializable_threads(&sorted_threads))?;
         map.serialize_entry("pages", &[] as &[()])?;
         map.serialize_entry("profilerOverhead", &[] as &[()])?;
         map.serialize_entry(
             "counters",
-            &self.serializable_counters(&first_thread_index_per_process),
+            &profile.serializable_counters(&first_thread_index_per_process),
         )?;
         map.end()
     }
@@ -1441,7 +1474,7 @@ impl Serialize for SerializableProfileMeta<'_> {
             }),
         )?;
         map.serialize_entry("interval", &(self.0.interval.as_secs_f64() * 1000.0))?;
-        map.serialize_entry("preprocessedProfileVersion", &60)?;
+        map.serialize_entry("preprocessedProfileVersion", &66)?;
         map.serialize_entry("processType", &0)?;
         map.serialize_entry("product", &self.0.product)?;
         if let Some(os_name) = &self.0.os_name {

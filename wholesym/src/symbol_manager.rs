@@ -360,10 +360,11 @@ impl serde::Serialize for QueryApiJsonResult {
 }
 
 /// Drive a dyld-cache fallback for `library_info_for_binary_at_path`.
-/// `LocalFileFetcher` only knows how to open local files (and dyld caches);
-/// this iterates over the dyld shared cache paths and returns the first match.
+/// `LocalFileFetcher` only knows how to open local files (including dyld
+/// cache files); this iterates over the dyld shared cache paths and
+/// returns the first match.
 async fn drive_local_file_dyld_cache_lookup(
-    helper: &LocalFileFetcher,
+    fetcher: &LocalFileFetcher,
     dylib_path: &str,
     disambiguator: Option<MultiArchDisambiguator>,
 ) -> Result<samply_symbols::BinaryImage<WholesymFileContents>, Error> {
@@ -375,7 +376,7 @@ async fn drive_local_file_dyld_cache_lookup(
         Some(MultiArchDisambiguator::DebugId(id)) => Some(*id),
         _ => None,
     };
-    let dyld_cache_paths = helper
+    let dyld_cache_paths = fetcher
         .get_dyld_shared_cache_paths(arch)
         .map_err(Error::GetDyldSharedCachePaths)?;
 
@@ -383,7 +384,7 @@ async fn drive_local_file_dyld_cache_lookup(
     for dyld_cache_path in dyld_cache_paths {
         let mut sm =
             LoadBinary::<WholesymFileTypes>::for_dyld_cache(dyld_cache_path, dylib_path.to_owned());
-        driver::drive_with_local(&mut sm, helper).await;
+        driver::drive_with_local(&mut sm, fetcher).await;
         match sm.finish() {
             Ok(image) => {
                 if let Some(expected) = expected_debug_id {

@@ -1,0 +1,304 @@
+---
+source: fxprof-processed-profile/tests/integration_tests/main.rs
+expression: profile_as_json_value(&profile)
+---
+{
+  "counters": [
+    {
+      "category": "Memory 1",
+      "description": "Amount of allocated memory",
+      "display": {
+        "color": "orange",
+        "graphType": "line-accumulated",
+        "label": "Memory",
+        "markerSchemaLocation": "timeline-memory",
+        "sortWeight": 20,
+        "tooltipRows": [
+          {
+            "format": {
+              "unit": "bytes"
+            },
+            "label": "relative memory at this time",
+            "labelKey": "memory-relative",
+            "source": "accumulated",
+            "type": "value"
+          },
+          {
+            "format": {
+              "unit": "bytes"
+            },
+            "label": "memory range in graph",
+            "labelKey": "memory-range",
+            "source": "count-range",
+            "type": "value"
+          },
+          {
+            "format": {
+              "unit": "number"
+            },
+            "label": "allocations and deallocations since the previous sample",
+            "labelKey": "memory-operations",
+            "source": "sample-number",
+            "type": "value"
+          }
+        ],
+        "unit": "bytes"
+      },
+      "mainThreadIndex": 1,
+      "name": "malloc",
+      "pid": "123",
+      "samples": {
+        "count": [
+          0.0
+        ],
+        "length": 1,
+        "number": [
+          0
+        ],
+        "timeDeltas": [
+          1.0
+        ]
+      }
+    },
+    {
+      "category": "Memory 2",
+      "description": "Amount of allocated memory",
+      "display": {
+        "color": "orange",
+        "graphType": "line-accumulated",
+        "label": "Memory",
+        "markerSchemaLocation": "timeline-memory",
+        "sortWeight": 20,
+        "tooltipRows": [
+          {
+            "format": {
+              "unit": "bytes"
+            },
+            "label": "relative memory at this time",
+            "labelKey": "memory-relative",
+            "source": "accumulated",
+            "type": "value"
+          },
+          {
+            "format": {
+              "unit": "bytes"
+            },
+            "label": "memory range in graph",
+            "labelKey": "memory-range",
+            "source": "count-range",
+            "type": "value"
+          },
+          {
+            "format": {
+              "unit": "number"
+            },
+            "label": "allocations and deallocations since the previous sample",
+            "labelKey": "memory-operations",
+            "source": "sample-number",
+            "type": "value"
+          }
+        ],
+        "unit": "bytes"
+      },
+      "mainThreadIndex": 1,
+      "name": "malloc",
+      "pid": "123",
+      "samples": {
+        "count": [
+          0.0
+        ],
+        "length": 1,
+        "number": [
+          0
+        ],
+        "timeDeltas": [
+          0.0
+        ]
+      }
+    }
+  ],
+  "libs": [],
+  "meta": {
+    "categories": [
+      {
+        "color": "grey",
+        "name": "Other",
+        "subcategories": [
+          "Other"
+        ]
+      }
+    ],
+    "debug": false,
+    "extensions": {
+      "baseURL": [],
+      "id": [],
+      "length": 0,
+      "name": []
+    },
+    "initialSelectedThreads": [
+      0
+    ],
+    "initialVisibleThreads": [
+      0
+    ],
+    "interval": 1.0,
+    "markerSchema": [],
+    "pausedRanges": [],
+    "preprocessedProfileVersion": 66,
+    "processType": 0,
+    "product": "test",
+    "sampleUnits": {
+      "eventDelay": "ms",
+      "threadCPUDelta": "µs",
+      "time": "ms"
+    },
+    "sourceCodeIsNotOnSearchfox": true,
+    "startTime": 1636162232627.0,
+    "symbolicated": true,
+    "usesOnlyOneStackType": true,
+    "version": 24
+  },
+  "pages": [],
+  "profilerOverhead": [],
+  "shared": {
+    "frameTable": {
+      "address": [],
+      "category": [],
+      "column": [],
+      "func": [],
+      "inlineDepth": [],
+      "innerWindowID": [],
+      "length": 0,
+      "line": [],
+      "nativeSymbol": [],
+      "originalLocation": [],
+      "subcategory": []
+    },
+    "funcTable": {
+      "columnNumber": [],
+      "isJS": [],
+      "length": 0,
+      "lineNumber": [],
+      "name": [],
+      "originalLocation": [],
+      "relevantForJS": [],
+      "resource": [],
+      "source": []
+    },
+    "nativeSymbols": {
+      "address": [],
+      "functionSize": [],
+      "length": 0,
+      "libIndex": [],
+      "name": []
+    },
+    "resourceTable": {
+      "host": [],
+      "length": 0,
+      "lib": [],
+      "name": [],
+      "type": []
+    },
+    "sourceLocationTable": {
+      "column": [],
+      "length": 0,
+      "line": [],
+      "source": []
+    },
+    "sources": {
+      "content": [],
+      "filename": [],
+      "id": [],
+      "length": 0,
+      "sourceMapURL": [],
+      "startColumn": [],
+      "startLine": []
+    },
+    "stackTable": {
+      "frame": [],
+      "length": 0,
+      "prefixOffset": []
+    },
+    "stringArray": []
+  },
+  "threads": [
+    {
+      "isMainThread": true,
+      "markers": {
+        "category": [],
+        "data": [],
+        "endTime": [],
+        "length": 0,
+        "name": [],
+        "phase": [],
+        "startTime": []
+      },
+      "name": "test 2",
+      "pausedRanges": [],
+      "pid": "123.1",
+      "processName": "test 2",
+      "processShutdownTime": null,
+      "processStartupTime": 0.0,
+      "processType": "default",
+      "registerTime": 1.0,
+      "samples": {
+        "length": 1,
+        "stack": [
+          null
+        ],
+        "threadCPUDelta": [
+          0
+        ],
+        "timeDeltas": [
+          0.0
+        ],
+        "weight": [
+          1
+        ],
+        "weightType": "samples"
+      },
+      "showMarkersInTimeline": false,
+      "tid": "54321",
+      "unregisterTime": null
+    },
+    {
+      "isMainThread": true,
+      "markers": {
+        "category": [],
+        "data": [],
+        "endTime": [],
+        "length": 0,
+        "name": [],
+        "phase": [],
+        "startTime": []
+      },
+      "name": "test 1",
+      "pausedRanges": [],
+      "pid": "123",
+      "processName": "test 1",
+      "processShutdownTime": null,
+      "processStartupTime": 1.0,
+      "processType": "default",
+      "registerTime": 0.0,
+      "samples": {
+        "length": 1,
+        "stack": [
+          null
+        ],
+        "threadCPUDelta": [
+          0
+        ],
+        "timeDeltas": [
+          1.0
+        ],
+        "weight": [
+          1
+        ],
+        "weightType": "bytes"
+      },
+      "showMarkersInTimeline": true,
+      "tid": "12345",
+      "unregisterTime": null
+    }
+  ]
+}

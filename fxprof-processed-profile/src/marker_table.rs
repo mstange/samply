@@ -102,7 +102,7 @@ impl MarkerTable {
             .marker_stacks
             .into_iter()
             .map(|stack| match stack {
-                Some(s) => old_stack_to_new_stack[s.0],
+                Some(s) => old_stack_to_new_stack[s.0 as usize],
                 None => None,
             })
             .collect();
