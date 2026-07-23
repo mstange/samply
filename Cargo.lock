@@ -4207,9 +4207,9 @@ dependencies = [
 
 [[package]]
 name = "yaxpeax-x86"
-version = "2.0.0"
+version = "2.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9a9a30b7dd533c7b1a73eaf7c4ea162a7a632a2bb29b9fff47d8f2cc8513a883"
+checksum = "86cc48d62e5acb7406c088f8e92d12b362d5eeec7b9adf2cc0eab25eb6623438"
 dependencies = [
  "cfg-if",
  "num-traits",
