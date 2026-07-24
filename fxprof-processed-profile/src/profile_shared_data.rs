@@ -95,9 +95,9 @@ impl ProfileSharedData {
         )
     }
 
-    pub(crate) fn write_json<W: Write>(
-        &self,
-        ctx: &mut Writer<W>,
+    pub(crate) fn write_json<'p, W: Write>(
+        &'p self,
+        ctx: &mut Writer<'_, 'p, W>,
         tables: FrameInternerTables,
     ) -> std::io::Result<()> {
         let FrameInternerTables {
@@ -110,10 +110,16 @@ impl ProfileSharedData {
         ctx.object(|w| {
             w.name("stackTable")?;
             self.stack_table.write_json(w)?;
+
+            // Lift `frameTable`, `funcTable`, and `stringArray` into their
+            // own `SlabType::Json` slabs when writing JSLB. This matches
+            // the `splitOut` convention used on the JS side and keeps the
+            // root JSON skeleton small enough that decoders can parse it
+            // without materializing the profile-wide column arrays.
             w.name("frameTable")?;
-            frame_table.write_json(w)?;
+            w.split_out_object(&frame_table)?;
             w.name("funcTable")?;
-            func_table.write_json(w)?;
+            w.split_out_object(&func_table)?;
 
             w.name("nativeSymbols")?;
             self.native_symbols.write_json(w)?;
@@ -134,7 +140,7 @@ impl ProfileSharedData {
             })?;
 
             w.name("stringArray")?;
-            self.string_table.write_json(w)
+            w.split_out_object(&self.string_table)
         })
     }
 }

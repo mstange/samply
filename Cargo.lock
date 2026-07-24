@@ -929,9 +929,11 @@ version = "0.8.1"
 dependencies = [
  "bitflags 2.13.1",
  "debugid",
+ "elsa",
  "hashbrown 0.17.1",
  "indexmap",
  "insta",
+ "json-slabs",
  "rustc-hash",
  "serde_json",
  "struson",

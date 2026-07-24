@@ -4,13 +4,16 @@
 //! Specifically, this uses the ["Processed profile format"](https://github.com/firefox-devtools/profiler/blob/main/docs-developer/processed-profile-format.md).
 //!
 //! Use [`Profile::new`] to create a new [`Profile`] object. Then add all the
-//! information into it. To convert it to JSON, call [`Profile::to_writer`] to
-//! stream it into a writer, or [`Profile::to_vec`] to obtain a byte vector.
+//! information into it. To convert it to bytes, call [`Profile::to_writer`]
+//! to stream it into a writer, or [`Profile::to_vec`] to obtain a byte
+//! vector. Both accept a [`ProfileFormat`] — either the standard
+//! processed-profile JSON or a [JsonSlabs](https://github.com/mstange/json-slabs)
+//! binary container.
 //!
 //! ## Example
 //!
 //! ```
-//! use fxprof_processed_profile::{Profile, CategoryHandle, CpuDelta, FrameHandle, FrameFlags, SamplingInterval, Timestamp};
+//! use fxprof_processed_profile::{Profile, CategoryHandle, CpuDelta, FrameHandle, FrameFlags, ProfileFormat, SamplingInterval, Timestamp};
 //! use std::time::SystemTime;
 //!
 //! // Creates the following call tree:
@@ -36,7 +39,7 @@
 //! profile.add_sample(thread, Timestamp::from_millis_since_reference(0.0), Some(first_callee_node), CpuDelta::ZERO, 1);
 //!
 //! let writer = std::io::BufWriter::new(output_file);
-//! profile.to_writer(writer)?;
+//! profile.to_writer(writer, ProfileFormat::Json)?;
 //! # Ok(())
 //! # }
 //! ```
@@ -107,8 +110,8 @@ pub use markers::{
 pub use native_symbols::NativeSymbolHandle;
 pub use process::ThreadHandle;
 pub use profile::{
-    FrameHandle, FrameSymbolInfo, Profile, SamplingInterval, SourceLocation, StackHandle,
-    TimelineUnit,
+    FrameHandle, FrameSymbolInfo, Profile, ProfileFormat, SamplingInterval, SourceLocation,
+    StackHandle, TimelineUnit,
 };
 pub use reference_timestamp::{PlatformSpecificReferenceTimestamp, ReferenceTimestamp};
 pub use sample_table::WeightType;
