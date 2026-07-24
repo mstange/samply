@@ -307,7 +307,10 @@ mod tests {
     fn to_json(table: &NativeAllocationsTable) -> serde_json::Value {
         let mut buf = Vec::new();
         let mut json = JsonStreamWriter::new(&mut buf);
-        let mut ctx = Writer { json: &mut json };
+        let mut ctx = Writer {
+            json: &mut json,
+            jslb_builder: None,
+        };
         table.write_json(&mut ctx).unwrap();
         json.finish_document().unwrap();
         serde_json::from_slice(&buf).unwrap()

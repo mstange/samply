@@ -141,16 +141,19 @@ impl StackTable {
             })
     }
 
-    pub(crate) fn write_json<W: Write>(&self, ctx: &mut Writer<W>) -> std::io::Result<()> {
+    pub(crate) fn write_json<'p, W: Write>(
+        &'p self,
+        ctx: &mut Writer<'_, 'p, W>,
+    ) -> std::io::Result<()> {
         let cols = self.set.store();
         let len = self.set.len();
         ctx.object(|w| {
             w.name("length")?;
             w.number_value(len)?;
             w.name("prefixOffset")?;
-            w.number_array(&cols.prefix_offset)?;
+            w.i32_array(&cols.prefix_offset)?;
             w.name("frame")?;
-            w.number_array(&cols.frame)
+            w.i32_array(&cols.frame)
         })
     }
 }
