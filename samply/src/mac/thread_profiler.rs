@@ -58,7 +58,7 @@ impl ThreadProfiler {
         profile: &mut Profile,
         thread_recycler: Option<&mut ThreadRecycler>,
     ) {
-        if self.name.is_none() && self.tick_count % 10 == 0 {
+        if self.name.is_none() && self.tick_count.is_multiple_of(10) {
             if let Ok(Some(name)) = get_thread_name(self.thread_act) {
                 if let Some((thread_handle, thread_label)) =
                     thread_recycler.and_then(|tr| tr.recycle_by_name(&name))

@@ -765,7 +765,7 @@ impl VmData {
         if aligned_addr != original_address {
             return Err(KernelError::InvalidAddress); // TODO: custom "unaligned address" error
         }
-        if size % (unsafe { vm_page_size } as u64) != 0 {
+        if !size.is_multiple_of(unsafe { vm_page_size } as u64) {
             return Err(KernelError::InvalidValue); // TODO: custom "unaligned size" error
         }
 
@@ -815,7 +815,7 @@ impl VmData {
     }
 
     pub unsafe fn get_type_ref<T>(&self, address: u64) -> &T {
-        assert!(address % mem::align_of::<T>() as u64 == 0);
+        assert!(address.is_multiple_of(mem::align_of::<T>() as u64));
         let range = address..(address + mem::size_of::<T>() as u64);
         let slice = self.get_slice(range);
         assert!(slice.len() == mem::size_of::<T>());
