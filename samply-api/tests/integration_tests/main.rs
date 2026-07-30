@@ -204,13 +204,13 @@ impl FileResolver {
             if let Some(filename) = path.file_name() {
                 let redirected_path = self.symbol_directory.join(filename);
                 if std::fs::metadata(&redirected_path).is_ok() {
-                    eprintln!("Redirecting {:?} to {:?}", &path, &redirected_path);
+                    eprintln!("Redirecting {:?} to {:?}", path, redirected_path);
                     path = redirected_path;
                 }
             }
         }
 
-        eprintln!("Reading file {:?}", &path);
+        eprintln!("Reading file {:?}", path);
         let file = File::open(&path)?;
         Ok(unsafe { memmap2::MmapOptions::new().map(&file)? })
     }
