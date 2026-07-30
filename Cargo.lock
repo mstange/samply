@@ -1419,6 +1419,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "json-slabs"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a1f6d721e0031466c53b2a005ecfaf4b05fb6a698d78be3220d2e24c36fb513a"
+dependencies = [
+ "thiserror 2.0.18",
+ "zerocopy",
+]
+
+[[package]]
 name = "lazy_static"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2576,6 +2586,7 @@ dependencies = [
  "hyper",
  "hyper-util",
  "indexmap",
+ "json-slabs",
  "lazy_static",
  "libc",
  "linux-perf-data",
