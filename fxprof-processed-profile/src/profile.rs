@@ -1,11 +1,11 @@
 use std::collections::hash_map::Entry;
 use std::collections::{BTreeMap, BTreeSet};
+use std::io::Write;
 use std::sync::Arc;
 use std::time::Duration;
 
 use indexmap::set::MutableValues;
-use serde::ser::{Serialize, SerializeMap, SerializeSeq, Serializer};
-use serde_json::json;
+use struson::writer::{JsonStreamWriter, JsonWriter};
 
 use crate::category::{
     Category, CategoryHandle, InternalCategory, IntoSubcategoryHandle, SubcategoryHandle,
@@ -34,6 +34,7 @@ use crate::sample_table::WeightType;
 use crate::string_table::{ProfileStringTable, StringHandle};
 use crate::thread::{ProcessHandle, Thread};
 use crate::timestamp::Timestamp;
+use crate::writer::Writer;
 use crate::{FrameFlags, PlatformSpecificReferenceTimestamp};
 
 /// The sampling interval used during profile recording.
@@ -96,12 +97,6 @@ impl From<Duration> for SamplingInterval {
 #[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash)]
 pub struct FrameHandle(pub(crate) i32);
 
-impl Serialize for FrameHandle {
-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        self.0.serialize(serializer)
-    }
-}
-
 /// A handle to a stack node in a [`Profile`]'s profile-wide stack table. Can
 /// be created with [`Profile::handle_for_stack`](crate::Profile::handle_for_stack).
 ///
@@ -115,12 +110,6 @@ impl Serialize for FrameHandle {
 /// be used with a different `Profile`.
 #[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash)]
 pub struct StackHandle(pub(crate) i32);
-
-impl Serialize for StackHandle {
-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        self.0.serialize(serializer)
-    }
-}
 
 /// Symbol information about a frame address.
 ///
@@ -1389,29 +1378,6 @@ impl Profile {
         )
     }
 
-    fn serializable_threads<'a>(
-        &'a self,
-        sorted_threads: &'a [ThreadHandle],
-    ) -> SerializableProfileThreadsProperty<'a> {
-        SerializableProfileThreadsProperty {
-            threads: &self.threads,
-            processes: &self.processes,
-            sorted_threads,
-            marker_schemas: &self.marker_schemas,
-            string_table: &self.shared_data.string_table,
-        }
-    }
-
-    fn serializable_counters<'a>(
-        &'a self,
-        first_thread_index_per_process: &'a [usize],
-    ) -> SerializableProfileCountersProperty<'a> {
-        SerializableProfileCountersProperty {
-            counters: &self.counters,
-            first_thread_index_per_process,
-        }
-    }
-
     fn contains_js_frame(&self) -> bool {
         self.shared_data.contains_js_frame()
     }
@@ -1420,198 +1386,176 @@ impl Profile {
     ///
     /// It's recommended to pass a [`BufWriter`](std::io::BufWriter) here.
     pub fn to_writer<W: std::io::Write>(&self, writer: W) -> std::io::Result<()> {
-        serde_json::to_writer(writer, &SerializableProfile(self)).map_err(std::io::Error::from)
+        let mut json_writer = JsonStreamWriter::new(writer);
+        let mut ctx = Writer {
+            json: &mut json_writer,
+        };
+        self.write_json(&mut ctx)?;
+        json_writer.finish_document()?;
+        Ok(())
     }
 
-    /// Serialize the profile into a Vec of bytes (as JSON) and return it.
+    /// Serialize the profile into a `Vec<u8>` (as JSON) and return it.
     pub fn to_vec(&self) -> Vec<u8> {
-        serde_json::to_vec(&SerializableProfile(self))
-            .expect("serializing a Profile to a Vec<u8> should never fail")
+        let mut buf = Vec::new();
+        self.to_writer(&mut buf)
+            .expect("writing a Profile to a Vec<u8> should never fail");
+        buf
     }
-}
 
-/// Internal Serialize wrapper for [`Profile`]. Used by [`Profile::to_writer`]
-/// and [`Profile::to_vec`] to produce the processed profile JSON.
-struct SerializableProfile<'a>(&'a Profile);
-
-impl Serialize for SerializableProfile<'_> {
-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        let profile = self.0;
+    fn write_json<W: Write>(&self, ctx: &mut Writer<W>) -> std::io::Result<()> {
         let (sorted_threads, first_thread_index_per_process, new_thread_indices) =
-            profile.sorted_threads();
-        let mut map = serializer.serialize_map(None)?;
-        map.serialize_entry(
-            "meta",
-            &SerializableProfileMeta(profile, &new_thread_indices),
-        )?;
-        map.serialize_entry("libs", &profile.global_libs)?;
-        map.serialize_entry("shared", &profile.shared_data)?;
-        map.serialize_entry("threads", &profile.serializable_threads(&sorted_threads))?;
-        map.serialize_entry("pages", &[] as &[()])?;
-        map.serialize_entry("profilerOverhead", &[] as &[()])?;
-        map.serialize_entry(
-            "counters",
-            &profile.serializable_counters(&first_thread_index_per_process),
-        )?;
-        map.end()
+            self.sorted_threads();
+        ctx.object(|w| {
+            w.name("meta")?;
+            self.write_meta_json(w, &new_thread_indices)?;
+            w.name("libs")?;
+            self.global_libs.write_json(w)?;
+            w.name("shared")?;
+            self.shared_data.write_json(w)?;
+            w.name("threads")?;
+            w.array(|w| {
+                for thread_handle in &sorted_threads {
+                    let thread = &self.threads[thread_handle.0];
+                    let process = &self.processes[thread.process().0];
+                    thread.write_json(
+                        w,
+                        process.start_time(),
+                        process.end_time(),
+                        process.name(),
+                        process.pid(),
+                        &self.marker_schemas,
+                        &self.shared_data.string_table,
+                    )?;
+                }
+                Ok(())
+            })?;
+            w.name("pages")?;
+            w.empty_array()?;
+            w.name("profilerOverhead")?;
+            w.empty_array()?;
+            w.name("counters")?;
+            w.array(|w| {
+                for counter in &self.counters {
+                    let main_thread_index = first_thread_index_per_process[counter.process().0];
+                    counter.write_json(w, main_thread_index)?;
+                }
+                Ok(())
+            })
+        })
     }
-}
 
-struct SerializableProfileMeta<'a>(&'a Profile, &'a [usize]);
-
-impl Serialize for SerializableProfileMeta<'_> {
-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        let mut map = serializer.serialize_map(None)?;
-        map.serialize_entry("categories", &self.0.categories)?;
-        map.serialize_entry("debug", &false)?;
-        map.serialize_entry(
-            "extensions",
-            &json!({
-                "length": 0,
-                "baseURL": [],
-                "id": [],
-                "name": [],
-            }),
-        )?;
-        map.serialize_entry("interval", &(self.0.interval.as_secs_f64() * 1000.0))?;
-        map.serialize_entry("preprocessedProfileVersion", &66)?;
-        map.serialize_entry("processType", &0)?;
-        map.serialize_entry("product", &self.0.product)?;
-        if let Some(os_name) = &self.0.os_name {
-            map.serialize_entry("oscpu", os_name)?;
-        }
-        let time_unit = match self.0.timeline_unit {
-            TimelineUnit::Milliseconds => "ms",
-            TimelineUnit::Bytes => "bytes",
-        };
-        map.serialize_entry(
-            "sampleUnits",
-            &json!({
-                "time": &time_unit,
-                "eventDelay": "ms",
-                "threadCPUDelta": "µs",
-            }),
-        )?;
-        map.serialize_entry("startTime", &self.0.reference_timestamp)?;
-        match &self.0.platform_specific_reference_timestamp {
-            Some(PlatformSpecificReferenceTimestamp::ClockMonotonicNanosecondsSinceBoot(val)) => {
-                map.serialize_entry("startTimeAsClockMonotonicNanosecondsSinceBoot", &val)?;
+    fn write_meta_json<W: Write>(
+        &self,
+        w: &mut Writer<W>,
+        new_thread_indices: &[usize],
+    ) -> std::io::Result<()> {
+        w.object(|w| {
+            w.name("categories")?;
+            w.array(|w| {
+                for cat in &self.categories {
+                    cat.write_json(w)?;
+                }
+                Ok(())
+            })?;
+            w.name("debug")?;
+            w.bool_value(false)?;
+            w.name("extensions")?;
+            w.object(|w| {
+                w.name("length")?;
+                w.number_value(0u32)?;
+                w.name("baseURL")?;
+                w.empty_array()?;
+                w.name("id")?;
+                w.empty_array()?;
+                w.name("name")?;
+                w.empty_array()
+            })?;
+            w.name("interval")?;
+            w.fp(self.interval.as_secs_f64() * 1000.0)?;
+            w.name("preprocessedProfileVersion")?;
+            w.number_value(66u32)?;
+            w.name("processType")?;
+            w.number_value(0u32)?;
+            w.name("product")?;
+            w.string_value(&self.product)?;
+            if let Some(os_name) = &self.os_name {
+                w.name("oscpu")?;
+                w.string_value(os_name)?;
             }
-            Some(PlatformSpecificReferenceTimestamp::MachAbsoluteTimeNanoseconds(val)) => {
-                map.serialize_entry("startTimeAsMachAbsoluteTimeNanoseconds", &val)?;
+            let time_unit = match self.timeline_unit {
+                TimelineUnit::Milliseconds => "ms",
+                TimelineUnit::Bytes => "bytes",
+            };
+            w.name("sampleUnits")?;
+            w.object(|w| {
+                w.name("time")?;
+                w.string_value(time_unit)?;
+                w.name("eventDelay")?;
+                w.string_value("ms")?;
+                w.name("threadCPUDelta")?;
+                w.string_value("µs")
+            })?;
+            w.name("startTime")?;
+            self.reference_timestamp.write_json(w)?;
+            match &self.platform_specific_reference_timestamp {
+                Some(PlatformSpecificReferenceTimestamp::ClockMonotonicNanosecondsSinceBoot(v)) => {
+                    w.name("startTimeAsClockMonotonicNanosecondsSinceBoot")?;
+                    w.number_value(*v)?;
+                }
+                Some(PlatformSpecificReferenceTimestamp::MachAbsoluteTimeNanoseconds(v)) => {
+                    w.name("startTimeAsMachAbsoluteTimeNanoseconds")?;
+                    w.number_value(*v)?;
+                }
+                Some(PlatformSpecificReferenceTimestamp::QueryPerformanceCounterValue(v)) => {
+                    w.name("startTimeAsQueryPerformanceCounterValue")?;
+                    w.number_value(*v)?;
+                }
+                None => {}
             }
-            Some(PlatformSpecificReferenceTimestamp::QueryPerformanceCounterValue(val)) => {
-                map.serialize_entry("startTimeAsQueryPerformanceCounterValue", &val)?;
+            w.name("symbolicated")?;
+            w.bool_value(self.symbolicated)?;
+            w.name("pausedRanges")?;
+            w.empty_array()?;
+            w.name("version")?;
+            w.number_value(24u32)?; // this version is ignored, only "preprocessedProfileVersion" is used
+            w.name("usesOnlyOneStackType")?;
+            w.bool_value(!self.contains_js_frame())?;
+            w.name("sourceCodeIsNotOnSearchfox")?;
+            w.bool_value(true)?;
+
+            let mut marker_schemas: Vec<&InternalMarkerSchema> =
+                self.marker_schemas.iter().collect();
+            marker_schemas.sort_by(|a, b| a.type_name().cmp(b.type_name()));
+            w.name("markerSchema")?;
+            w.array(|w| {
+                for s in &marker_schemas {
+                    s.write_json(w)?;
+                }
+                Ok(())
+            })?;
+
+            if !self.initial_visible_threads.is_empty() {
+                w.name("initialVisibleThreads")?;
+                w.array(|w| {
+                    for t in &self.initial_visible_threads {
+                        w.number_value(new_thread_indices[t.0])?;
+                    }
+                    Ok(())
+                })?;
             }
-            None => {}
-        }
-        map.serialize_entry("symbolicated", &self.0.symbolicated)?;
-        map.serialize_entry("pausedRanges", &[] as &[()])?;
-        map.serialize_entry("version", &24)?; // this version is ignored, only "preprocessedProfileVersion" is used
-        map.serialize_entry("usesOnlyOneStackType", &(!self.0.contains_js_frame()))?;
-        map.serialize_entry("sourceCodeIsNotOnSearchfox", &true)?;
 
-        let mut marker_schemas: Vec<InternalMarkerSchema> = self.0.marker_schemas.clone();
-        marker_schemas.sort_by(|a, b| a.type_name().cmp(b.type_name()));
-        map.serialize_entry("markerSchema", &marker_schemas)?;
+            if !self.initial_selected_threads.is_empty() {
+                w.name("initialSelectedThreads")?;
+                w.array(|w| {
+                    for t in &self.initial_selected_threads {
+                        w.number_value(new_thread_indices[t.0])?;
+                    }
+                    Ok(())
+                })?;
+            }
 
-        if !self.0.initial_visible_threads.is_empty() {
-            map.serialize_entry(
-                "initialVisibleThreads",
-                &self
-                    .0
-                    .initial_visible_threads
-                    .iter()
-                    .map(|x| self.1[x.0])
-                    .collect::<Vec<_>>(),
-            )?;
-        }
-
-        if !self.0.initial_selected_threads.is_empty() {
-            map.serialize_entry(
-                "initialSelectedThreads",
-                &self
-                    .0
-                    .initial_selected_threads
-                    .iter()
-                    .map(|x| self.1[x.0])
-                    .collect::<Vec<_>>(),
-            )?;
-        };
-
-        map.end()
-    }
-}
-
-struct SerializableProfileThreadsProperty<'a> {
-    threads: &'a [Thread],
-    processes: &'a [Process],
-    sorted_threads: &'a [ThreadHandle],
-    marker_schemas: &'a [InternalMarkerSchema],
-    string_table: &'a ProfileStringTable,
-}
-
-impl Serialize for SerializableProfileThreadsProperty<'_> {
-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        let mut seq = serializer.serialize_seq(Some(self.threads.len()))?;
-
-        for thread in self.sorted_threads {
-            let thread = &self.threads[thread.0];
-            let process = &self.processes[thread.process().0];
-            let marker_schemas = self.marker_schemas;
-            let string_table = self.string_table;
-            seq.serialize_element(&SerializableProfileThread(
-                process,
-                thread,
-                marker_schemas,
-                string_table,
-            ))?;
-        }
-
-        seq.end()
-    }
-}
-
-struct SerializableProfileCountersProperty<'a> {
-    counters: &'a [Counter],
-    first_thread_index_per_process: &'a [usize],
-}
-
-impl Serialize for SerializableProfileCountersProperty<'_> {
-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        let mut seq = serializer.serialize_seq(Some(self.counters.len()))?;
-
-        for counter in self.counters {
-            let main_thread_index = self.first_thread_index_per_process[counter.process().0];
-            seq.serialize_element(&counter.as_serializable(main_thread_index))?;
-        }
-
-        seq.end()
-    }
-}
-
-struct SerializableProfileThread<'a>(
-    &'a Process,
-    &'a Thread,
-    &'a [InternalMarkerSchema],
-    &'a ProfileStringTable, // for Url / FilePath / SanitizedString marker fields
-);
-
-impl Serialize for SerializableProfileThread<'_> {
-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        let SerializableProfileThread(process, thread, marker_schemas, string_table) = self;
-        let process_start_time = process.start_time();
-        let process_end_time = process.end_time();
-        let process_name = process.name();
-        let pid = process.pid();
-        thread.serialize_with(
-            serializer,
-            process_start_time,
-            process_end_time,
-            process_name,
-            pid,
-            marker_schemas,
-            string_table,
-        )
+            Ok(())
+        })
     }
 }

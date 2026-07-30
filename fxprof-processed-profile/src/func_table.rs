@@ -1,13 +1,12 @@
 use std::hash::{BuildHasher, Hash, Hasher};
+use std::io::Write;
 
 use crate::columnar_interner::{ColumnarInterner, ColumnarStore};
-use serde::ser::{Serialize, SerializeMap, SerializeSeq, Serializer};
-
 use crate::frame::FrameFlags;
 use crate::resource_table::ResourceIndex;
-use crate::serialization_helpers::SerializableSingleValueColumn;
 use crate::source_table::SourceIndex;
 use crate::string_table::StringHandle;
+use crate::writer::Writer;
 
 #[derive(Debug, Clone, Default)]
 pub struct FuncTable {
@@ -86,70 +85,69 @@ impl FuncTable {
     pub fn index_for_func(&mut self, func_key: FuncKey) -> FuncIndex {
         FuncIndex(self.set.insert(func_key))
     }
+
+    pub(crate) fn write_json<W: Write>(&self, w: &mut Writer<W>) -> std::io::Result<()> {
+        let cols = self.set.store();
+        let len = self.set.len();
+        w.object(|w| {
+            w.name("length")?;
+            w.number_value(len)?;
+            w.name("name")?;
+            w.array(|w| {
+                for n in &cols.name {
+                    n.write_json(w)?;
+                }
+                Ok(())
+            })?;
+            w.name("isJS")?;
+            w.array(|w| {
+                for flags in &cols.flags {
+                    w.bool_value(flags.contains(FrameFlags::IS_JS))?;
+                }
+                Ok(())
+            })?;
+            w.name("relevantForJS")?;
+            w.array(|w| {
+                for flags in &cols.flags {
+                    w.bool_value(flags.contains(FrameFlags::IS_RELEVANT_FOR_JS))?;
+                }
+                Ok(())
+            })?;
+            w.name("resource")?;
+            w.array(|w| {
+                for r in &cols.resource {
+                    match r {
+                        Some(r) => r.write_json(w)?,
+                        None => w.number_value(-1)?,
+                    }
+                }
+                Ok(())
+            })?;
+            w.name("source")?;
+            w.array(|w| {
+                for s in &cols.source {
+                    match s {
+                        Some(s) => s.write_json(w)?,
+                        None => w.null_value()?,
+                    }
+                }
+                Ok(())
+            })?;
+            w.name("lineNumber")?;
+            w.optional_number_array(&cols.start_line)?;
+            w.name("columnNumber")?;
+            w.optional_number_array(&cols.start_column)?;
+            w.name("originalLocation")?;
+            w.null_array(len)
+        })
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash)]
 pub struct FuncIndex(u32);
 
-impl Serialize for FuncIndex {
-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        serializer.serialize_u32(self.0)
-    }
-}
-
-impl Serialize for FuncTable {
-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        let cols = self.set.store();
-        let len = self.set.len();
-        let mut map = serializer.serialize_map(None)?;
-        map.serialize_entry("length", &len)?;
-        map.serialize_entry("name", &cols.name)?;
-        map.serialize_entry(
-            "isJS",
-            &SerializableFlagColumn(&cols.flags, FrameFlags::IS_JS),
-        )?;
-        map.serialize_entry(
-            "relevantForJS",
-            &SerializableFlagColumn(&cols.flags, FrameFlags::IS_RELEVANT_FOR_JS),
-        )?;
-        map.serialize_entry(
-            "resource",
-            &SerializableFuncTableResourceColumn(&cols.resource),
-        )?;
-        map.serialize_entry("source", &cols.source)?;
-        map.serialize_entry("lineNumber", &cols.start_line)?;
-        map.serialize_entry("columnNumber", &cols.start_column)?;
-        map.serialize_entry(
-            "originalLocation",
-            &SerializableSingleValueColumn(Option::<u32>::None, len),
-        )?;
-        map.end()
-    }
-}
-
-struct SerializableFuncTableResourceColumn<'a>(&'a [Option<ResourceIndex>]);
-
-impl Serialize for SerializableFuncTableResourceColumn<'_> {
-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        let mut seq = serializer.serialize_seq(Some(self.0.len()))?;
-        for resource in self.0 {
-            match resource {
-                Some(resource) => seq.serialize_element(&resource)?,
-                None => seq.serialize_element(&-1)?,
-            }
-        }
-        seq.end()
-    }
-}
-
-pub struct SerializableFlagColumn<'a>(&'a [FrameFlags], FrameFlags);
-
-impl Serialize for SerializableFlagColumn<'_> {
-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        let mut seq = serializer.serialize_seq(Some(self.0.len()))?;
-        for item_flags in self.0 {
-            seq.serialize_element(&item_flags.contains(self.1))?;
-        }
-        seq.end()
+impl FuncIndex {
+    pub(crate) fn write_json<W: Write>(self, w: &mut Writer<W>) -> std::io::Result<()> {
+        w.number_value(self.0)
     }
 }

@@ -1,12 +1,13 @@
-use serde::ser::{Serialize, SerializeMap, SerializeSeq};
+use std::io::Write;
 
+use crate::writer::Writer;
 use crate::{CategoryHandle, Profile};
 
 use super::dynamic_schema::{
     DynamicSchemaMarkerField, DynamicSchemaMarkerGraph, DynamicSchemaMarkerSchema,
 };
 use super::field_kind_counts::MarkerFieldKindCounts;
-use super::serialization::{SerializableSchemaDisplay, SerializableSchemaField};
+use super::serialization::{write_schema_display, write_schema_field};
 use super::static_schema::{Marker, MarkerFieldsTrait};
 use super::types::MarkerLocations;
 
@@ -94,60 +95,46 @@ impl InternalMarkerSchema {
     pub fn flow_field_count(&self) -> usize {
         self.field_kind_counts.flow_field_count
     }
-    fn serialize_self<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        let mut map = serializer.serialize_map(None)?;
-        map.serialize_entry("name", &self.type_name)?;
-        map.serialize_entry("display", &SerializableSchemaDisplay(self.locations))?;
-        if let Some(label) = &self.chart_label {
-            map.serialize_entry("chartLabel", label)?;
-        }
-        if let Some(label) = &self.tooltip_label {
-            map.serialize_entry("tooltipLabel", label)?;
-        }
-        if let Some(label) = &self.table_label {
-            map.serialize_entry("tableLabel", label)?;
-        }
-        if let Some(description) = &self.description {
-            map.serialize_entry("description", description)?;
-        }
-        map.serialize_entry("fields", &SerializableSchemaFields(self))?;
-        if !self.graphs.is_empty() {
-            map.serialize_entry("graphs", &self.graphs)?;
-        }
-        map.end()
-    }
 
-    fn serialize_fields<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        let mut seq = serializer.serialize_seq(None)?;
-        for field in &self.fields {
-            seq.serialize_element(&SerializableSchemaField(field))?;
-        }
-        seq.end()
-    }
-}
-
-impl Serialize for InternalMarkerSchema {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        self.serialize_self(serializer)
-    }
-}
-
-struct SerializableSchemaFields<'a>(&'a InternalMarkerSchema);
-
-impl Serialize for SerializableSchemaFields<'_> {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        self.0.serialize_fields(serializer)
+    pub(crate) fn write_json<W: Write>(&self, w: &mut Writer<W>) -> std::io::Result<()> {
+        w.object(|w| {
+            w.name("name")?;
+            w.string_value(&self.type_name)?;
+            w.name("display")?;
+            write_schema_display(w, self.locations)?;
+            if let Some(label) = &self.chart_label {
+                w.name("chartLabel")?;
+                w.string_value(label)?;
+            }
+            if let Some(label) = &self.tooltip_label {
+                w.name("tooltipLabel")?;
+                w.string_value(label)?;
+            }
+            if let Some(label) = &self.table_label {
+                w.name("tableLabel")?;
+                w.string_value(label)?;
+            }
+            if let Some(description) = &self.description {
+                w.name("description")?;
+                w.string_value(description)?;
+            }
+            w.name("fields")?;
+            w.array(|w| {
+                for field in &self.fields {
+                    write_schema_field(w, field)?;
+                }
+                Ok(())
+            })?;
+            if !self.graphs.is_empty() {
+                w.name("graphs")?;
+                w.array(|w| {
+                    for graph in &self.graphs {
+                        graph.write_json(w)?;
+                    }
+                    Ok(())
+                })?;
+            }
+            Ok(())
+        })
     }
 }

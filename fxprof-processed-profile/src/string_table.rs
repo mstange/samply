@@ -1,9 +1,16 @@
-use serde::ser::{Serialize, Serializer};
+use std::io::Write;
 
 use crate::fast_hash_map::FastHashMap;
+use crate::writer::Writer;
 
 #[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash)]
 pub struct StringIndex(u32);
+
+impl StringIndex {
+    pub fn as_u32(self) -> u32 {
+        self.0
+    }
+}
 
 #[derive(Debug, Clone, Default)]
 pub struct StringTable {
@@ -27,11 +34,9 @@ impl StringTable {
     pub fn get_string(&self, index: StringIndex) -> &str {
         &self.strings[index.0 as usize]
     }
-}
 
-impl Serialize for StringTable {
-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        self.strings.serialize(serializer)
+    pub fn strings(&self) -> &[String] {
+        &self.strings
     }
 }
 
@@ -49,6 +54,26 @@ impl Serialize for StringTable {
 /// strings or panics. Storing and reusing the handle avoids repeated lookups.
 #[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash)]
 pub struct StringHandle(pub(crate) StringIndex);
+
+impl StringHandle {
+    pub(crate) fn as_u32(self) -> u32 {
+        self.0.as_u32()
+    }
+
+    pub(crate) fn write_json<W: Write>(self, w: &mut Writer<W>) -> std::io::Result<()> {
+        w.number_value(self.as_u32())
+    }
+
+    pub(crate) fn write_optional<W: Write>(
+        this: Option<StringHandle>,
+        w: &mut Writer<W>,
+    ) -> std::io::Result<()> {
+        match this {
+            Some(h) => w.number_value(h.as_u32()),
+            None => w.null_value(),
+        }
+    }
+}
 
 #[derive(Debug, Clone, Default)]
 pub struct ProfileStringTable {
@@ -71,7 +96,6 @@ impl ProfileStringTable {
             // Build the string on the stack, to save a heap allocation.
             const BUF_LEN: usize = 18;
             let mut buf = [0u8; BUF_LEN]; // 18 is just enough to fit u64::MAX, i.e. "0xffffffffffffffff"
-            use std::io::Write;
             let mut b = &mut buf[..];
             write!(b, "{a:#x}").unwrap();
             let len = BUF_LEN - b.len();
@@ -83,22 +107,13 @@ impl ProfileStringTable {
     pub fn get_string(&self, index: StringHandle) -> &str {
         self.table.get_string(index.0)
     }
-}
 
-impl Serialize for StringIndex {
-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        serializer.serialize_u32(self.0)
-    }
-}
-
-impl Serialize for StringHandle {
-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        self.0.serialize(serializer)
-    }
-}
-
-impl Serialize for ProfileStringTable {
-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        self.table.serialize(serializer)
+    pub(crate) fn write_json<W: Write>(&self, w: &mut Writer<W>) -> std::io::Result<()> {
+        w.array(|w| {
+            for s in self.table.strings() {
+                w.string_value(s)?;
+            }
+            Ok(())
+        })
     }
 }

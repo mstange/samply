@@ -1,9 +1,9 @@
-use serde::ser::{Serialize, SerializeMap, Serializer};
+use std::io::Write;
 
 use crate::fast_hash_map::FastHashMap;
 use crate::global_lib_table::GlobalLibIndex;
-use crate::serialization_helpers::SerializableSingleValueColumn;
 use crate::string_table::StringHandle;
+use crate::writer::Writer;
 
 #[derive(Debug, Clone, Default)]
 pub struct ResourceTable {
@@ -23,30 +23,45 @@ impl ResourceTable {
             resource
         })
     }
-}
 
-impl Serialize for ResourceTable {
-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+    pub(crate) fn write_json<W: Write>(&self, w: &mut Writer<W>) -> std::io::Result<()> {
         const RESOURCE_TYPE_LIB: u32 = 1;
         let len = self.resource_libs.len();
-        let mut map = serializer.serialize_map(None)?;
-        map.serialize_entry("length", &len)?;
-        map.serialize_entry("lib", &self.resource_libs)?;
-        map.serialize_entry("name", &self.resource_names)?;
-        map.serialize_entry("host", &SerializableSingleValueColumn((), len))?;
-        map.serialize_entry(
-            "type",
-            &SerializableSingleValueColumn(RESOURCE_TYPE_LIB, len),
-        )?;
-        map.end()
+        w.object(|w| {
+            w.name("length")?;
+            w.number_value(len)?;
+            w.name("lib")?;
+            w.array(|w| {
+                for lib in &self.resource_libs {
+                    lib.write_json(w)?;
+                }
+                Ok(())
+            })?;
+            w.name("name")?;
+            w.array(|w| {
+                for name in &self.resource_names {
+                    name.write_json(w)?;
+                }
+                Ok(())
+            })?;
+            w.name("host")?;
+            w.null_array(len)?;
+            w.name("type")?;
+            w.array(|w| {
+                for _ in 0..len {
+                    w.number_value(RESOURCE_TYPE_LIB)?;
+                }
+                Ok(())
+            })
+        })
     }
 }
 
 #[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash)]
 pub struct ResourceIndex(u32);
 
-impl Serialize for ResourceIndex {
-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        serializer.serialize_u32(self.0)
+impl ResourceIndex {
+    pub(crate) fn write_json<W: Write>(self, w: &mut Writer<W>) -> std::io::Result<()> {
+        w.number_value(self.0)
     }
 }

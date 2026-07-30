@@ -1,6 +1,8 @@
-use bitflags::bitflags;
-use serde_derive::Serialize;
+use std::io::Write;
 
+use bitflags::bitflags;
+
+use crate::writer::Writer;
 use crate::Timestamp;
 
 /// The handle for a marker. Returned from [`Profile::add_marker`](crate::Profile::add_marker).
@@ -96,8 +98,7 @@ bitflags! {
 }
 
 /// The type of a graph segment within a marker graph.
-#[derive(Debug, Clone, Copy, Eq, PartialEq, Ord, PartialOrd, Serialize)]
-#[serde(rename_all = "kebab-case")]
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Ord, PartialOrd)]
 pub enum MarkerGraphType {
     /// As a bar graph.
     Bar,
@@ -107,13 +108,26 @@ pub enum MarkerGraphType {
     LineFilled,
 }
 
+impl MarkerGraphType {
+    fn as_json_str(self) -> &'static str {
+        match self {
+            MarkerGraphType::Bar => "bar",
+            MarkerGraphType::Line => "line",
+            MarkerGraphType::LineFilled => "line-filled",
+        }
+    }
+
+    pub(crate) fn write_json<W: Write>(self, w: &mut Writer<W>) -> std::io::Result<()> {
+        w.string_value(self.as_json_str())
+    }
+}
+
 /// The color used for a graph segment within a marker graph.
 ///
 /// These are named colors from the Firefox Profiler's graph palette (not
 /// arbitrary RGB values). When a marker schema uses one of these, the front-end
 /// picks the matching palette color.
-#[derive(Debug, Clone, Copy, Eq, PartialEq, Ord, PartialOrd, Serialize)]
-#[serde(rename_all = "lowercase")]
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Ord, PartialOrd)]
 pub enum GraphColor {
     /// Blue.
     Blue,
@@ -135,4 +149,25 @@ pub enum GraphColor {
     Teal,
     /// Yellow.
     Yellow,
+}
+
+impl GraphColor {
+    fn as_json_str(self) -> &'static str {
+        match self {
+            GraphColor::Blue => "blue",
+            GraphColor::Green => "green",
+            GraphColor::Grey => "grey",
+            GraphColor::Ink => "ink",
+            GraphColor::Magenta => "magenta",
+            GraphColor::Orange => "orange",
+            GraphColor::Purple => "purple",
+            GraphColor::Red => "red",
+            GraphColor::Teal => "teal",
+            GraphColor::Yellow => "yellow",
+        }
+    }
+
+    pub(crate) fn write_json<W: Write>(self, w: &mut Writer<W>) -> std::io::Result<()> {
+        w.string_value(self.as_json_str())
+    }
 }

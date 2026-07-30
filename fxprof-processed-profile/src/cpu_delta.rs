@@ -1,6 +1,7 @@
+use std::io::Write;
 use std::time::Duration;
 
-use serde::ser::{Serialize, Serializer};
+use crate::writer::Writer;
 
 /// The amount of CPU time between thread samples.
 ///
@@ -49,12 +50,10 @@ impl CpuDelta {
     pub fn is_zero(&self) -> bool {
         self.micros == 0
     }
-}
 
-impl Serialize for CpuDelta {
-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        // CPU deltas are serialized as float microseconds, because
+    pub(crate) fn write_json<W: Write>(self, w: &mut Writer<W>) -> std::io::Result<()> {
+        // CPU deltas are serialized as integer microseconds, because
         // we set profile.meta.sampleUnits.threadCPUDelta to "µs".
-        self.micros.serialize(serializer)
+        w.number_value(self.micros)
     }
 }

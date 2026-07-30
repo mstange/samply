@@ -75,13 +75,13 @@ mod profile_symbol_info;
 mod reference_timestamp;
 mod resource_table;
 mod sample_table;
-mod serialization_helpers;
 mod source_table;
 mod stack_table;
 mod string_table;
 mod symbolication;
 mod thread;
 mod timestamp;
+mod writer;
 
 pub use category::{
     Category, CategoryHandle, IntoSubcategoryHandle, Subcategory, SubcategoryHandle,

@@ -1,8 +1,8 @@
 use std::hash::{BuildHasher, Hash, Hasher};
+use std::io::Write;
 
 use crate::columnar_interner::{ColumnarInterner, ColumnarStore};
-use serde::ser::{Serialize, SerializeMap, Serializer};
-
+use crate::writer::Writer;
 use crate::{FrameHandle, StackHandle};
 
 /// The stack table stores the tree of stack nodes of a thread. The shape of the tree is encoded in
@@ -140,16 +140,17 @@ impl StackTable {
                 (prefix, FrameHandle(frame))
             })
     }
-}
 
-impl Serialize for StackTable {
-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+    pub(crate) fn write_json<W: Write>(&self, ctx: &mut Writer<W>) -> std::io::Result<()> {
         let cols = self.set.store();
         let len = self.set.len();
-        let mut map = serializer.serialize_map(Some(3))?;
-        map.serialize_entry("length", &len)?;
-        map.serialize_entry("prefixOffset", &cols.prefix_offset)?;
-        map.serialize_entry("frame", &cols.frame)?;
-        map.end()
+        ctx.object(|w| {
+            w.name("length")?;
+            w.number_value(len)?;
+            w.name("prefixOffset")?;
+            w.number_array(&cols.prefix_offset)?;
+            w.name("frame")?;
+            w.number_array(&cols.frame)
+        })
     }
 }

@@ -1,4 +1,6 @@
-use serde::ser::{Serialize, Serializer};
+use std::io::Write;
+
+use crate::writer::Writer;
 
 /// One of the named colors recognized by the Firefox Profiler for categories.
 ///
@@ -42,23 +44,27 @@ pub enum CategoryColor {
     DarkGray,
 }
 
-impl Serialize for CategoryColor {
-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+impl CategoryColor {
+    fn as_json_str(self) -> &'static str {
         match self {
-            CategoryColor::Transparent => "transparent".serialize(serializer),
-            CategoryColor::LightBlue => "lightblue".serialize(serializer),
-            CategoryColor::Red => "red".serialize(serializer),
-            CategoryColor::LightRed => "lightred".serialize(serializer),
-            CategoryColor::Orange => "orange".serialize(serializer),
-            CategoryColor::Blue => "blue".serialize(serializer),
-            CategoryColor::Green => "green".serialize(serializer),
-            CategoryColor::Purple => "purple".serialize(serializer),
-            CategoryColor::Yellow => "yellow".serialize(serializer),
-            CategoryColor::Brown => "brown".serialize(serializer),
-            CategoryColor::Magenta => "magenta".serialize(serializer),
-            CategoryColor::LightGreen => "lightgreen".serialize(serializer),
-            CategoryColor::Gray => "grey".serialize(serializer),
-            CategoryColor::DarkGray => "darkgray".serialize(serializer),
+            CategoryColor::Transparent => "transparent",
+            CategoryColor::LightBlue => "lightblue",
+            CategoryColor::Red => "red",
+            CategoryColor::LightRed => "lightred",
+            CategoryColor::Orange => "orange",
+            CategoryColor::Blue => "blue",
+            CategoryColor::Green => "green",
+            CategoryColor::Purple => "purple",
+            CategoryColor::Yellow => "yellow",
+            CategoryColor::Brown => "brown",
+            CategoryColor::Magenta => "magenta",
+            CategoryColor::LightGreen => "lightgreen",
+            CategoryColor::Gray => "grey",
+            CategoryColor::DarkGray => "darkgray",
         }
+    }
+
+    pub(crate) fn write_json<W: Write>(self, w: &mut Writer<W>) -> std::io::Result<()> {
+        w.string_value(self.as_json_str())
     }
 }

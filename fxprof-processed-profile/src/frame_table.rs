@@ -1,4 +1,4 @@
-use serde::ser::{Serialize, SerializeMap, SerializeSeq, Serializer};
+use std::io::Write;
 
 use crate::category::{CategoryHandle, SubcategoryHandle, SubcategoryIndex};
 use crate::fast_hash_map::FastIndexSet;
@@ -7,9 +7,9 @@ use crate::func_table::{FuncIndex, FuncKey, FuncTable};
 use crate::global_lib_table::{GlobalLibIndex, UsedLibraryAddressesCollector};
 use crate::native_symbols::NativeSymbolIndex;
 use crate::resource_table::ResourceTable;
-use crate::serialization_helpers::SerializableSingleValueColumn;
 use crate::source_table::{SourceKey, SourceTable};
 use crate::string_table::StringHandle;
+use crate::writer::Writer;
 use crate::{FrameHandle, SourceLocation};
 
 #[derive(Debug, Clone, Default)]
@@ -128,43 +128,66 @@ pub struct FrameTable {
     inline_depth_col: Vec<u16>,
 }
 
-impl Serialize for FrameTable {
-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+impl FrameTable {
+    pub(crate) fn write_json<W: Write>(&self, w: &mut Writer<W>) -> std::io::Result<()> {
         let len = self.func_col.len();
-        let mut map = serializer.serialize_map(None)?;
-        map.serialize_entry("length", &len)?;
-        map.serialize_entry("func", &self.func_col)?;
-        map.serialize_entry("category", &self.category_col)?;
-        map.serialize_entry("subcategory", &self.subcategory_col)?;
-        map.serialize_entry("line", &self.line_col)?;
-        map.serialize_entry("column", &self.column_col)?;
-        map.serialize_entry(
-            "address",
-            &SerializableFrameTableAddressColumn(&self.address_col),
-        )?;
-        map.serialize_entry("nativeSymbol", &self.native_symbol_col)?;
-        map.serialize_entry("inlineDepth", &self.inline_depth_col)?;
-        map.serialize_entry("innerWindowID", &SerializableSingleValueColumn(0, len))?;
-        map.serialize_entry(
-            "originalLocation",
-            &SerializableSingleValueColumn(Option::<u32>::None, len),
-        )?;
-        map.end()
-    }
-}
-
-struct SerializableFrameTableAddressColumn<'a>(&'a [Option<u32>]);
-
-impl Serialize for SerializableFrameTableAddressColumn<'_> {
-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        let mut seq = serializer.serialize_seq(Some(self.0.len()))?;
-        for address in self.0 {
-            match address {
-                Some(address) => seq.serialize_element(&address)?,
-                None => seq.serialize_element(&-1)?,
-            }
-        }
-        seq.end()
+        w.object(|w| {
+            w.name("length")?;
+            w.number_value(len)?;
+            w.name("func")?;
+            w.array(|w| {
+                for f in &self.func_col {
+                    f.write_json(w)?;
+                }
+                Ok(())
+            })?;
+            w.name("category")?;
+            w.array(|w| {
+                for c in &self.category_col {
+                    c.write_json(w)?;
+                }
+                Ok(())
+            })?;
+            w.name("subcategory")?;
+            w.array(|w| {
+                for s in &self.subcategory_col {
+                    s.write_json(w)?;
+                }
+                Ok(())
+            })?;
+            w.name("line")?;
+            w.optional_number_array(&self.line_col)?;
+            w.name("column")?;
+            w.optional_number_array(&self.column_col)?;
+            w.name("address")?;
+            w.array(|w| {
+                for a in &self.address_col {
+                    match a {
+                        Some(a) => w.number_value(*a)?,
+                        None => w.number_value(-1)?,
+                    }
+                }
+                Ok(())
+            })?;
+            w.name("nativeSymbol")?;
+            w.array(|w| {
+                for n in &self.native_symbol_col {
+                    NativeSymbolIndex::write_optional(*n, w)?;
+                }
+                Ok(())
+            })?;
+            w.name("inlineDepth")?;
+            w.number_array(&self.inline_depth_col)?;
+            w.name("innerWindowID")?;
+            w.array(|w| {
+                for _ in 0..len {
+                    w.number_value(0u32)?;
+                }
+                Ok(())
+            })?;
+            w.name("originalLocation")?;
+            w.null_array(len)
+        })
     }
 }
 
