@@ -19,12 +19,11 @@
 
 use std::error::Error;
 use std::fmt::Debug;
-use std::fs::OpenOptions;
+use std::fs::{OpenOptions, TryLockError};
 use std::io::{Read, Write};
 use std::marker::PhantomData;
 use std::path::Path;
 
-use fs4::fs_std::FileExt;
 use serde::de::DeserializeOwned;
 use serde::ser::Serialize;
 
@@ -109,17 +108,17 @@ impl<T: DeserializeOwned> Receiver<T> {
     fn poll_until_other_side_exists(&self) -> std::io::Result<()> {
         // Poll until self.current_lock is locked by the other side.
         loop {
-            match self.current_lock.try_lock_exclusive() {
-                Ok(true) => {
+            match self.current_lock.try_lock() {
+                Ok(()) => {
                     // Not locked yet.
-                    FileExt::unlock(&self.current_lock).unwrap();
+                    self.current_lock.unlock().unwrap();
                 }
-                Ok(false) => {
+                Err(TryLockError::WouldBlock) => {
                     // Success! The helper process now owns the file lock of self.current_lock.
                     break;
                 }
-                Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
-                Err(e) => return Err(e),
+                Err(TryLockError::Error(e)) if e.kind() == std::io::ErrorKind::Interrupted => {}
+                Err(TryLockError::Error(e)) => return Err(e),
             }
             std::thread::sleep(std::time::Duration::from_millis(50));
         }
@@ -128,9 +127,9 @@ impl<T: DeserializeOwned> Receiver<T> {
     }
 
     pub fn recv_blocking(&mut self) -> Result<T, Box<dyn Error + Send + Sync>> {
-        self.current_lock.lock_exclusive()?; // block until init message is written
+        self.current_lock.lock()?; // block until init message is written
         let msg = self.reader.recv()?;
-        FileExt::unlock(&self.current_lock)?;
+        self.current_lock.unlock()?;
         std::mem::swap(&mut self.current_lock, &mut self.next_lock);
         Ok(msg)
     }
@@ -152,7 +151,7 @@ impl<T: Serialize> Sender<T> {
         let msgs_file = options.open(path)?;
         let current_lock = options.open(path.with_extension("lock1"))?;
         let next_lock = options.open(path.with_extension("lock2"))?;
-        current_lock.lock_exclusive()?;
+        current_lock.lock()?;
         let writer = FileMessageWriter::new(msgs_file);
         Ok(Self {
             writer,
@@ -163,9 +162,9 @@ impl<T: Serialize> Sender<T> {
 
     pub fn send(&mut self, msg: T) -> Result<(), Box<dyn Error + Send + Sync>> {
         self.writer.send(msg)?;
-        self.next_lock.lock_exclusive()?; // ready next lock
+        self.next_lock.lock()?; // ready next lock
         std::mem::swap(&mut self.current_lock, &mut self.next_lock);
-        FileExt::unlock(&self.next_lock)?; // indicate that reply has been written
+        self.next_lock.unlock()?; // indicate that reply has been written
         Ok(())
     }
 }
