@@ -1446,7 +1446,7 @@ impl Profile {
     fn write_json<'p, W: Write>(
         &'p self,
         ctx: &mut Writer<'_, 'p, W>,
-        tables: &FrameInternerTables,
+        tables: &'p FrameInternerTables,
     ) -> std::io::Result<()> {
         let (sorted_threads, first_thread_index_per_process, new_thread_indices) =
             self.sorted_threads();
@@ -1506,7 +1506,7 @@ impl Profile {
             w.name("interval")?;
             w.fp(self.interval.as_secs_f64() * 1000.0)?;
             w.name("preprocessedProfileVersion")?;
-            w.number_value(66u32)?;
+            w.number_value(68u32)?;
             w.name("processType")?;
             w.number_value(0u32)?;
             w.name("product")?;
@@ -1592,13 +1592,13 @@ impl Profile {
     }
 }
 
-struct ThreadsArrayBody<'p> {
+struct ThreadsArrayBody<'q, 'p> {
     profile: &'p Profile,
-    sorted_threads: &'p [ThreadHandle],
+    sorted_threads: &'q [ThreadHandle],
 }
 
-impl SplitOutObjectBody for ThreadsArrayBody<'_> {
-    fn write_body<W: Write>(self, w: &mut Writer<W>) -> std::io::Result<()> {
+impl<'q, 'p> SplitOutObjectBody<'p> for ThreadsArrayBody<'q, 'p> {
+    fn write_body<W: Write>(self, w: &mut Writer<'_, 'p, W>) -> std::io::Result<()> {
         let profile = self.profile;
         w.array(|w| {
             for thread_handle in self.sorted_threads {

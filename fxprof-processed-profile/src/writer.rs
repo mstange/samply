@@ -15,14 +15,19 @@ use struson::writer::{FiniteNumber, JsonNumberError, JsonStreamWriter, JsonWrite
 /// nested JSON object that was extracted into its own slab, see
 /// `Writer::split_out_object`.
 ///
-/// This writer will create typed-array slabs when `i32_array` is called
-/// (in JSON mode those just become regular number arrays in the JSON).
-pub struct Writer<'a, 'b: 'a, W: Write> {
-    pub json: &'a mut JsonStreamWriter<W>,
-    pub jslb_builder: Option<&'a mut Builder<'b>>,
+/// This writer will create typed-array slabs when methods like `i32_array`,
+/// or `u8_array` are called - in JSON mode those just become regular number
+/// arrays in the JSON.
+///
+/// Lifetimes:
+/// - 'w: The mutable borrows of the JSON stream writer and the JSLB builder
+/// - 'p: The profile-owned data referenced by the JSLB builder, e.g. columns in tables
+pub struct Writer<'w, 'p, W: Write> {
+    pub json: &'w mut JsonStreamWriter<W>,
+    pub jslb_builder: Option<&'w mut Builder<'p>>,
 }
 
-impl<'b, W: Write> Writer<'_, 'b, W> {
+impl<'p, W: Write> Writer<'_, 'p, W> {
     // -- Compound helpers ----------------------------------------------------
 
     #[inline]
@@ -134,7 +139,7 @@ impl<'b, W: Write> Writer<'_, 'b, W> {
     /// in the version of the "processed profile" format that we emit! Otherwise,
     /// the front-end will have a typed array in a place where it was expecting
     /// a regular JS array, and things won't work correctly.
-    pub fn i32_array(&mut self, values: &'b [i32]) -> std::io::Result<()> {
+    pub fn i32_array(&mut self, values: &'p [i32]) -> std::io::Result<()> {
         match self.jslb_builder.as_deref_mut() {
             Some(builder) => {
                 let p = builder.add_slab(values);
@@ -144,11 +149,56 @@ impl<'b, W: Write> Writer<'_, 'b, W> {
         }
     }
 
+    /// Write a `u8` column. In JSLB mode, register the slice as a
+    /// typed-array slab; otherwise write inline as a JSON array.
+    ///
+    /// Warning: Only use this for columns which are allowed to be typed arrays
+    /// in the version of the "processed profile" format that we emit! Otherwise,
+    /// the front-end will have a typed array in a place where it was expecting
+    /// a regular JS array, and things won't work correctly.
+    pub fn u8_array(&mut self, values: &'p [u8]) -> std::io::Result<()> {
+        match self.jslb_builder.as_deref_mut() {
+            Some(builder) => {
+                let p = builder.add_slab(values);
+                self.write_slab_placeholder(p)
+            }
+            None => self.number_array(values),
+        }
+    }
+
+    /// Write an `f64` column produced by `iter`. In JSLB mode, register
+    /// the iterator as a streaming typed-array slab (no intermediate
+    /// `Vec<f64>` is materialized); otherwise, walk the iterator and
+    /// write the values inline.
+    ///
+    /// Warning: Only use this for columns which are allowed to be typed arrays
+    /// in the version of the "processed profile" format that we emit! Otherwise,
+    /// the front-end will have a typed array in a place where it was expecting
+    /// a regular JS array, and things won't work correctly.
+    pub fn f64_array_from_iter<I>(&mut self, count: usize, iter: I) -> std::io::Result<()>
+    where
+        I: IntoIterator<Item = f64> + 'p,
+        I::IntoIter: 'p,
+    {
+        match self.jslb_builder.as_deref_mut() {
+            Some(builder) => {
+                let p = builder.add_slab_from_iter(count, iter);
+                self.write_slab_placeholder(p)
+            }
+            None => self.array(|w| {
+                for v in iter {
+                    w.fp(v)?;
+                }
+                Ok(())
+            }),
+        }
+    }
+
     /// Write a JSON sub-document. In JSLB mode, run `body` into a scratch
     /// buffer, register the buffer as a `SlabType::Json` slab, and emit a
     /// `{"$s":N}` placeholder on the current stream. Otherwise, run `body`
     /// directly on the current writer.
-    pub fn split_out_object<B: SplitOutObjectBody>(&mut self, body: B) -> std::io::Result<()> {
+    pub fn split_out_object<B: SplitOutObjectBody<'p>>(&mut self, body: B) -> std::io::Result<()> {
         let Some(builder) = self.jslb_builder.as_deref_mut() else {
             return body.write_body(self);
         };
@@ -182,6 +232,6 @@ impl<'b, W: Write> Writer<'_, 'b, W> {
 /// so the body must be generic over `W`. Rust's HRTBs don't quantify over
 /// types, so a trait with a generic method is the way to express "this body
 /// works for any `W: Write`".
-pub(crate) trait SplitOutObjectBody {
-    fn write_body<W: Write>(self, w: &mut Writer<W>) -> std::io::Result<()>;
+pub(crate) trait SplitOutObjectBody<'p> {
+    fn write_body<W: Write>(self, w: &mut Writer<'_, 'p, W>) -> std::io::Result<()>;
 }

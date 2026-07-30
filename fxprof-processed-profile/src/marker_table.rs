@@ -111,9 +111,9 @@ impl MarkerTable {
         self
     }
 
-    pub(crate) fn write_json<W: Write>(
-        &self,
-        w: &mut Writer<W>,
+    pub(crate) fn write_json<'p, W: Write>(
+        &'p self,
+        w: &mut Writer<'_, 'p, W>,
         schemas: &[InternalMarkerSchema],
         string_table: &ProfileStringTable,
     ) -> std::io::Result<()> {

@@ -98,7 +98,7 @@ impl ProfileSharedData {
     pub(crate) fn write_json<'p, W: Write>(
         &'p self,
         ctx: &mut Writer<'_, 'p, W>,
-        tables: &FrameInternerTables,
+        tables: &'p FrameInternerTables,
     ) -> std::io::Result<()> {
         let FrameInternerTables {
             frame_table,

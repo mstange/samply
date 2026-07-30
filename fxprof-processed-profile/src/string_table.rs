@@ -118,8 +118,8 @@ impl ProfileStringTable {
     }
 }
 
-impl SplitOutObjectBody for &ProfileStringTable {
-    fn write_body<W: Write>(self, w: &mut Writer<W>) -> std::io::Result<()> {
+impl<'p> SplitOutObjectBody<'p> for &'p ProfileStringTable {
+    fn write_body<W: Write>(self, w: &mut Writer<'_, 'p, W>) -> std::io::Result<()> {
         self.write_json(w)
     }
 }

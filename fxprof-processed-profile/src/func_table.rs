@@ -146,8 +146,8 @@ impl FuncTable {
     }
 }
 
-impl SplitOutObjectBody for &FuncTable {
-    fn write_body<W: Write>(self, w: &mut Writer<W>) -> std::io::Result<()> {
+impl<'p> SplitOutObjectBody<'p> for &'p FuncTable {
+    fn write_body<W: Write>(self, w: &mut Writer<'_, 'p, W>) -> std::io::Result<()> {
         self.write_json(w)
     }
 }

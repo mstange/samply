@@ -555,9 +555,9 @@ impl Counter {
         self.display = display;
     }
 
-    pub(crate) fn write_json<W: Write>(
-        &self,
-        w: &mut Writer<W>,
+    pub(crate) fn write_json<'p, W: Write>(
+        &'p self,
+        w: &mut Writer<'_, 'p, W>,
         main_thread_index: usize,
     ) -> std::io::Result<()> {
         w.object(|w| {
@@ -617,7 +617,7 @@ impl CounterSamples {
         self.last_sample_timestamp = timestamp;
     }
 
-    fn write_json<W: Write>(&self, w: &mut Writer<W>) -> std::io::Result<()> {
+    fn write_json<'p, W: Write>(&'p self, w: &mut Writer<'_, 'p, W>) -> std::io::Result<()> {
         let len = self.time.len();
         w.object(|w| {
             w.name("length")?;
@@ -653,7 +653,7 @@ impl CounterSamples {
                     Ok(())
                 })?;
                 w.name("timeDeltas")?;
-                write_timestamps_as_deltas_with_permutation(w, &self.time, &indexes)?;
+                write_timestamps_as_deltas_with_permutation(w, &self.time, indexes)?;
             }
 
             Ok(())

@@ -148,7 +148,10 @@ impl SampleTable {
         self
     }
 
-    pub(crate) fn write_json<W: Write>(&self, w: &mut Writer<W>) -> std::io::Result<()> {
+    pub(crate) fn write_json<'p, W: Write>(
+        &'p self,
+        w: &mut Writer<'_, 'p, W>,
+    ) -> std::io::Result<()> {
         let len = self.sample_timestamps.len();
         w.object(|w| {
             w.name("length")?;
@@ -156,11 +159,12 @@ impl SampleTable {
             w.name("weightType")?;
             w.string_value(self.sample_weight_type.as_json_str())?;
 
+            // `timeDeltas` is emitted last so the permuted branch can move
+            // `indexes` into the streaming iterator (JSON key order is not
+            // significant to consumers).
             if self.is_sorted_by_time {
                 w.name("stack")?;
                 write_stack_column(w, &self.sample_stack_indexes)?;
-                w.name("timeDeltas")?;
-                write_timestamps_as_deltas(w, &self.sample_timestamps)?;
                 w.name("weight")?;
                 w.number_array(&self.sample_weights)?;
                 w.name("threadCPUDelta")?;
@@ -170,13 +174,13 @@ impl SampleTable {
                     }
                     Ok(())
                 })?;
+                w.name("timeDeltas")?;
+                write_timestamps_as_deltas(w, &self.sample_timestamps)?;
             } else {
                 let mut indexes: Vec<usize> = (0..self.sample_timestamps.len()).collect();
                 indexes.sort_unstable_by_key(|index| self.sample_timestamps[*index]);
                 w.name("stack")?;
                 write_stack_column_permuted(w, &self.sample_stack_indexes, &indexes)?;
-                w.name("timeDeltas")?;
-                write_timestamps_as_deltas_with_permutation(w, &self.sample_timestamps, &indexes)?;
                 w.name("weight")?;
                 w.array(|w| {
                     for &i in &indexes {
@@ -191,6 +195,8 @@ impl SampleTable {
                     }
                     Ok(())
                 })?;
+                w.name("timeDeltas")?;
+                write_timestamps_as_deltas_with_permutation(w, &self.sample_timestamps, indexes)?;
             }
             Ok(())
         })
@@ -265,16 +271,14 @@ impl NativeAllocationsTable {
         self
     }
 
-    pub(crate) fn write_json<W: Write>(&self, w: &mut Writer<W>) -> std::io::Result<()> {
+    pub(crate) fn write_json<'p, W: Write>(
+        &'p self,
+        w: &mut Writer<'_, 'p, W>,
+    ) -> std::io::Result<()> {
         let len = self.time.len();
         w.object(|w| {
             w.name("time")?;
-            w.array(|w| {
-                for t in &self.time {
-                    t.write_json(w)?;
-                }
-                Ok(())
-            })?;
+            w.f64_array_from_iter(len, self.time.iter().map(|t| t.as_millis_f64()))?;
             w.name("weight")?;
             w.number_array(&self.allocation_size)?;
             w.name("weightType")?;

@@ -141,13 +141,16 @@ pub struct FrameTable {
 }
 
 impl FrameTable {
-    pub(crate) fn write_json<W: Write>(&self, w: &mut Writer<W>) -> std::io::Result<()> {
+    pub(crate) fn write_json<'p, W: Write>(
+        &'p self,
+        w: &mut Writer<'_, 'p, W>,
+    ) -> std::io::Result<()> {
         let len = self.func_col.len();
         w.object(|w| {
             w.name("length")?;
             w.number_value(len)?;
             w.name("func")?;
-            w.number_array(&self.func_col)?;
+            w.i32_array(&self.func_col)?;
             w.name("category")?;
             w.array(|w| {
                 for c in &self.category_col {
@@ -167,7 +170,7 @@ impl FrameTable {
             w.name("column")?;
             w.optional_number_array(&self.column_col)?;
             w.name("address")?;
-            w.number_array(&self.address_col)?;
+            w.i32_array(&self.address_col)?;
             w.name("nativeSymbol")?;
             w.array(|w| {
                 for n in &self.native_symbol_col {
@@ -176,7 +179,7 @@ impl FrameTable {
                 Ok(())
             })?;
             w.name("inlineDepth")?;
-            w.number_array(&self.inline_depth_col)?;
+            w.u8_array(&self.inline_depth_col)?;
             w.name("innerWindowID")?;
             w.array(|w| {
                 for _ in 0..len {
@@ -190,8 +193,8 @@ impl FrameTable {
     }
 }
 
-impl SplitOutObjectBody for &FrameTable {
-    fn write_body<W: Write>(self, w: &mut Writer<W>) -> std::io::Result<()> {
+impl<'p> SplitOutObjectBody<'p> for &'p FrameTable {
+    fn write_body<W: Write>(self, w: &mut Writer<'_, 'p, W>) -> std::io::Result<()> {
         self.write_json(w)
     }
 }
