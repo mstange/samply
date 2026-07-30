@@ -48,51 +48,63 @@ impl Timestamp {
     }
 }
 
-/// Write timestamps as a JSON array of deltas (in milliseconds).
+fn compute_timestamp_deltas_millis(times: &[Timestamp]) -> Vec<f64> {
+    let mut deltas = Vec::with_capacity(times.len());
+    let mut prev_nanos = 0u64;
+    for ts in times {
+        let cur = ts.nanos;
+        let delta = cur - prev_nanos;
+        prev_nanos = cur;
+        deltas.push((delta as f64) / 1_000_000.0);
+    }
+    deltas
+}
+
+fn compute_timestamp_deltas_millis_with_permutation(
+    times: &[Timestamp],
+    indexes: &[usize],
+) -> Vec<f64> {
+    let mut deltas = Vec::with_capacity(indexes.len());
+    let mut prev_nanos = 0u64;
+    for &i in indexes {
+        let cur = times[i].nanos;
+        let delta = cur - prev_nanos;
+        prev_nanos = cur;
+        deltas.push((delta as f64) / 1_000_000.0);
+    }
+    deltas
+}
+
+/// Write timestamps as a `Float64Array` slab of deltas (in milliseconds).
 pub fn write_timestamps_as_deltas<W: Write>(
     w: &mut Writer<W>,
     times: &[Timestamp],
 ) -> std::io::Result<()> {
-    w.array(|w| {
-        let mut prev_nanos = 0u64;
-        for ts in times {
-            let cur = ts.nanos;
-            let delta = cur - prev_nanos;
-            prev_nanos = cur;
-            w.fp((delta as f64) / 1_000_000.0)?;
-        }
-        Ok(())
-    })
+    w.f64_array_owned(compute_timestamp_deltas_millis(times))
 }
 
-/// Write timestamps as a JSON array of deltas (in milliseconds), permuted by `indexes`.
+/// Write timestamps as a `Float64Array` slab of deltas (in milliseconds),
+/// permuted by `indexes`.
 pub fn write_timestamps_as_deltas_with_permutation<W: Write>(
     w: &mut Writer<W>,
     times: &[Timestamp],
     indexes: &[usize],
 ) -> std::io::Result<()> {
-    w.array(|w| {
-        let mut prev_nanos = 0u64;
-        for &i in indexes {
-            let cur = times[i].nanos;
-            let delta = cur - prev_nanos;
-            prev_nanos = cur;
-            w.fp((delta as f64) / 1_000_000.0)?;
-        }
-        Ok(())
-    })
+    w.f64_array_owned(compute_timestamp_deltas_millis_with_permutation(
+        times, indexes,
+    ))
 }
 
-/// Write `column` as a JSON array of fractional-millisecond timestamps, using `0.0` for `None`.
+/// Write `column` as a `Float64Array` slab of fractional-millisecond
+/// timestamps, using `0.0` for `None`. (The value for `None` is ignored by
+/// the front-end when the marker phase marks that endpoint as meaningless.)
 pub fn write_optional_timestamp_column_as_zero_default<W: Write>(
     w: &mut Writer<W>,
     column: &[Option<Timestamp>],
 ) -> std::io::Result<()> {
-    w.array(|w| {
-        for ts in column {
-            let millis = ts.map_or(0.0, Timestamp::as_millis_f64);
-            w.fp(millis)?;
-        }
-        Ok(())
-    })
+    let millis: Vec<f64> = column
+        .iter()
+        .map(|ts| ts.map_or(0.0, Timestamp::as_millis_f64))
+        .collect();
+    w.f64_array_owned(millis)
 }

@@ -98,7 +98,7 @@ impl ProfileSharedData {
     pub(crate) fn write_json<'p, W: Write>(
         &'p self,
         ctx: &mut Writer<'_, 'p, W>,
-        tables: FrameInternerTables,
+        tables: &'p FrameInternerTables,
     ) -> std::io::Result<()> {
         let FrameInternerTables {
             frame_table,
@@ -117,9 +117,9 @@ impl ProfileSharedData {
             // root JSON skeleton small enough that decoders can parse it
             // without materializing the profile-wide column arrays.
             w.name("frameTable")?;
-            w.split_out_object(&frame_table)?;
+            w.split_out_object(frame_table)?;
             w.name("funcTable")?;
-            w.split_out_object(&func_table)?;
+            w.split_out_object(func_table)?;
 
             w.name("nativeSymbols")?;
             self.native_symbols.write_json(w)?;

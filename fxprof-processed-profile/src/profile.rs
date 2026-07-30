@@ -1407,6 +1407,7 @@ impl Profile {
         format: ProfileFormat,
     ) -> std::io::Result<()> {
         let owned = elsa::FrozenVec::<Vec<u8>>::new();
+        let owned_f64 = elsa::FrozenVec::<Vec<f64>>::new();
         let tables = self.shared_data.create_tables();
         match format {
             ProfileFormat::Json => {
@@ -1415,8 +1416,9 @@ impl Profile {
                     json: &mut json_writer,
                     jslb_builder: None,
                     owned: &owned,
+                    owned_f64: &owned_f64,
                 };
-                self.write_json(&mut ctx, tables)?;
+                self.write_json(&mut ctx, &tables)?;
                 json_writer.finish_document()?;
                 Ok(())
             }
@@ -1429,8 +1431,9 @@ impl Profile {
                         json: &mut json_writer,
                         jslb_builder: Some(&mut builder),
                         owned: &owned,
+                        owned_f64: &owned_f64,
                     };
-                    self.write_json(&mut ctx, tables)?;
+                    self.write_json(&mut ctx, &tables)?;
                     json_writer.finish_document()?;
                 }
                 builder.to_writer(&skeleton, &mut writer)
@@ -1449,7 +1452,7 @@ impl Profile {
     fn write_json<'p, W: Write>(
         &'p self,
         ctx: &mut Writer<'_, 'p, W>,
-        tables: FrameInternerTables,
+        tables: &'p FrameInternerTables,
     ) -> std::io::Result<()> {
         let (sorted_threads, first_thread_index_per_process, new_thread_indices) =
             self.sorted_threads();
@@ -1509,7 +1512,7 @@ impl Profile {
             w.name("interval")?;
             w.fp(self.interval.as_secs_f64() * 1000.0)?;
             w.name("preprocessedProfileVersion")?;
-            w.number_value(66u32)?;
+            w.number_value(68u32)?;
             w.name("processType")?;
             w.number_value(0u32)?;
             w.name("product")?;
@@ -1595,13 +1598,13 @@ impl Profile {
     }
 }
 
-struct ThreadsArrayBody<'p> {
+struct ThreadsArrayBody<'q, 'p> {
     profile: &'p Profile,
-    sorted_threads: &'p [ThreadHandle],
+    sorted_threads: &'q [ThreadHandle],
 }
 
-impl SplitOutObjectBody for ThreadsArrayBody<'_> {
-    fn write_body<W: Write>(self, w: &mut Writer<W>) -> std::io::Result<()> {
+impl<'q, 'p> SplitOutObjectBody<'p> for ThreadsArrayBody<'q, 'p> {
+    fn write_body<W: Write>(self, w: &mut Writer<'_, 'p, W>) -> std::io::Result<()> {
         let profile = self.profile;
         w.array(|w| {
             for thread_handle in self.sorted_threads {

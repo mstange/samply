@@ -25,6 +25,10 @@ pub struct Writer<'a, 'b: 'a, W: Write> {
     pub json: &'a mut JsonStreamWriter<W>,
     pub jslb_builder: Option<&'a mut Builder<'b>>,
     pub owned: &'b FrozenVec<Vec<u8>>,
+    /// Arena for computed `Vec<f64>` slab data (e.g. sample time deltas,
+    /// marker times). Push a `Vec<f64>` in and borrow the returned `&'b [f64]`
+    /// as a typed-array slab.
+    pub owned_f64: &'b FrozenVec<Vec<f64>>,
 }
 
 impl<'b, W: Write> Writer<'_, 'b, W> {
@@ -146,15 +150,56 @@ impl<'b, W: Write> Writer<'_, 'b, W> {
         self.write_slab_placeholder(p)
     }
 
+    /// Write a `u8` column. In JSLB mode, register the slice as a borrowed
+    /// typed-array slab and emit a `{"$s":N}` placeholder. Otherwise, write
+    /// the values inline as a JSON array of numbers.
+    ///
+    /// Warning: Only use this for columns which are allowed to be typed arrays
+    /// in the version of the "processed profile" format that we emit! Otherwise,
+    /// the front-end will have a typed array in a place where it was expecting
+    /// a regular JS array, and things won't work correctly.
+    pub fn u8_array(&mut self, values: &'b [u8]) -> std::io::Result<()> {
+        let p = match self.jslb_builder.as_deref_mut() {
+            Some(builder) => builder.add_slab(values),
+            None => return self.number_array(values),
+        };
+        self.write_slab_placeholder(p)
+    }
+
+    /// Write an `f64` column. In JSLB mode, take ownership of the `Vec<f64>`,
+    /// stash it in an internal arena so its slice can be borrowed with the
+    /// builder's lifetime, and register it as a typed-array slab. Otherwise,
+    /// write the values inline as a JSON array of numbers.
+    ///
+    /// Warning: Only use this for columns which are allowed to be typed arrays
+    /// in the version of the "processed profile" format that we emit! Otherwise,
+    /// the front-end will have a typed array in a place where it was expecting
+    /// a regular JS array, and things won't work correctly.
+    pub fn f64_array_owned(&mut self, values: Vec<f64>) -> std::io::Result<()> {
+        if self.jslb_builder.is_none() {
+            return self.array(|w| {
+                for v in &values {
+                    w.fp(*v)?;
+                }
+                Ok(())
+            });
+        }
+        let slice: &'b [f64] = self.owned_f64.push_get(values);
+        let builder = self.jslb_builder.as_deref_mut().unwrap();
+        let p = builder.add_slab(slice);
+        self.write_slab_placeholder(p)
+    }
+
     /// Write a JSON sub-document. In JSLB mode, run `body` into a scratch
     /// buffer, register the buffer as a `SlabType::Json` slab, and emit a
     /// `{"$s":N}` placeholder on the current stream. Otherwise, run `body`
     /// directly on the current writer.
-    pub fn split_out_object<B: SplitOutObjectBody>(&mut self, body: B) -> std::io::Result<()> {
+    pub fn split_out_object<B: SplitOutObjectBody<'b>>(&mut self, body: B) -> std::io::Result<()> {
         let Some(builder) = self.jslb_builder.as_deref_mut() else {
             return body.write_body(self);
         };
         let owned = self.owned;
+        let owned_f64 = self.owned_f64;
         let mut buf = Vec::new();
         {
             let mut json = JsonStreamWriter::new(&mut buf);
@@ -162,6 +207,7 @@ impl<'b, W: Write> Writer<'_, 'b, W> {
                 json: &mut json,
                 jslb_builder: Some(builder),
                 owned,
+                owned_f64,
             };
             body.write_body(&mut inner)?;
             json.finish_document()?;
@@ -187,6 +233,6 @@ impl<'b, W: Write> Writer<'_, 'b, W> {
 /// so the body must be generic over `W`. Rust's HRTBs don't quantify over
 /// types, so a trait with a generic method is the way to express "this body
 /// works for any `W: Write`".
-pub(crate) trait SplitOutObjectBody {
-    fn write_body<W: Write>(self, w: &mut Writer<W>) -> std::io::Result<()>;
+pub(crate) trait SplitOutObjectBody<'b> {
+    fn write_body<W: Write>(self, w: &mut Writer<'_, 'b, W>) -> std::io::Result<()>;
 }
