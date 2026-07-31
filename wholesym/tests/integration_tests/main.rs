@@ -442,4 +442,89 @@ mod simple_example {
         )
         .await;
     }
+
+    /// Built with `-mllvm=-dwarf-linkage-names=Abstract`, like local Firefox builds.
+    /// See fixtures/other/abstract-linkage-names/src/main.cpp.
+    ///
+    /// The DWARF's concrete subprogram DIE for `ns::Widget::Update` has no
+    /// DW_AT_linkage_name, so all addr2line can report for it is `DW_AT_name`,
+    /// which is just "Update". We recover the full name from the symbol table
+    /// instead. The inline frames are unaffected: their abstract DIEs do still
+    /// have linkage names.
+    async fn abstract_linkage_names_test_fn(symbol_map: &wholesym::SymbolMap) {
+        const SRC: &str =
+            "/Users/mstange/code/samply/fixtures/other/abstract-linkage-names/src/main.cpp";
+        const UPDATE: &str = "ns::Widget::Update(ns::Inner&, ns::Holder<int> const&) const";
+
+        // Inside ns::Widget::Update, at an address where ns::Widget::Scale is
+        // inlined.
+        test_address(symbol_map, 0x364, |t| {
+            assert_eq!(
+                t,
+                TestAddressInfo {
+                    symbol: (UPDATE, 0x360, 0x18),
+                    frames: &[("ns::Widget::Scale(int) const", SRC, 41), (UPDATE, SRC, 55),],
+                }
+            )
+        })
+        .await;
+
+        // The first instruction of ns::Widget::Update, where ns::Holder<int>::Get
+        // is inlined. `-gsimple-template-names` means the DWARF spells the
+        // template argument out in DW_TAG_template_type_parameter children rather
+        // than in DW_AT_name, so the "<int>" here can only come from a linkage
+        // name (inline frame) or from the symbol table (outer frame).
+        test_address(symbol_map, 0x360, |t| {
+            assert_eq!(
+                t,
+                TestAddressInfo {
+                    symbol: (UPDATE, 0x360, 0x18),
+                    frames: &[("ns::Holder<int>::Get() const", SRC, 30), (UPDATE, SRC, 55),],
+                }
+            )
+        })
+        .await;
+
+        // An unmangled C name, to check we don't mangle up the simple case.
+        test_address(symbol_map, 0x378, |t| {
+            assert_eq!(
+                t,
+                TestAddressInfo {
+                    symbol: ("main", 0x378, 0x30),
+                    frames: &[("main", SRC, 61)],
+                }
+            )
+        })
+        .await;
+    }
+
+    #[tokio::test]
+    async fn run_test_abstract_linkage_names_mac_oso() {
+        let dir = fixtures_dir().join("other/abstract-linkage-names/out/mac-oso");
+        run_single_test(
+            &dir.join("main"),
+            &[(
+                "/Users/mstange/code/samply/fixtures/other/abstract-linkage-names/out/mac-oso/main.o",
+                dir.join("main.o"),
+            )],
+            DebugId::from_breakpad("BF287EBE9ED331B4885319FF923CDBC20").unwrap(),
+            |sm| Box::pin(abstract_linkage_names_test_fn(sm))
+        )
+        .await;
+    }
+
+    #[tokio::test]
+    async fn run_test_abstract_linkage_names_mac_dsym() {
+        let dir = fixtures_dir().join("other/abstract-linkage-names/out/mac-dsym");
+        run_single_test(
+            &dir.join("main"),
+            &[(
+                "/Users/mstange/code/samply/fixtures/other/abstract-linkage-names/out/mac-dsym/main.dSYM/Contents/Resources/DWARF/main",
+                dir.join("main.dSYM/Contents/Resources/DWARF/main"),
+            )],
+            DebugId::from_breakpad("BF287EBE9ED331B4885319FF923CDBC20").unwrap(),
+            |sm| Box::pin(abstract_linkage_names_test_fn(sm))
+        )
+        .await;
+    }
 }

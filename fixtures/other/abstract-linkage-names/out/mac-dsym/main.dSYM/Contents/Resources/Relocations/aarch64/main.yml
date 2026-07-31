@@ -1,0 +1,9 @@
+---
+triple:          'arm64-apple-darwin'
+binary-path:     'out/mac-dsym/main'
+relocations:
+  - { offset: 0x26, size: 0x8, addend: 0x0, symName: __ZNK2ns6Widget6UpdateERNS_5InnerERKNS_6HolderIiEE, symObjAddr: 0x0, symBinAddr: 0x100000360, symSize: 0x18 }
+  - { offset: 0x14B, size: 0x8, addend: 0x0, symName: __ZNK2ns6Widget6UpdateERNS_5InnerERKNS_6HolderIiEE, symObjAddr: 0x0, symBinAddr: 0x100000360, symSize: 0x18 }
+  - { offset: 0x18E, size: 0x8, addend: 0x0, symName: __ZNK2ns6Widget6UpdateERNS_5InnerERKNS_6HolderIiEE, symObjAddr: 0x0, symBinAddr: 0x100000360, symSize: 0x18 }
+  - { offset: 0x217, size: 0x8, addend: 0x0, symName: _main, symObjAddr: 0x18, symBinAddr: 0x100000378, symSize: 0x30 }
+...

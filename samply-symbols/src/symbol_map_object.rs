@@ -25,8 +25,9 @@ use crate::symbol_map::{
     SymbolMapTraitWithExternalFileSupport,
 };
 use crate::{
-    demangle, Error, ExternalFileSymbolMap, FileContents, FunctionNameHandle, SourceFilePath,
-    SourceFilePathHandle, SymbolMapStringInterner, SymbolNameHandle, SyncAddressInfo,
+    demangle, Error, ExternalFileSymbolMap, FileContents, FrameDebugInfo, FunctionNameHandle,
+    SourceFilePath, SourceFilePathHandle, SymbolMapStringInterner, SymbolNameHandle,
+    SyncAddressInfo,
 };
 
 enum FullSymbolListEntry<'a, Symbol> {
@@ -513,12 +514,102 @@ pub struct ObjectSymbolMapInner<'a, Symbol, FC: FileContents + 'static, DDM> {
     _phantom: PhantomData<FC>,
 }
 
+/// If the DWARF only gave us an abbreviated name for the outermost frame, replace it
+/// with the (demangled) name of the symbol which contains the looked-up address.
+///
+/// The outermost frame is, by definition, the function which contains the address, so
+/// the symbol table describes the same function that the DWARF does - and sometimes
+/// describes it better.
+///
+/// clang only emits `DW_AT_linkage_name` on a subprogram DIE when it considers the
+/// linkage name "descriptive", and `-mllvm=-dwarf-linkage-names=Abstract` (which
+/// local Firefox builds use, to keep the debug info small) narrows this further: only
+/// *abstract* subprogram DIEs keep their linkage name, i.e. the DIEs that inlined
+/// frames point at, which have no symbol of their own. Concrete out-of-line
+/// definitions get none. For those, all addr2line can give us is `DW_AT_name`, which
+/// is the bare unqualified name with no namespace, no class and no parameters:
+/// "ProcessPostTraversal" rather than
+/// "mozilla::RestyleManager::ProcessPostTraversal(mozilla::dom::Element*,
+/// mozilla::ServoRestyleState&, mozilla::ServoPostTraversalFlags)".
+///
+/// In theory, we could derive the full name from the DWARF: the chain of parent DIEs gives
+/// the namespace and class qualification, and the `DW_TAG_formal_parameter` children
+/// give the signature. But assembling it means implementing a C++ type printer, and
+/// `-gsimple-template-names` (also used by local Firefox builds) adds to the work by storing
+/// template arguments in `DW_TAG_template_type_parameter` children instead of
+/// spelling them out in `DW_AT_name`. gimli and addr2line do none of this, so we take
+/// the symbol name instead, which is exact and already at hand.
+///
+/// What we cannot know here is where addr2line's name came from: `raw_name()` returns
+/// the linkage name if there is one and `DW_AT_name` otherwise, and doesn't tell us
+/// which. Nor can we just always prefer the symbol name, because it isn't always the
+/// better one - gcc names the symbol for a cloned function `gobble_file.constprop.0`
+/// while the DWARF calls it `gobble_file`, and ld64 / ThinLTO similarly append
+/// `.llvm.<hash>` to promoted local symbols.
+///
+/// So we only take the symbol name when it looks like a more qualified spelling of the
+/// name we already have - see [`is_more_qualified_spelling`]. That covers the case we
+/// care about and leaves the compiler-generated-suffix cases alone. On builds that do
+/// have linkage names on concrete DIEs the two strings are equal and this is a no-op.
+///
+/// Inline frames are never touched: they have no symbol of their own, and their
+/// abstract DIEs do still carry linkage names.
+fn prefer_symbol_name_for_outer_frame<'a>(
+    frames: &mut [FrameDebugInfo],
+    symbol_name: &str,
+    string_interner: &mut SymbolMapStringInterner<'a>,
+) {
+    // addr2line yields the innermost (most deeply inlined) frame first, so the
+    // outermost frame is the last one.
+    let Some(outer_frame) = frames.last_mut() else {
+        return;
+    };
+    if let Some(dwarf_name) = outer_frame
+        .function
+        .and_then(|handle| string_interner.resolve(handle.into()))
+    {
+        if !is_more_qualified_spelling(symbol_name, &dwarf_name) {
+            return;
+        }
+    }
+    outer_frame.function = Some(string_interner.intern_owned(symbol_name).into());
+}
+
+/// Whether `symbol_name` is the same name as `dwarf_name`, just spelled out more
+/// fully: `dwarf_name` has to occur in `symbol_name` as a whole identifier which
+/// starts at a `::` boundary and is followed by nothing but a template argument list
+/// and/or a parameter list.
+///
+/// `("mozilla::RestyleManager::ProcessPostTraversal(mozilla::dom::Element*)",
+/// "ProcessPostTraversal")` qualifies, and so does an exact match, but
+/// `("gobble_file.constprop.0", "gobble_file")` does not, because the extra text is a
+/// suffix on the identifier rather than added qualification.
+fn is_more_qualified_spelling(symbol_name: &str, dwarf_name: &str) -> bool {
+    if dwarf_name.is_empty() {
+        return false;
+    }
+    symbol_name.match_indices(dwarf_name).any(|(start, _)| {
+        let starts_at_boundary = start == 0 || symbol_name[..start].ends_with("::");
+        let rest = &symbol_name[start + dwarf_name.len()..];
+        let ends_at_boundary = rest.is_empty() || rest.starts_with('(') || rest.starts_with('<');
+        starts_at_boundary && ends_at_boundary
+    })
+}
+
 impl<'a, Symbol, FC, DDM> ObjectSymbolMapInner<'a, Symbol, FC, DDM>
 where
     Symbol: object::ObjectSymbol<'a> + 'a,
     FC: FileContents + 'static,
     DDM: DwoDwarfMaker<FC>,
 {
+    /// The demangled name of the symbol containing `svma`, for use with
+    /// [`prefer_symbol_name_for_outer_frame`].
+    fn demangled_symbol_name_for_svma(&self, svma: u64) -> Option<String> {
+        let relative_address = u32::try_from(svma.checked_sub(self.image_base_address)?).ok()?;
+        let (_start_addr, _end_addr, name) = self.list.lookup_relative_address(relative_address)?;
+        Some(demangle::demangle_any(&name))
+    }
+
     fn frames_lookup_for_object_map_references(&self, svma: u64) -> Option<FramesLookupResult> {
         let entry = self.object_map.get(svma)?;
         let object_map_file = entry.object(&self.object_map);
@@ -560,13 +651,33 @@ where
         let mut string_interner = self.string_interner.lock().unwrap();
         match &external.file_ref {
             ExternalFileRef::MachoExternalObject { file_path } => {
+                // We have no svma here, but the debug map already told us the (mangled)
+                // name of the symbol containing the address - that's how we find the
+                // address inside the .o file in the first place.
+                let outer_frame_name = match &external.address_in_file {
+                    ExternalFileAddressInFileRef::MachoOsoObject { symbol_name, .. }
+                    | ExternalFileAddressInFileRef::MachoOsoArchive { symbol_name, .. } => Some(
+                        demangle::demangle_any(&String::from_utf8_lossy(symbol_name)),
+                    ),
+                    ExternalFileAddressInFileRef::ElfDwo { .. } => None,
+                };
+                let make_result =
+                    |frames: Vec<FrameDebugInfo>,
+                     string_interner: &mut SymbolMapStringInterner<'a>| {
+                        let mut frames = frames;
+                        if let Some(name) = &outer_frame_name {
+                            prefer_symbol_name_for_outer_frame(&mut frames, name, string_interner);
+                        }
+                        FramesLookupResult::Available(frames)
+                    };
+
                 {
                     let cached_external_file = self.cached_external_file.lock().unwrap();
                     match &*cached_external_file {
                         Some(external_file) if external_file.file_path() == file_path => {
                             return external_file
                                 .lookup(&external.address_in_file, &mut string_interner)
-                                .map(FramesLookupResult::Available);
+                                .map(|frames| make_result(frames, &mut string_interner));
                         }
                         _ => {}
                     }
@@ -582,7 +693,7 @@ where
                 let external_file = ExternalFileSymbolMap::new(file_path, file_contents).ok()?;
                 let lookup_result = external_file
                     .lookup(&external.address_in_file, &mut string_interner)
-                    .map(FramesLookupResult::Available);
+                    .map(|frames| make_result(frames, &mut string_interner));
 
                 *self.cached_external_file.lock().unwrap() = Some(external_file);
 
@@ -629,8 +740,17 @@ where
                             continue;
                         }
                         LookupResult::Output(Ok(frame_iter)) => {
-                            convert_frames(frame_iter, &mut string_interner)
-                                .map(FramesLookupResult::Available)
+                            let outer_frame_name = self.demangled_symbol_name_for_svma(*svma);
+                            convert_frames(frame_iter, &mut string_interner).map(|mut frames| {
+                                if let Some(name) = &outer_frame_name {
+                                    prefer_symbol_name_for_outer_frame(
+                                        &mut frames,
+                                        name,
+                                        &mut string_interner,
+                                    );
+                                }
+                                FramesLookupResult::Available(frames)
+                            })
                         }
                         LookupResult::Output(Err(_)) => None,
                     };
@@ -687,13 +807,13 @@ where
 
         let name_handle = {
             let mut string_interner = self.string_interner.lock().unwrap();
-            string_interner.intern_owned(&name).into()
+            string_interner.intern_owned(&name)
         };
 
         let symbol = SymbolInfo {
             address: start_addr,
             size: Some(function_size),
-            name: name_handle,
+            name: name_handle.into(),
         };
 
         let mut frames = None;
@@ -719,8 +839,14 @@ where
                     }
                     LookupResult::Output(Ok(frame_iter)) => {
                         let mut string_interner = self.string_interner.lock().unwrap();
-                        convert_frames(frame_iter, &mut string_interner)
-                            .map(FramesLookupResult::Available)
+                        convert_frames(frame_iter, &mut string_interner).map(|mut frames| {
+                            prefer_symbol_name_for_outer_frame(
+                                &mut frames,
+                                &name,
+                                &mut string_interner,
+                            );
+                            FramesLookupResult::Available(frames)
+                        })
                     }
                     LookupResult::Output(Err(_)) => {
                         drop(lookup_result);
@@ -936,5 +1062,57 @@ impl ExternalFileAddressRef {
             }
             _ => false,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_more_qualified_spelling;
+
+    #[test]
+    fn qualification_added_by_the_symbol_table() {
+        // The case this is all for: -dwarf-linkage-names=Abstract left us with
+        // just DW_AT_name for the concrete definition.
+        assert!(is_more_qualified_spelling(
+            "mozilla::RestyleManager::ProcessPostTraversal(mozilla::dom::Element*, mozilla::ServoRestyleState&, mozilla::ServoPostTraversalFlags)",
+            "ProcessPostTraversal"
+        ));
+        assert!(is_more_qualified_spelling(
+            "ns::Widget::Update(ns::Inner&, ns::Holder<int> const&) const",
+            "Update"
+        ));
+        // -gsimple-template-names drops the template arguments from DW_AT_name.
+        assert!(is_more_qualified_spelling(
+            "mozilla::Maybe<mozilla::ServoRestyleState>::Maybe()",
+            "Maybe"
+        ));
+        assert!(is_more_qualified_spelling(
+            "ns::Widget::~Widget()",
+            "~Widget"
+        ));
+        assert!(is_more_qualified_spelling(
+            "ns::Widget::operator()(int)",
+            "operator()"
+        ));
+        // Nothing to add, but nothing lost either.
+        assert!(is_more_qualified_spelling("main", "main"));
+    }
+
+    #[test]
+    fn compiler_generated_symbol_suffixes() {
+        // The extra text is a suffix on the identifier rather than added
+        // qualification, so the DWARF name is the better one and we keep it.
+        assert!(!is_more_qualified_spelling(
+            "gobble_file.constprop.0",
+            "gobble_file"
+        ));
+        assert!(!is_more_qualified_spelling("foo.llvm.12345", "foo"));
+        assert!(!is_more_qualified_spelling("foo [clone .cold]", "foo"));
+        // A partial identifier match is not a match.
+        assert!(!is_more_qualified_spelling("ns::UpdateAll()", "Update"));
+        assert!(!is_more_qualified_spelling("ns::ReUpdate()", "Update"));
+        // Unrelated names, e.g. after identical code folding.
+        assert!(!is_more_qualified_spelling("ns::Widget::Update()", "Scale"));
+        assert!(!is_more_qualified_spelling("anything", ""));
     }
 }
