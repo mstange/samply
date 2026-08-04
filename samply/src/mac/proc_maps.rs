@@ -32,7 +32,7 @@ use mach2::{structs::arm_thread_state64_t, thread_status::ARM_THREAD_STATE64};
 #[cfg(target_arch = "x86_64")]
 use mach2::{structs::x86_thread_state64_t, thread_status::x86_THREAD_STATE64};
 use object::macho::{
-    MachHeader64, SegmentCommand64, CPU_SUBTYPE_ARM64E, CPU_SUBTYPE_ARM64_ALL, CPU_SUBTYPE_MASK,
+    CpuSubtype, CpuType, MachHeader64, SegmentCommand64, CPU_SUBTYPE_ARM64E, CPU_SUBTYPE_ARM64_ALL,
     CPU_SUBTYPE_X86_64_ALL, CPU_SUBTYPE_X86_64_H, CPU_TYPE_ARM64, CPU_TYPE_X86_64, MH_EXECUTE,
 };
 use object::read::macho::{MachHeader, Section, Segment};
@@ -257,8 +257,8 @@ fn enumerate_dyld_images(
     Ok(vec)
 }
 
-fn get_arch_string(cputype: u32, cpusubtype: u32) -> Option<&'static str> {
-    let s = match (cputype, cpusubtype & !CPU_SUBTYPE_MASK) {
+fn get_arch_string(cputype: CpuType, cpusubtype: CpuSubtype) -> Option<&'static str> {
+    let s = match (cputype, cpusubtype.id()) {
         (CPU_TYPE_X86_64, CPU_SUBTYPE_X86_64_ALL) => "x86_64",
         (CPU_TYPE_X86_64, CPU_SUBTYPE_X86_64_H) => "x86_64h",
         (CPU_TYPE_ARM64, CPU_SUBTYPE_ARM64_ALL) => "arm64",
