@@ -16,7 +16,7 @@ partial_read_stats = ["bytesize", "bitvec"]
 [dependencies.addr2line]
 default-features = false
 features = ["std", "fallible-iterator"]
-version = "0.26"
+version = "0.27"
 # path = "../../addr2line"
 
 [dependencies.gimli]
