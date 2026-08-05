@@ -2,7 +2,7 @@ use std::marker::PhantomData;
 
 use debugid::DebugId;
 use macho_unwind_info::UnwindInfo;
-use object::macho::{self, LinkeditDataCommand, MachHeader32, MachHeader64};
+use object::macho::{self, CpuSubtype, CpuType, LinkeditDataCommand, MachHeader32, MachHeader64};
 use object::read::macho::{
     FatArch, LoadCommandIterator, MachHeader, MachOFatFile32, MachOFatFile64,
 };
@@ -28,9 +28,9 @@ use crate::symbol_map_object::{
 /// Converts a cpu type/subtype pair into the architecture name.
 ///
 /// For example, this converts `CPU_TYPE_ARM64, CPU_SUBTYPE_ARM64E` to `Some("arm64e")`.
-fn macho_arch_name_for_cpu_type(cputype: u32, cpusubtype: u32) -> Option<&'static str> {
+fn macho_arch_name_for_cpu_type(cputype: CpuType, cpusubtype: CpuSubtype) -> Option<&'static str> {
     use object::macho::*;
-    let s = match (cputype, cpusubtype) {
+    let s = match (cputype, cpusubtype.id()) {
         (CPU_TYPE_X86, _) => "i386",
         (CPU_TYPE_X86_64, CPU_SUBTYPE_X86_64_H) => "x86_64h",
         (CPU_TYPE_X86_64, _) => "x86_64",
@@ -122,8 +122,8 @@ pub fn get_fat_archive_members_impl<FC: FileContents, FA: FatArch>(
 #[derive(Debug, Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub struct FatArchiveMember {
     pub offset_and_size: (u64, u64),
-    pub cputype: u32,
-    pub cpusubtype: u32,
+    pub cputype: CpuType,
+    pub cpusubtype: CpuSubtype,
     pub arch: Option<String>,
     pub uuid: Option<Uuid>,
 }
