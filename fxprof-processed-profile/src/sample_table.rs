@@ -267,14 +267,10 @@ impl NativeAllocationsTable {
 
     pub(crate) fn write_json<W: Write>(&self, w: &mut Writer<W>) -> std::io::Result<()> {
         let len = self.time.len();
+        let time_millis: Vec<f64> = self.time.iter().map(|t| t.as_millis_f64()).collect();
         w.object(|w| {
             w.name("time")?;
-            w.array(|w| {
-                for t in &self.time {
-                    t.write_json(w)?;
-                }
-                Ok(())
-            })?;
+            w.f64_array_owned(time_millis)?;
             w.name("weight")?;
             w.number_array(&self.allocation_size)?;
             w.name("weightType")?;
@@ -302,12 +298,20 @@ impl NativeAllocationsTable {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use elsa::FrozenVec;
     use struson::writer::{JsonStreamWriter, JsonWriter};
 
     fn to_json(table: &NativeAllocationsTable) -> serde_json::Value {
         let mut buf = Vec::new();
         let mut json = JsonStreamWriter::new(&mut buf);
-        let mut ctx = Writer { json: &mut json };
+        let owned = FrozenVec::<Vec<u8>>::new();
+        let owned_f64 = FrozenVec::<Vec<f64>>::new();
+        let mut ctx = Writer {
+            json: &mut json,
+            jslb_builder: None,
+            owned: &owned,
+            owned_f64: &owned_f64,
+        };
         table.write_json(&mut ctx).unwrap();
         json.finish_document().unwrap();
         serde_json::from_slice(&buf).unwrap()

@@ -16,7 +16,7 @@ use crate::cpu_delta::CpuDelta;
 use crate::fast_hash_map::{FastHashMap, FastHashSet, FastIndexSet};
 use crate::frame::FrameAddress;
 use crate::frame_table::{
-    InternalFrame, InternalFrameAddress, InternalFrameVariant, NativeFrameData,
+    FrameInternerTables, InternalFrame, InternalFrameAddress, InternalFrameVariant, NativeFrameData,
 };
 use crate::global_lib_table::{GlobalLibIndex, GlobalLibTable, LibraryHandle};
 use crate::lib_mappings::LibMappings;
@@ -34,8 +34,23 @@ use crate::sample_table::WeightType;
 use crate::string_table::{ProfileStringTable, StringHandle};
 use crate::thread::{ProcessHandle, Thread};
 use crate::timestamp::Timestamp;
-use crate::writer::Writer;
+use crate::writer::{SplitOutObjectBody, Writer};
 use crate::{FrameFlags, PlatformSpecificReferenceTimestamp};
+
+/// The output format to use when writing a [`Profile`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProfileFormat {
+    /// Regular JSON, in the Firefox Profiler "processed profile" format.
+    Json,
+    /// [JsonSlabs](https://github.com/mstange/json-slabs) binary container
+    /// (`.jslb`). Same object structure as the JSON format, but flat arrays
+    /// of numbers are stored as raw bytes in separate "slabs" and large
+    /// subtrees (such as the stringArray) are lifted out of the root JSON.
+    ///
+    /// Similar space consumption to JSON, but more efficient to emit and
+    /// load.
+    JsonSlabs,
+}
 
 /// The sampling interval used during profile recording.
 ///
@@ -162,13 +177,14 @@ pub enum TimelineUnit {
 }
 
 /// Stores the profile data. Use [`Profile::to_writer`] or [`Profile::to_vec`]
-/// to produce the processed-profile JSON.
+/// to produce the processed-profile JSON or JsonSlabs binary container
+/// (see [`ProfileFormat`]).
 ///
 /// The profile data is organized into a list of processes with threads.
 /// Each thread has its own samples and markers.
 ///
 /// ```
-/// use fxprof_processed_profile::{Profile, CategoryHandle, CpuDelta, FrameAddress, FrameFlags, SamplingInterval, Timestamp};
+/// use fxprof_processed_profile::{Profile, CategoryHandle, CpuDelta, FrameAddress, FrameFlags, ProfileFormat, SamplingInterval, Timestamp};
 /// use std::time::SystemTime;
 ///
 /// # fn write_profile(output_file: std::fs::File) -> Result<(), Box<dyn std::error::Error>> {
@@ -187,7 +203,7 @@ pub enum TimelineUnit {
 /// profile.add_sample(thread, Timestamp::from_millis_since_reference(0.0), Some(first_callee_node), CpuDelta::ZERO, 1);
 ///
 /// let writer = std::io::BufWriter::new(output_file);
-/// profile.to_writer(writer)?;
+/// profile.to_writer(writer, ProfileFormat::Json)?;
 /// # Ok(())
 /// # }
 /// ```
@@ -1382,28 +1398,62 @@ impl Profile {
         self.shared_data.contains_js_frame()
     }
 
-    /// Serialize the profile to the given writer, as JSON.
+    /// Serialize the profile to the given writer, using the given [`ProfileFormat`].
     ///
     /// It's recommended to pass a [`BufWriter`](std::io::BufWriter) here.
-    pub fn to_writer<W: std::io::Write>(&self, writer: W) -> std::io::Result<()> {
-        let mut json_writer = JsonStreamWriter::new(writer);
-        let mut ctx = Writer {
-            json: &mut json_writer,
-        };
-        self.write_json(&mut ctx)?;
-        json_writer.finish_document()?;
-        Ok(())
+    pub fn to_writer<W: std::io::Write>(
+        &self,
+        mut writer: W,
+        format: ProfileFormat,
+    ) -> std::io::Result<()> {
+        let owned = elsa::FrozenVec::<Vec<u8>>::new();
+        let owned_f64 = elsa::FrozenVec::<Vec<f64>>::new();
+        let tables = self.shared_data.create_tables();
+        match format {
+            ProfileFormat::Json => {
+                let mut json_writer = JsonStreamWriter::new(writer);
+                let mut ctx = Writer {
+                    json: &mut json_writer,
+                    jslb_builder: None,
+                    owned: &owned,
+                    owned_f64: &owned_f64,
+                };
+                self.write_json(&mut ctx, &tables)?;
+                json_writer.finish_document()?;
+                Ok(())
+            }
+            ProfileFormat::JsonSlabs => {
+                let mut builder = json_slabs::Builder::new();
+                let mut skeleton = Vec::new();
+                {
+                    let mut json_writer = JsonStreamWriter::new(&mut skeleton);
+                    let mut ctx = Writer {
+                        json: &mut json_writer,
+                        jslb_builder: Some(&mut builder),
+                        owned: &owned,
+                        owned_f64: &owned_f64,
+                    };
+                    self.write_json(&mut ctx, &tables)?;
+                    json_writer.finish_document()?;
+                }
+                builder.to_writer(&skeleton, &mut writer)
+            }
+        }
     }
 
-    /// Serialize the profile into a `Vec<u8>` (as JSON) and return it.
-    pub fn to_vec(&self) -> Vec<u8> {
+    /// Serialize the profile into a `Vec<u8>` in the given [`ProfileFormat`].
+    pub fn to_vec(&self, format: ProfileFormat) -> Vec<u8> {
         let mut buf = Vec::new();
-        self.to_writer(&mut buf)
+        self.to_writer(&mut buf, format)
             .expect("writing a Profile to a Vec<u8> should never fail");
         buf
     }
 
-    fn write_json<W: Write>(&self, ctx: &mut Writer<W>) -> std::io::Result<()> {
+    fn write_json<'p, W: Write>(
+        &'p self,
+        ctx: &mut Writer<'_, 'p, W>,
+        tables: &'p FrameInternerTables,
+    ) -> std::io::Result<()> {
         let (sorted_threads, first_thread_index_per_process, new_thread_indices) =
             self.sorted_threads();
         ctx.object(|w| {
@@ -1412,23 +1462,11 @@ impl Profile {
             w.name("libs")?;
             self.global_libs.write_json(w)?;
             w.name("shared")?;
-            self.shared_data.write_json(w)?;
+            self.shared_data.write_json(w, tables)?;
             w.name("threads")?;
-            w.array(|w| {
-                for thread_handle in &sorted_threads {
-                    let thread = &self.threads[thread_handle.0];
-                    let process = &self.processes[thread.process().0];
-                    thread.write_json(
-                        w,
-                        process.start_time(),
-                        process.end_time(),
-                        process.name(),
-                        process.pid(),
-                        &self.marker_schemas,
-                        &self.shared_data.string_table,
-                    )?;
-                }
-                Ok(())
+            w.split_out_object(ThreadsArrayBody {
+                profile: self,
+                sorted_threads: &sorted_threads,
             })?;
             w.name("pages")?;
             w.empty_array()?;
@@ -1474,7 +1512,7 @@ impl Profile {
             w.name("interval")?;
             w.fp(self.interval.as_secs_f64() * 1000.0)?;
             w.name("preprocessedProfileVersion")?;
-            w.number_value(66u32)?;
+            w.number_value(68u32)?;
             w.name("processType")?;
             w.number_value(0u32)?;
             w.name("product")?;
@@ -1555,6 +1593,33 @@ impl Profile {
                 })?;
             }
 
+            Ok(())
+        })
+    }
+}
+
+struct ThreadsArrayBody<'q, 'p> {
+    profile: &'p Profile,
+    sorted_threads: &'q [ThreadHandle],
+}
+
+impl<'q, 'p> SplitOutObjectBody<'p> for ThreadsArrayBody<'q, 'p> {
+    fn write_body<W: Write>(self, w: &mut Writer<'_, 'p, W>) -> std::io::Result<()> {
+        let profile = self.profile;
+        w.array(|w| {
+            for thread_handle in self.sorted_threads {
+                let thread = &profile.threads[thread_handle.0];
+                let process = &profile.processes[thread.process().0];
+                thread.write_json(
+                    w,
+                    process.start_time(),
+                    process.end_time(),
+                    process.name(),
+                    process.pid(),
+                    &profile.marker_schemas,
+                    &profile.shared_data.string_table,
+                )?;
+            }
             Ok(())
         })
     }

@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 use std::io::Write;
 
 use crate::fast_hash_map::FastHashSet;
-use crate::frame_table::{FrameInterner, InternalFrame};
+use crate::frame_table::{FrameInterner, FrameInternerTables, InternalFrame};
 use crate::global_lib_table::{GlobalLibIndex, UsedLibraryAddressesCollector};
 use crate::native_symbols::{NativeSymbolIndex, NativeSymbols};
 use crate::profile_symbol_info::LibSymbolInfo;
@@ -56,6 +56,10 @@ impl ProfileSharedData {
         self.frame_interner.gather_used_rvas(collector);
     }
 
+    pub fn create_tables(&self) -> FrameInternerTables {
+        self.frame_interner.create_tables()
+    }
+
     pub fn make_symbolicated_shared(
         self,
         libs: &FastHashSet<GlobalLibIndex>,
@@ -91,17 +95,31 @@ impl ProfileSharedData {
         )
     }
 
-    pub(crate) fn write_json<W: Write>(&self, ctx: &mut Writer<W>) -> std::io::Result<()> {
-        let (frame_table, func_table, source_table, resource_table) =
-            self.frame_interner.create_tables();
+    pub(crate) fn write_json<'p, W: Write>(
+        &'p self,
+        ctx: &mut Writer<'_, 'p, W>,
+        tables: &'p FrameInternerTables,
+    ) -> std::io::Result<()> {
+        let FrameInternerTables {
+            frame_table,
+            func_table,
+            source_table,
+            resource_table,
+        } = tables;
 
         ctx.object(|w| {
             w.name("stackTable")?;
             self.stack_table.write_json(w)?;
+
+            // Lift `frameTable`, `funcTable`, and `stringArray` into their
+            // own `SlabType::Json` slabs when writing JSLB. This matches
+            // the `splitOut` convention used on the JS side and keeps the
+            // root JSON skeleton small enough that decoders can parse it
+            // without materializing the profile-wide column arrays.
             w.name("frameTable")?;
-            frame_table.write_json(w)?;
+            w.split_out_object(frame_table)?;
             w.name("funcTable")?;
-            func_table.write_json(w)?;
+            w.split_out_object(func_table)?;
 
             w.name("nativeSymbols")?;
             self.native_symbols.write_json(w)?;
@@ -122,7 +140,7 @@ impl ProfileSharedData {
             })?;
 
             w.name("stringArray")?;
-            self.string_table.write_json(w)
+            w.split_out_object(&self.string_table)
         })
     }
 }

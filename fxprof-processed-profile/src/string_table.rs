@@ -1,7 +1,7 @@
 use std::io::Write;
 
 use crate::fast_hash_map::FastHashMap;
-use crate::writer::Writer;
+use crate::writer::{SplitOutObjectBody, Writer};
 
 #[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash)]
 pub struct StringIndex(u32);
@@ -115,5 +115,11 @@ impl ProfileStringTable {
             }
             Ok(())
         })
+    }
+}
+
+impl<'p> SplitOutObjectBody<'p> for &'p ProfileStringTable {
+    fn write_body<W: Write>(self, w: &mut Writer<'_, 'p, W>) -> std::io::Result<()> {
+        self.write_json(w)
     }
 }

@@ -3,19 +3,26 @@ use std::io::Write;
 use crate::category::{CategoryHandle, SubcategoryHandle, SubcategoryIndex};
 use crate::fast_hash_map::FastIndexSet;
 use crate::frame::FrameFlags;
-use crate::func_table::{FuncIndex, FuncKey, FuncTable};
+use crate::func_table::{FuncKey, FuncTable};
 use crate::global_lib_table::{GlobalLibIndex, UsedLibraryAddressesCollector};
 use crate::native_symbols::NativeSymbolIndex;
 use crate::resource_table::ResourceTable;
 use crate::source_table::{SourceKey, SourceTable};
 use crate::string_table::StringHandle;
-use crate::writer::Writer;
+use crate::writer::{SplitOutObjectBody, Writer};
 use crate::{FrameHandle, SourceLocation};
 
 #[derive(Debug, Clone, Default)]
 pub struct FrameInterner {
     frame_key_set: FastIndexSet<InternalFrame>,
     contains_js_frame: bool,
+}
+
+pub struct FrameInternerTables {
+    pub frame_table: FrameTable,
+    pub func_table: FuncTable,
+    pub source_table: SourceTable,
+    pub resource_table: ResourceTable,
 }
 
 impl FrameInterner {
@@ -57,7 +64,7 @@ impl FrameInterner {
         self.contains_js_frame
     }
 
-    pub fn create_tables(&self) -> (FrameTable, FuncTable, SourceTable, ResourceTable) {
+    pub fn create_tables(&self) -> FrameInternerTables {
         let len = self.frame_key_set.len();
         let mut func_col = Vec::with_capacity(len);
         let mut category_col = Vec::with_capacity(len);
@@ -76,7 +83,7 @@ impl FrameInterner {
             let func_key = frame.func_key(&mut source_table, &mut resource_table);
             let func = func_table.index_for_func(func_key);
 
-            func_col.push(func);
+            func_col.push(func.0);
             let SubcategoryHandle(category, subcategory) = frame.subcategory;
             category_col.push(category);
             subcategory_col.push(subcategory);
@@ -85,7 +92,7 @@ impl FrameInterner {
 
             match frame.variant {
                 InternalFrameVariant::Label => {
-                    address_col.push(None);
+                    address_col.push(-1);
                     native_symbol_col.push(None);
                     inline_depth_col.push(0);
                 }
@@ -95,9 +102,9 @@ impl FrameInterner {
                     inline_depth,
                     ..
                 }) => {
-                    address_col.push(Some(relative_address));
+                    address_col.push(relative_address as i32);
                     native_symbol_col.push(native_symbol);
-                    inline_depth_col.push(inline_depth);
+                    inline_depth_col.push(inline_depth.min(u8::MAX as u16) as u8);
                 }
             }
         }
@@ -113,34 +120,39 @@ impl FrameInterner {
             inline_depth_col,
         };
 
-        (frame_table, func_table, source_table, resource_table)
+        FrameInternerTables {
+            frame_table,
+            func_table,
+            source_table,
+            resource_table,
+        }
     }
 }
 
 pub struct FrameTable {
-    func_col: Vec<FuncIndex>,
+    func_col: Vec<i32>,
     category_col: Vec<CategoryHandle>,
     subcategory_col: Vec<SubcategoryIndex>,
     line_col: Vec<Option<u32>>,
     column_col: Vec<Option<u32>>,
-    address_col: Vec<Option<u32>>,
+    /// Values are relative addresses cast to `i32`. `-1` is the sentinel for
+    /// "no address" (label frames).
+    address_col: Vec<i32>,
     native_symbol_col: Vec<Option<NativeSymbolIndex>>,
-    inline_depth_col: Vec<u16>,
+    inline_depth_col: Vec<u8>,
 }
 
 impl FrameTable {
-    pub(crate) fn write_json<W: Write>(&self, w: &mut Writer<W>) -> std::io::Result<()> {
+    pub(crate) fn write_json<'p, W: Write>(
+        &'p self,
+        w: &mut Writer<'_, 'p, W>,
+    ) -> std::io::Result<()> {
         let len = self.func_col.len();
         w.object(|w| {
             w.name("length")?;
             w.number_value(len)?;
             w.name("func")?;
-            w.array(|w| {
-                for f in &self.func_col {
-                    f.write_json(w)?;
-                }
-                Ok(())
-            })?;
+            w.i32_array(&self.func_col)?;
             w.name("category")?;
             w.array(|w| {
                 for c in &self.category_col {
@@ -160,15 +172,7 @@ impl FrameTable {
             w.name("column")?;
             w.optional_number_array(&self.column_col)?;
             w.name("address")?;
-            w.array(|w| {
-                for a in &self.address_col {
-                    match a {
-                        Some(a) => w.number_value(*a)?,
-                        None => w.number_value(-1)?,
-                    }
-                }
-                Ok(())
-            })?;
+            w.i32_array(&self.address_col)?;
             w.name("nativeSymbol")?;
             w.array(|w| {
                 for n in &self.native_symbol_col {
@@ -177,7 +181,7 @@ impl FrameTable {
                 Ok(())
             })?;
             w.name("inlineDepth")?;
-            w.number_array(&self.inline_depth_col)?;
+            w.u8_array(&self.inline_depth_col)?;
             w.name("innerWindowID")?;
             w.array(|w| {
                 for _ in 0..len {
@@ -188,6 +192,12 @@ impl FrameTable {
             w.name("originalLocation")?;
             w.null_array(len)
         })
+    }
+}
+
+impl<'p> SplitOutObjectBody<'p> for &'p FrameTable {
+    fn write_body<W: Write>(self, w: &mut Writer<'_, 'p, W>) -> std::io::Result<()> {
+        self.write_json(w)
     }
 }
 

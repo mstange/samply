@@ -6,7 +6,10 @@ use crate::frame::FrameFlags;
 use crate::resource_table::ResourceIndex;
 use crate::source_table::SourceIndex;
 use crate::string_table::StringHandle;
-use crate::writer::Writer;
+use crate::writer::{SplitOutObjectBody, Writer};
+
+#[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash)]
+pub struct FuncIndex(pub(crate) i32);
 
 #[derive(Debug, Clone, Default)]
 pub struct FuncTable {
@@ -83,7 +86,7 @@ impl ColumnarStore for FuncCols {
 
 impl FuncTable {
     pub fn index_for_func(&mut self, func_key: FuncKey) -> FuncIndex {
-        FuncIndex(self.set.insert(func_key))
+        FuncIndex(self.set.insert(func_key) as i32)
     }
 
     pub(crate) fn write_json<W: Write>(&self, w: &mut Writer<W>) -> std::io::Result<()> {
@@ -143,11 +146,8 @@ impl FuncTable {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash)]
-pub struct FuncIndex(u32);
-
-impl FuncIndex {
-    pub(crate) fn write_json<W: Write>(self, w: &mut Writer<W>) -> std::io::Result<()> {
-        w.number_value(self.0)
+impl<'p> SplitOutObjectBody<'p> for &'p FuncTable {
+    fn write_body<W: Write>(self, w: &mut Writer<'_, 'p, W>) -> std::io::Result<()> {
+        self.write_json(w)
     }
 }

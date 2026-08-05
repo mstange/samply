@@ -5,14 +5,14 @@ use debugid::DebugId;
 use fxprof_processed_profile::{
     Category, CategoryColor, CounterDisplayConfig, CpuDelta, FlowId, FrameAddress, FrameFlags,
     GraphColor, LibraryInfo, Marker, MarkerField, MarkerGraph, MarkerGraphType, MarkerLocations,
-    MarkerTiming, Profile, ReferenceTimestamp, SamplingInterval, Schema, StringHandle, Symbol,
-    SymbolTable, Timestamp, WeightType,
+    MarkerTiming, Profile, ProfileFormat, ReferenceTimestamp, SamplingInterval, Schema,
+    StringHandle, Symbol, SymbolTable, Timestamp, WeightType,
 };
 
 // TODO: Add tests for SubcategoryHandle, ProcessHandle, ThreadHandle
 
 fn profile_as_json_value(profile: &Profile) -> serde_json::Value {
-    serde_json::from_slice(&profile.to_vec()).expect("profile JSON must parse")
+    serde_json::from_slice(&profile.to_vec(ProfileFormat::Json)).expect("profile JSON must parse")
 }
 
 /// An example marker type with some text content.
