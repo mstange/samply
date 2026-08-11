@@ -932,6 +932,7 @@ dependencies = [
  "hashbrown 0.17.1",
  "indexmap",
  "insta",
+ "json-slabs 0.2.0",
  "rustc-hash",
  "serde_json",
  "struson",
@@ -1459,6 +1460,15 @@ checksum = "a1f6d721e0031466c53b2a005ecfaf4b05fb6a698d78be3220d2e24c36fb513a"
 dependencies = [
  "thiserror 2.0.19",
  "zerocopy",
+]
+
+[[package]]
+name = "json-slabs"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "729bcd560116de0e0a3a07f729d6f7509f072878b47198e0c04e50877cdb9d62"
+dependencies = [
+ "thiserror 2.0.19",
 ]
 
 [[package]]
@@ -2577,7 +2587,7 @@ dependencies = [
  "hyper",
  "hyper-util",
  "indexmap",
- "json-slabs",
+ "json-slabs 0.1.0",
  "lazy_static",
  "libc",
  "linux-perf-data",
