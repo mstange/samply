@@ -1,5 +1,5 @@
 use std::fs::File;
-use std::io::{BufWriter, Read, Write};
+use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
 
 use object::macho::{DyldSubCacheEntryV1, DyldSubCacheEntryV2};
@@ -520,7 +520,7 @@ fn example_linux_fallback() {
 }
 
 #[test]
-fn compare_snapshot() {
+fn win64_ci_mozglue_pdb_symbol_table() {
     let table = crate::get_table(
         &fixtures_dir().join("win64-ci").join("mozglue.pdb"),
         DebugId::from_breakpad("63C609072D3499F64C4C44205044422E1").ok(),
@@ -529,31 +529,7 @@ fn compare_snapshot() {
     let mut output: Vec<u8> = Vec::new();
     crate::dump_table(&mut output, table, true).unwrap();
 
-    let mut snapshot_file = File::open(
-        fixtures_dir()
-            .join("snapshots")
-            .join("win64-ci-mozglue.pdb.txt"),
-    )
-    .unwrap();
-    let mut expected: Vec<u8> = Vec::new();
-    snapshot_file.read_to_end(&mut expected).unwrap();
-    // Strip \r which git sometimes automatically inserts on Windows
-    expected.retain(|x| *x != b'\r');
-
-    if output != expected {
-        let mut output_file = File::create(
-            fixtures_dir()
-                .join("snapshots")
-                .join("win64-ci-mozglue.pdb.txt.snap"),
-        )
-        .unwrap();
-        output_file.write_all(&output).unwrap();
-    }
-
-    let output = std::str::from_utf8(&output).unwrap();
-    let expected = std::str::from_utf8(&expected).unwrap();
-
-    assert_eq!(output, expected);
+    insta::assert_snapshot!(std::str::from_utf8(&output).unwrap());
 }
 
 fn synth_dyld_cache_root(

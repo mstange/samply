@@ -1,0 +1,30 @@
+---
+source: samply-api/tests/integration_tests/main.rs
+expression: response
+---
+{
+  "results": [
+    {
+      "found_modules": {
+        "libsoftokn3.dylib/F7DE6E25737B3B1885A5079DC41D77B40": true
+      },
+      "stacks": [
+        [
+          {
+            "frame": 0,
+            "function": "fun_38240",
+            "function_offset": "0x77",
+            "function_size": "0x110",
+            "module": "libsoftokn3.dylib",
+            "module_offset": "0x382b7"
+          },
+          {
+            "frame": 1,
+            "module": "libsoftokn3.dylib",
+            "module_offset": "0x38c39"
+          }
+        ]
+      ]
+    }
+  ]
+}

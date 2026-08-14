@@ -942,8 +942,8 @@ dependencies = [
 name = "gecko_profile"
 version = "0.4.0"
 dependencies = [
- "assert-json-diff",
  "debugid",
+ "insta",
  "serde",
  "serde_derive",
  "serde_json",
@@ -2639,7 +2639,7 @@ name = "samply-api"
 version = "0.24.0"
 dependencies = [
  "anyhow",
- "assert-json-diff",
+ "insta",
  "memmap2",
  "samply-debugid",
  "samply-symbols",
@@ -2699,6 +2699,7 @@ dependencies = [
  "elsa",
  "flate2",
  "gimli",
+ "insta",
  "linux-perf-data",
  "lzma-rs",
  "macho-unwind-info",

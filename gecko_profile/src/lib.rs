@@ -833,7 +833,6 @@ impl StringTable {
 mod test {
     use std::time::{Duration, Instant, SystemTime};
 
-    use assert_json_diff::assert_json_eq;
     use serde_json::json;
 
     use crate::{
@@ -842,7 +841,7 @@ mod test {
     };
 
     #[test]
-    fn it_works() {
+    fn profile_with_markers() {
         struct CustomMarker {
             event_name: String,
             allocation_size: u32,
@@ -946,125 +945,9 @@ mod test {
         );
         profile.add_thread(thread);
         let result = profile.to_serializable();
-        assert_json_eq!(
-            result,
-            json!(
-                {
-                    "libs": [],
-                    "meta": {
-                      "categories": [
-                        { "color": "blue", "name": "Regular", "subcategories": ["Other"] },
-                        { "color": "grey", "name": "Other", "subcategories": ["Other"] }
-                      ],
-                      "interval": 1.0,
-                      "markerSchema": [
-                        {
-                          "chartLabel": "{marker.data.name}",
-                          "data": [{ "format": "string", "key": "name", "label": "Details" }],
-                          "display": ["marker-chart", "marker-table"],
-                          "name": "Text",
-                          "tableLabel": "{marker.name} - {marker.data.name}"
-                        },
-                        {
-                          "data": [
-                            { "format": "string", "key": "eventName", "label": "Event name" },
-                            {
-                              "format": "bytes",
-                              "key": "allocationSize",
-                              "label": "Allocation size"
-                            },
-                            { "format": "url", "key": "url", "label": "URL" },
-                            { "format": "duration", "key": "latency", "label": "Latency" },
-                            {
-                              "label": "Description",
-                              "value": "This is a test marker with a custom schema."
-                            }
-                          ],
-                          "display": ["marker-chart", "marker-table"],
-                          "name": "custom",
-                          "tooltipLabel": "Custom tooltip label"
-                        }
-                      ],
-                      "pausedRanges": [],
-                      "pid": 123,
-                      "processType": 0,
-                      "product": "test",
-                      "sampleUnits": { "eventDelay": "ms", "threadCPUDelta": "µs", "time": "ms" },
-                      "shutdownTime": null,
-                      "startTime": 1636162232627.0,
-                      "version": 24
-                    },
-                    "processes": [],
-                    "threads": [
-                      {
-                        "frameTable": {
-                          "data": [],
-                          "schema": {
-                            "category": 7,
-                            "column": 6,
-                            "implementation": 3,
-                            "innerWindowID": 2,
-                            "line": 5,
-                            "location": 0,
-                            "optimizations": 4,
-                            "relevantForJS": 1,
-                            "subcategory": 8
-                          }
-                        },
-                        "markers": {
-                          "data": [
-                            [0, 0.0, 0.0, 0, 0, { "name": "Hello world!", "type": "Text" }],
-                            [
-                              1,
-                              0.0,
-                              2.0,
-                              1,
-                              0,
-                              {
-                                "allocationSize": 512000,
-                                "eventName": "My event",
-                                "latency": 123.0,
-                                "type": "custom",
-                                "url": "https://mozilla.org/"
-                              }
-                            ]
-                          ],
-                          "schema": {
-                            "category": 4,
-                            "data": 5,
-                            "endTime": 2,
-                            "name": 0,
-                            "phase": 3,
-                            "startTime": 1
-                          }
-                        },
-                        "name": "GeckoMain",
-                        "pid": 123,
-                        "processName": "test",
-                        "processType": "default",
-                        "registerTime": 0.0,
-                        "samples": {
-                          "data": [
-                            [null, 0.0, 0.0, 0],
-                            [null, 1.0, 0.0, 0],
-                            [null, 2.0, 0.0, 0],
-                            [null, 3.0, 0.0, 0]
-                          ],
-                          "schema": {
-                            "eventDelay": 2,
-                            "stack": 0,
-                            "threadCPUDelta": 3,
-                            "time": 1
-                          }
-                        },
-                        "stackTable": { "data": [], "schema": { "frame": 1, "prefix": 0 } },
-                        "stringTable": ["Experimental", "CustomName"],
-                        "tid": 12345,
-                        "unregisterTime": null
-                      }
-                    ]
-                  }
-            )
-        )
+        // Serialize via serde_json::Value so that object keys are in a
+        // deterministic (sorted) order in the snapshot.
+        let result: serde_json::Value = serde_json::to_value(&result).unwrap();
+        insta::assert_json_snapshot!(result);
     }
 }

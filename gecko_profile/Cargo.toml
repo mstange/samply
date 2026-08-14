@@ -16,4 +16,4 @@ serde_derive = "1.0.188"
 debugid = "0.8.0"
 
 [dev-dependencies]
-assert-json-diff = "2.0.1"
+insta = { version = "1.48", features = ["json"] }

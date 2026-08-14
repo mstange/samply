@@ -1,0 +1,97 @@
+---
+source: samply-api/tests/integration_tests/main.rs
+expression: response
+---
+{
+  "results": [
+    {
+      "found_modules": {
+        "libmozglue.so/0CE47B7C29F27CED55C41233B93EBA450": true
+      },
+      "stacks": [
+        [
+          {
+            "file": "/Users/mstange/code/mozilla/mozglue/misc/AutoProfilerLabel.cpp",
+            "frame": 0,
+            "function": "GLOBAL__sub_I_AutoProfilerLabel.cpp",
+            "function_offset": "0xd",
+            "function_size": "0x30",
+            "inlines": [
+              {
+                "file": "/Users/mstange/code/mozilla/mozglue/misc/AutoProfilerLabel.cpp",
+                "function": "_cxx_global_var_init",
+                "line": 55
+              }
+            ],
+            "module": "libmozglue.so",
+            "module_offset": "0x3c742"
+          },
+          {
+            "file": "/Users/mstange/code/mozilla/mozglue/baseprofiler/core/ProfileBufferEntry.cpp",
+            "frame": 1,
+            "function": "mozilla::baseprofiler::ProfileBuffer::StreamSamplesToJSON(mozilla::baseprofiler::SpliceableJSONWriter&, int, double, mozilla::baseprofiler::UniqueStacks&) const::$_0::operator()(mozilla::ProfileChunkedBuffer::Reader*) const",
+            "function_offset": "0x5af",
+            "function_size": "0x9a0",
+            "inlines": [
+              {
+                "file": "/Users/mstange/.mozbuild/android-ndk-r20/sources/cxx-stl/llvm-libc++/include/string",
+                "function": "std::__ndk1::basic_string<char, std::__ndk1::char_traits<char>, std::__ndk1::allocator<char> >::append(char const*)",
+                "line": 2582
+              },
+              {
+                "file": "/Users/mstange/.mozbuild/android-ndk-r20/sources/cxx-stl/llvm-libc++/include/string",
+                "function": "std::__ndk1::basic_string<char, std::__ndk1::char_traits<char>, std::__ndk1::allocator<char> >::operator+=(char const*)",
+                "line": 992
+              }
+            ],
+            "line": 747,
+            "module": "libmozglue.so",
+            "module_offset": "0xa7748"
+          },
+          {
+            "file": "/Users/mstange/code/mozilla/mozglue/baseprofiler/core/ProfileBufferEntry.cpp",
+            "frame": 2,
+            "function": "mozilla::baseprofiler::ProfileBuffer::StreamSamplesToJSON(mozilla::baseprofiler::SpliceableJSONWriter&, int, double, mozilla::baseprofiler::UniqueStacks&) const::$_0::operator()(mozilla::ProfileChunkedBuffer::Reader*) const",
+            "function_offset": "0x917",
+            "function_size": "0x9a0",
+            "inlines": [
+              {
+                "file": "/Users/mstange/code/obj-m-android-opt/dist/include/mozilla/UniquePtr.h",
+                "function": "mozilla::UniquePtr<mozilla::JSONWriteFunc, mozilla::DefaultDelete<mozilla::JSONWriteFunc> >::get() const",
+                "line": 287
+              },
+              {
+                "file": "/Users/mstange/code/obj-m-android-opt/dist/include/mozilla/UniquePtr.h",
+                "function": "mozilla::UniquePtr<mozilla::JSONWriteFunc, mozilla::DefaultDelete<mozilla::JSONWriteFunc> >::operator->() const",
+                "line": 282
+              },
+              {
+                "file": "/Users/mstange/code/obj-m-android-opt/dist/include/mozilla/JSONWriter.h",
+                "function": "mozilla::JSONWriter::EndCollection(char const*)",
+                "line": 319
+              },
+              {
+                "file": "/Users/mstange/code/obj-m-android-opt/dist/include/mozilla/JSONWriter.h",
+                "function": "mozilla::JSONWriter::EndArray()",
+                "line": 405
+              },
+              {
+                "file": "/Users/mstange/code/mozilla/mozglue/baseprofiler/core/ProfileBufferEntry.cpp",
+                "function": "mozilla::baseprofiler::AutoArraySchemaWriter::~AutoArraySchemaWriter()",
+                "line": 149
+              },
+              {
+                "file": "/Users/mstange/code/mozilla/mozglue/baseprofiler/core/ProfileBufferEntry.cpp",
+                "function": "mozilla::baseprofiler::WriteSample(mozilla::baseprofiler::SpliceableJSONWriter&, mozilla::baseprofiler::UniqueJSONStrings&, mozilla::baseprofiler::ProfileSample const&)",
+                "line": 367
+              }
+            ],
+            "line": 806,
+            "module": "libmozglue.so",
+            "module_offset": "0xa7ab0"
+          }
+        ]
+      ]
+    }
+  ]
+}
