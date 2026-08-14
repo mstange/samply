@@ -1715,32 +1715,46 @@ impl ProfileContext {
             return;
         };
 
-        let (category, js_frame) = if let Some(url) = process.js_sources.get(&source_id) {
-            if method_name.starts_with("JS:") {
-                // Probably a JIT frame from a locally patched version of Chrome where
-                // we made it prefix the ETW JIT frames with the same prefixes as with
-                // the Jitdump backend. The prefix gives us the Jit tier / category.
-                self.js_category_manager
-                    .classify_jit_symbol(&method_name, &mut self.profile)
-            } else {
-                // A JIT frame from a regular Chrome / Edge build.
-                // For now we just add the script URL at the end of the function name.
-                // In the future, we should store the function name and the script URL
-                // separately in the profile.
-                use std::fmt::Write;
-                write!(&mut method_name, " {url}").unwrap();
-                if line != 0 {
-                    write!(&mut method_name, ":{line}:{column}").unwrap();
-                }
-                let category = self.js_jit_lib.default_category();
-                let js_frame = Some(JsFrame::NativeFrameIsJs);
-                (category, js_frame)
+        // If we have a script URL, make sure it's appended to the end of the name.
+        // We need to handle these cases:
+        // - `myFun` + sourceID (Chrome)
+        // - `RegExp.< src: 'x' flags: ''` with no sourceID (Chrome)
+        // - `Ion: myFun (url:line:col)` with no sourceID (old Firefox)
+        // - `Ion: myFun` + sourceID (new Firefox)
+        // - `Trampoline: MegamorphicLoadPermissive` with no sourceID (old + new Firefox)
+        //
+        // Putting the URL in the name is consistent with what happens on other
+        // platforms, where JS engines put the URL and the function's start line +
+        // column into the name.
+        //
+        // In the future we may want to do the reverse instead: Strip the URL from the
+        // name if present, and store the information in the appropriate place in the
+        // profile data. Or even just leave the name alone - and if there's a source,
+        // put that in to the function's source information, otherwise the function just
+        // gets no source information.
+        let has_source = if let Some(url) = process.js_sources.get(&source_id) {
+            use std::fmt::Write;
+            write!(&mut method_name, " {url}").unwrap();
+            if line != 0 {
+                write!(&mut method_name, ":{line}:{column}").unwrap();
             }
+            true
         } else {
-            // Probably a JIT frame from Firefox. Firefox doesn't emit SourceLoad events yet.
-            self.js_category_manager
-                .classify_jit_symbol(&method_name, &mut self.profile)
+            false
         };
+
+        // The name prefix gives us the JIT tier / category. Names without a known
+        // prefix fall back to the generic JIT category, which is also what
+        // self.js_jit_lib defaults to.
+        let (category, mut js_frame) = self
+            .js_category_manager
+            .classify_jit_symbol(&method_name, &mut self.profile);
+        if js_frame.is_none() && has_source {
+            // Stock Chrome / Edge emit the bare function name, with no prefix to
+            // classify. We classify a method with a script source as a JS function
+            // regardless.
+            js_frame = Some(JsFrame::NativeFrameIsJs);
+        }
 
         let lib = &mut self.js_jit_lib;
         let info = LibMappingInfo::new_jit_function(lib.lib_handle(), category, js_frame);
