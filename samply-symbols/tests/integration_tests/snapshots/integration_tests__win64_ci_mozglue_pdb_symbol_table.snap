@@ -1,3 +1,7 @@
+---
+source: samply-symbols/tests/integration_tests/main.rs
+expression: "std::str::from_utf8(&output).unwrap()"
+---
 Found 1292 symbols.
 1000 mozilla::xgetbv(unsigned int)
 1010 _GLOBAL__sub_I_SSE.cpp()
