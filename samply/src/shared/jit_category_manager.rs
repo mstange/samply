@@ -13,8 +13,14 @@ pub enum JsFrame {
 
 #[derive(Debug, Clone, Copy)]
 pub enum JsName {
-    SelfHosted(#[allow(dead_code)] StringHandle),
-    NonSelfHosted(StringHandle),
+    /// A function used in the implementation of built-in JS APIs such as
+    /// filter / map / RegExp.test etc. In SpiderMonkey these are "self-hosted"
+    /// JS functions; in V8 they're precompiled "builtins" that don't show up as
+    /// JS functions at all. We don't surface these as JS frames, so we don't
+    /// bother interning the name.
+    Builtin,
+    /// A JS function that is not shipped as part of a JS engine.
+    NonBuiltin(StringHandle),
 }
 
 #[derive(Debug, Clone)]
@@ -330,24 +336,21 @@ impl JitCategoryManager {
                 if after.is_empty() {
                     // Nothing is following the closing square bracket, in particular no filename.
                     // Example: "forEach[Call (StrictMode)]"
-                    // This is likely a self-hosted function.
-                    return JsName::SelfHosted(profile.handle_for_string(before));
+                    // This is likely a builtin function.
+                    return JsName::Builtin;
                 }
-                return JsName::NonSelfHosted(
-                    profile.handle_for_string(&format!("{before}{after}")),
-                );
+                return JsName::NonBuiltin(profile.handle_for_string(&format!("{before}{after}")));
             }
         }
 
-        let s = profile.handle_for_string(func_name);
-        match func_name.contains("(self-hosted:")
+        if func_name.contains("(self-hosted:")
             || func_name.contains(" self-hosted:")
             || func_name.ends_with("valueIsFalsey")
             || func_name.ends_with("valueIsTruthy")
         {
-            true => JsName::SelfHosted(s),
-            false => JsName::NonSelfHosted(s),
+            return JsName::Builtin;
         }
+        JsName::NonBuiltin(profile.handle_for_string(func_name))
     }
 }
 
@@ -393,7 +396,7 @@ mod test {
             &mut profile,
         );
         match js_name {
-            Some(JsFrame::RegularInAdditionToNativeFrame(JsName::NonSelfHosted(s))) => {
+            Some(JsFrame::RegularInAdditionToNativeFrame(JsName::NonBuiltin(s))) => {
                 assert_eq!(profile.get_string(s), "AccessibleButton (main.js:3560:25)")
             }
             _ => panic!(),

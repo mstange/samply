@@ -247,9 +247,10 @@ impl<I: Iterator<Item = SecondPassFrameInfo>> ConvertedStackIterD<I> {
 
         let mut frame_handle =
             profile.handle_for_frame_with_address(location, category, frame_flags);
-        if let Some(JsName::NonSelfHosted(js_name)) = extra_js_name {
+        if let Some(JsName::NonBuiltin(js_name)) = extra_js_name {
             // Prepend a JS frame.
-            // We don't treat Spidermonkey "self-hosted" functions as JS (e.g. filter/map/push).
+            // We don't treat builtin functions as JS (e.g. filter/map/push), which
+            // SpiderMonkey calls "self-hosted" functions.
             let prepended_js_frame =
                 profile.handle_for_frame_with_label(js_name, category, FrameFlags::IS_JS);
             let buffered_frame = std::mem::replace(&mut frame_handle, prepended_js_frame);
