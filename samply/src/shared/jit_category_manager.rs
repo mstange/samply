@@ -264,17 +264,6 @@ impl JitCategoryManager {
             return (category.into(), None);
         }
 
-        if let Some(ion_ic_rest) = name.strip_prefix("IonIC: ") {
-            let category = self.ion_ic_category.get(profile);
-            if let Some((_ic_type, js_func)) = ion_ic_rest.split_once(" : ") {
-                let js_func = JsFrame::RegularInAdditionToNativeFrame(Self::handle_for_js_name(
-                    profile, js_func,
-                ));
-                return (category.into(), Some(js_func));
-            }
-            return (category.into(), None);
-        }
-
         for (&(prefix, _category, is_js), lazy_category_handle) in
             Self::CATEGORIES.iter().zip(self.categories.iter_mut())
         {
