@@ -18,7 +18,7 @@ use crate::shared::context_switch::{
     ContextSwitchHandler, OffCpuSampleGroup, ThreadContextSwitchData,
 };
 use crate::shared::included_processes::IncludedProcesses;
-use crate::shared::jit_category_manager::{JitCategoryManager, JsFrame};
+use crate::shared::jit_category_manager::{JitCategoryManager, JsFrame, JsScriptSource};
 use crate::shared::jit_function_add_marker::JitFunctionAddMarker;
 use crate::shared::jit_function_recycler::JitFunctionRecycler;
 use crate::shared::lib_mappings::{LibMappingAdd, LibMappingInfo, LibMappingOp, LibMappingOpQueue};
@@ -1700,7 +1700,7 @@ impl ProfileContext {
         &mut self,
         timestamp_raw: u64,
         pid: u32,
-        mut method_name: String,
+        method_name: String,
         method_start_address: u64,
         method_size: u32,
         source_id: u64,
@@ -1711,7 +1711,11 @@ impl ProfileContext {
             return;
         };
 
-        // If we have a script URL, make sure it's appended to the end of the name.
+        // We leave the name alone, and store the script URL and the function's start
+        // line + column as proper source information on the frames. This differs from
+        // the other platforms, where the JS engine bakes the location into the name
+        // and we have no way to separate the two back out.
+        //
         // We need to handle these cases:
         // - `myFun` + sourceID (Chrome)
         // - `RegExp.< src: 'x' flags: ''` with no sourceID (Chrome)
@@ -1719,26 +1723,16 @@ impl ProfileContext {
         // - `Ion: myFun` + sourceID (new Firefox)
         // - `Trampoline: MegamorphicLoadPermissive` with no sourceID (old + new Firefox)
         //
-        // Putting the URL in the name is consistent with what happens on other
-        // platforms, where JS engines put the URL and the function's start line +
-        // column into the name.
-        //
-        // In the future we may want to do the reverse instead: Strip the URL from the
-        // name if present, and store the information in the appropriate place in the
-        // profile data. Or even just leave the name alone - and if there's a source,
-        // put that in to the function's source information, otherwise the function just
-        // gets no source information.
+        // Only the cases with a sourceID get source information; for the others the
+        // location either stays in the name (old Firefox) or doesn't exist at all.
         let script_source = process
             .js_sources
             .get(&source_id)
-            .map(|url| JsScriptSource { url });
-        if let Some(script_source) = script_source {
-            use std::fmt::Write;
-            write!(&mut method_name, " {}", script_source.url).unwrap();
-            if line != 0 {
-                write!(&mut method_name, ":{line}:{column}").unwrap();
-            }
-        }
+            .map(|url| JsScriptSource {
+                url,
+                function_start_line: line,
+                function_start_col: column,
+            });
 
         // The name prefix gives us the JIT tier / category. Names without a known
         // prefix fall back to the generic JIT category, which is also what
@@ -1755,10 +1749,17 @@ impl ProfileContext {
             js_frame = Some(JsFrame::NativeFrameIsJs);
         }
 
+        // The native frame gets the same source location as the JS label frame which
+        // may be prepended to it.
+        let source_location = match script_source {
+            Some(script_source) => script_source.source_location(&mut self.profile),
+            None => SourceLocation::default(),
+        };
+
         let symbol = self.js_jit_lib.add_function(
             &method_name,
             method_size,
-            SourceLocation::default(),
+            source_location,
             &mut self.profile,
         );
         let info = LibMappingInfo::new_jit_function(symbol.lib_handle, category, js_frame)
