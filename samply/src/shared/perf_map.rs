@@ -94,7 +94,8 @@ pub fn try_load_perf_map(
             (lib_handle, relative_address)
         };
 
-        let (category, js_frame) = jit_category_manager.classify_jit_symbol(symbol_name, profile);
+        let (category, js_frame) =
+            jit_category_manager.classify_jit_symbol(symbol_name, None, profile);
 
         // Add this function to the JIT lib mappings so that it can be consulted for
         // category information, JS function prepending, and to translate the absolute

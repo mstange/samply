@@ -1728,24 +1728,27 @@ impl ProfileContext {
         // profile data. Or even just leave the name alone - and if there's a source,
         // put that in to the function's source information, otherwise the function just
         // gets no source information.
-        let has_source = if let Some(url) = process.js_sources.get(&source_id) {
+        let script_source = process
+            .js_sources
+            .get(&source_id)
+            .map(|url| JsScriptSource { url });
+        if let Some(script_source) = script_source {
             use std::fmt::Write;
-            write!(&mut method_name, " {url}").unwrap();
+            write!(&mut method_name, " {}", script_source.url).unwrap();
             if line != 0 {
                 write!(&mut method_name, ":{line}:{column}").unwrap();
             }
-            true
-        } else {
-            false
-        };
+        }
 
         // The name prefix gives us the JIT tier / category. Names without a known
         // prefix fall back to the generic JIT category, which is also what
         // self.js_jit_lib defaults to.
-        let (category, mut js_frame) = self
-            .js_category_manager
-            .classify_jit_symbol(&method_name, &mut self.profile);
-        if js_frame.is_none() && has_source {
+        let (category, mut js_frame) = self.js_category_manager.classify_jit_symbol(
+            &method_name,
+            script_source,
+            &mut self.profile,
+        );
+        if js_frame.is_none() && script_source.is_some() {
             // Stock Chrome / Edge emit the bare function name, with no prefix to
             // classify. We classify a method with a script source as a JS function
             // regardless.

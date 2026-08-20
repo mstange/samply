@@ -314,7 +314,7 @@ where
         }
 
         let (category, js_frame) =
-            jit_category_manager.classify_jit_symbol(symbol_name.unwrap_or(""), profile);
+            jit_category_manager.classify_jit_symbol(symbol_name.unwrap_or(""), None, profile);
         self.lib_mapping_ops.push(
             timestamp,
             LibMappingOp::Add(LibMappingAdd {
