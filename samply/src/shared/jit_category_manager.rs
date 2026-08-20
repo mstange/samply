@@ -341,6 +341,7 @@ impl JitCategoryManager {
 
         let s = profile.handle_for_string(func_name);
         match func_name.contains("(self-hosted:")
+            || func_name.contains(" self-hosted:")
             || func_name.ends_with("valueIsFalsey")
             || func_name.ends_with("valueIsTruthy")
         {
