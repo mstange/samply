@@ -2,11 +2,12 @@ use std::collections::VecDeque;
 use std::iter::{Cloned, Rev};
 
 use fxprof_processed_profile::{
-    FrameAddress, FrameFlags, FrameHandle, ProcessHandle, Profile, SubcategoryHandle,
+    FrameAddress, FrameFlags, FrameHandle, FrameSymbolInfo, ProcessHandle, Profile,
+    SubcategoryHandle,
 };
 
 use super::jit_category_manager::{JsFrame, JsName};
-use super::lib_mappings::{AndroidArtInfo, LibMappingsHierarchy};
+use super::lib_mappings::{AndroidArtInfo, JitSymbolInfo, LibMappingsHierarchy};
 use super::types::{StackFrame, StackMode};
 
 #[derive(Debug)]
@@ -28,6 +29,7 @@ struct SecondPassFrameInfo {
     category: SubcategoryHandle,
     js_frame: Option<JsFrame>,
     art_info: Option<AndroidArtInfo>,
+    symbol: Option<JitSymbolInfo>,
 }
 
 struct FirstPassIter<I: Iterator<Item = StackFrame>>(I);
@@ -100,7 +102,7 @@ impl<I: Iterator<Item = FirstPassFrameInfo>> Iterator for SecondPassIter<'_, I> 
             lookup_address,
             from_ip,
         } = self.inner.next()?;
-        let (location, category, js_frame, art_info) = match mode {
+        let (location, category, js_frame, art_info, symbol) = match mode {
             StackMode::User => match self.lib_mappings.convert_address(lookup_address) {
                 Some((relative_lookup_address, info)) => {
                     let location = if from_ip {
@@ -120,6 +122,7 @@ impl<I: Iterator<Item = FirstPassFrameInfo>> Iterator for SecondPassIter<'_, I> 
                         info.category.unwrap_or(self.user_category),
                         info.js_frame,
                         info.art_info,
+                        info.symbol,
                     )
                 }
                 None => {
@@ -128,7 +131,7 @@ impl<I: Iterator<Item = FirstPassFrameInfo>> Iterator for SecondPassIter<'_, I> 
                         true => FrameAddress::InstructionPointer(p, lookup_address),
                         false => FrameAddress::AdjustedReturnAddress(p, lookup_address),
                     };
-                    (location, self.user_category, None, None)
+                    (location, self.user_category, None, None, None)
                 }
             },
             StackMode::Kernel => {
@@ -136,7 +139,7 @@ impl<I: Iterator<Item = FirstPassFrameInfo>> Iterator for SecondPassIter<'_, I> 
                     true => FrameAddress::KernelInstructionPointer(lookup_address),
                     false => FrameAddress::KernelAdjustedReturnAddress(lookup_address),
                 };
-                (location, self.kernel_category, None, None)
+                (location, self.kernel_category, None, None, None)
             }
         };
         Some(SecondPassFrameInfo {
@@ -144,6 +147,7 @@ impl<I: Iterator<Item = FirstPassFrameInfo>> Iterator for SecondPassIter<'_, I> 
             category,
             js_frame,
             art_info,
+            symbol,
         })
     }
 }
@@ -211,6 +215,7 @@ impl<I: Iterator<Item = SecondPassFrameInfo>> ConvertedStackIterD<I> {
             location,
             category,
             js_frame,
+            symbol,
             ..
         } = self.inner.next()?;
 
@@ -245,13 +250,46 @@ impl<I: Iterator<Item = SecondPassFrameInfo>> ConvertedStackIterD<I> {
             None => None,
         };
 
-        let mut frame_handle =
-            profile.handle_for_frame_with_address(location, category, frame_flags);
-        if let Some(JsName::NonSelfHosted(js_name)) = extra_js_name {
+        // JIT code has no symbol file, so if we know the function's symbol we put it
+        // on the frame directly. Other libraries get symbolicated later, from their
+        // address.
+        let mut frame_handle = match symbol {
+            Some(symbol) => {
+                let native_symbol = profile.handle_for_native_symbol(
+                    symbol.lib_handle,
+                    symbol.symbol_address,
+                    symbol.symbol_size,
+                    symbol.name,
+                );
+                profile.handle_for_frame_with_address_and_symbol(
+                    location,
+                    FrameSymbolInfo {
+                        // Use the native symbol's name.
+                        name: None,
+                        native_symbol,
+                        source_location: symbol.source_location,
+                    },
+                    0,
+                    category,
+                    frame_flags,
+                )
+            }
+            None => profile.handle_for_frame_with_address(location, category, frame_flags),
+        };
+        if let Some(JsName::NonBuiltin {
+            name,
+            source_location,
+        }) = extra_js_name
+        {
             // Prepend a JS frame.
-            // We don't treat Spidermonkey "self-hosted" functions as JS (e.g. filter/map/push).
-            let prepended_js_frame =
-                profile.handle_for_frame_with_label(js_name, category, FrameFlags::IS_JS);
+            // We don't treat builtin functions as JS (e.g. filter/map/push), which
+            // SpiderMonkey calls "self-hosted" functions.
+            let prepended_js_frame = profile.handle_for_frame_with_label_and_source_location(
+                name,
+                source_location,
+                category,
+                FrameFlags::IS_JS,
+            );
             let buffered_frame = std::mem::replace(&mut frame_handle, prepended_js_frame);
             self.pending_frame_handle = Some(buffered_frame);
         };

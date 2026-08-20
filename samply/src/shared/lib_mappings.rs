@@ -1,6 +1,8 @@
 use std::iter::Peekable;
 
-use fxprof_processed_profile::{LibMappings, LibraryHandle, SubcategoryHandle};
+use fxprof_processed_profile::{
+    LibMappings, LibraryHandle, SourceLocation, StringHandle, SubcategoryHandle,
+};
 
 use super::jit_category_manager::JsFrame;
 
@@ -10,6 +12,26 @@ pub struct LibMappingInfo {
     pub category: Option<SubcategoryHandle>,
     pub js_frame: Option<JsFrame>,
     pub art_info: Option<AndroidArtInfo>,
+    pub symbol: Option<JitSymbolInfo>,
+}
+
+/// The native symbol for a function in a synthetic JIT library.
+///
+/// JIT code has no symbol file to symbolicate against, so we know the symbol at
+/// the time we see the function, and we put it on the frame directly rather than
+/// going through a lib symbol table.
+#[derive(Debug, Clone, Copy)]
+pub struct JitSymbolInfo {
+    pub lib_handle: LibraryHandle,
+    pub name: StringHandle,
+    /// The symbol's start address, relative to the synthetic JIT library.
+    pub symbol_address: u32,
+    pub symbol_size: Option<u32>,
+    /// Source information for the native frames of this function.
+    ///
+    /// A prepended JS label frame carries its own, richer source location; this
+    /// one is just for the native frame.
+    pub source_location: SourceLocation,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -29,6 +51,7 @@ impl LibMappingInfo {
             category: None,
             js_frame: None,
             art_info: None,
+            symbol: None,
         }
     }
 
@@ -39,6 +62,7 @@ impl LibMappingInfo {
             category: Some(category),
             js_frame: None,
             art_info: None,
+            symbol: None,
         }
     }
 
@@ -52,6 +76,7 @@ impl LibMappingInfo {
             category: Some(category),
             js_frame,
             art_info: None,
+            symbol: None,
         }
     }
 
@@ -61,6 +86,7 @@ impl LibMappingInfo {
             category: None,
             js_frame: None,
             art_info: Some(AndroidArtInfo::LibArt),
+            symbol: None,
         }
     }
 
@@ -73,7 +99,15 @@ impl LibMappingInfo {
             category,
             js_frame: None,
             art_info: Some(AndroidArtInfo::JavaFrame),
+            symbol: None,
         }
+    }
+
+    /// Attach the native symbol for a function in a synthetic JIT library, so
+    /// that its frames don't need a lib symbol table to get their name.
+    pub fn with_jit_symbol(mut self, symbol: JitSymbolInfo) -> Self {
+        self.symbol = Some(symbol);
+        self
     }
 }
 
