@@ -6,8 +6,8 @@ use debugid::DebugId;
 use fxprof_processed_profile::{
     Category, CategoryColor, CategoryHandle, CounterDisplayConfig, CounterHandle, CpuDelta,
     FrameFlags, LibraryHandle, LibraryInfo, Marker, MarkerField, MarkerHandle, MarkerLocations,
-    MarkerTiming, ProcessHandle, Profile, SamplingInterval, Schema, StringHandle, ThreadHandle,
-    Timestamp,
+    MarkerTiming, ProcessHandle, Profile, SamplingInterval, Schema, SourceLocation, StringHandle,
+    ThreadHandle, Timestamp,
 };
 use shlex::Shlex;
 use wholesym::PeCodeId;
@@ -337,24 +337,20 @@ impl Process {
         })
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub fn add_jit_function(
         &mut self,
         timestamp_raw: u64,
-        jit_lib: &mut SyntheticJitLibrary,
-        name: String,
+        relative_address_at_start: u32,
         start_avma: u64,
         size: u32,
         info: LibMappingInfo,
     ) {
-        let relative_address = jit_lib.add_function(name, size);
-
         self.jit_lib_mapping_ops.push(
             timestamp_raw,
             LibMappingOp::Add(LibMappingAdd {
                 start_avma,
                 end_avma: start_avma + u64::from(size),
-                relative_address_at_start: relative_address,
+                relative_address_at_start,
                 info,
             }),
         );
@@ -1756,8 +1752,14 @@ impl ProfileContext {
             js_frame = Some(JsFrame::NativeFrameIsJs);
         }
 
-        let lib = &mut self.js_jit_lib;
-        let info = LibMappingInfo::new_jit_function(lib.lib_handle(), category, js_frame);
+        let symbol = self.js_jit_lib.add_function(
+            &method_name,
+            method_size,
+            SourceLocation::default(),
+            &mut self.profile,
+        );
+        let info = LibMappingInfo::new_jit_function(symbol.lib_handle, category, js_frame)
+            .with_jit_symbol(symbol);
 
         if self.profile_creation_props.should_emit_jit_markers {
             let name_handle = self.profile.handle_for_string(&method_name);
@@ -1771,8 +1773,7 @@ impl ProfileContext {
 
         process.add_jit_function(
             timestamp_raw,
-            lib,
-            method_name,
+            symbol.symbol_address,
             method_start_address,
             method_size,
             info,
@@ -1791,13 +1792,20 @@ impl ProfileContext {
             return;
         };
 
-        let lib = &mut self.coreclr_jit_lib;
-        let info = LibMappingInfo::new_jit_function(lib.lib_handle(), lib.default_category(), None);
+        let default_category = self.coreclr_jit_lib.default_category();
+        // CoreCLR doesn't give us any source information.
+        let symbol = self.coreclr_jit_lib.add_function(
+            &method_name,
+            method_size,
+            SourceLocation::default(),
+            &mut self.profile,
+        );
+        let info = LibMappingInfo::new_jit_function(symbol.lib_handle, default_category, None)
+            .with_jit_symbol(symbol);
 
         process.add_jit_function(
             timestamp_raw,
-            lib,
-            method_name,
+            symbol.symbol_address,
             method_start_address,
             method_size,
             info,
@@ -2021,17 +2029,14 @@ impl ProfileContext {
 
     pub fn finish(mut self) -> Profile {
         // Push queued samples into the profile.
-        // We queue them so that we can get symbolicated JIT function names. To get symbolicated JIT function names,
-        // we have to call profile.add_sample after we call profile.set_lib_symbol_table, and we don't have the
-        // complete JIT symbol table before we've seen all JIT symbols.
-        // (This is a rather weak justification. The better justification is that this is consistent with what
-        // samply does on Linux and macOS, where the queued samples also want to respect JIT function names from
-        // a /tmp/perf-1234.map file, and this file may not exist until the profiled process finishes.)
+        // We queue them so that this is consistent with what samply does on Linux and macOS,
+        // where the queued samples want to respect JIT function names from a
+        // /tmp/perf-1234.map file, and this file may not exist until the profiled process
+        // finishes.
+        // (JIT function names used to be another reason: they arrived via a lib symbol table
+        // which wasn't complete until we'd seen all JIT symbols. These days each JIT frame
+        // carries its own native symbol, so that reason is gone.)
         let mut stack_frame_scratch_buf = Vec::new();
-        self.js_jit_lib
-            .finish_and_set_symbol_table(&mut self.profile);
-        self.coreclr_jit_lib
-            .finish_and_set_symbol_table(&mut self.profile);
         let process_sample_datas = self.processes.finish();
 
         let user_category = self.categories.get(KnownCategory::User, &mut self.profile);
