@@ -36,7 +36,7 @@ use crate::shared::unresolved_samples::{
 use crate::windows::firefox::{
     PHASE_INSTANT, PHASE_INTERVAL, PHASE_INTERVAL_END, PHASE_INTERVAL_START,
 };
-use crate::windows::stack_stitcher::{Finalized, StackStitcher, StitchedStack};
+use crate::windows::stack_stitcher::{Finalized, StackAssociation, StackStitcher, StitchedStack};
 
 /// What a pending stack is for. This is the payload we hand to the
 /// [`StackStitcher`]; once the stack is reassembled we get it back and dispatch
@@ -55,11 +55,10 @@ enum StackTarget {
         has_on_cpu_sample: bool,
         per_cpu_stuff: Option<(ThreadHandle, CpuDelta)>,
     },
-    /// A marker that wants the stitched stack attached to it. Not currently
-    /// produced (CoreCLR stacks arrive pre-stitched on their own path), but the
-    /// stitcher and dispatch support it, so any future kernel/user-split marker
-    /// stack can reuse this exact path.
-    #[allow(dead_code)]
+    /// A marker (currently: an unknown event recorded as a marker) that wants the
+    /// stitched stack attached to it once its StackWalk fragment arrives. CoreCLR
+    /// stacks arrive pre-stitched and keep their own path; this is for events that
+    /// go through the same kernel/user fragment delivery as samples.
     Marker {
         pid: u32,
         thread_handle: ThreadHandle,
@@ -1465,6 +1464,7 @@ impl ProfileContext {
         self.stack_stitcher.request_stack(
             tid,
             timestamp_raw,
+            StackAssociation::DeferredUserStack,
             StackTarget::Sample {
                 pid,
                 thread_handle,
@@ -1696,6 +1696,7 @@ impl ProfileContext {
                 self.stack_stitcher.request_stack(
                     new_tid,
                     timestamp_raw,
+                    StackAssociation::DeferredUserStack,
                     StackTarget::Sample {
                         pid,
                         thread_handle,
@@ -2090,12 +2091,30 @@ impl ProfileContext {
         let timing = MarkerTiming::Instant(timestamp);
         let marker_name = self.profile.handle_for_string(task_and_op);
         let description = self.profile.handle_for_string(&stringified_properties);
-        self.profile.add_marker(
+        let marker_handle = self.profile.add_marker(
             thread_handle,
             timing,
             FreeformMarker(marker_name, description),
         );
-        //println!("unhandled {}", s.name())
+
+        // If this event has a stack (e.g. FileIo events recorded with stackwalk),
+        // a StackWalk fragment will arrive later with this same (tid, timestamp).
+        // Register the marker so the stitcher attaches that stack to it. Marker
+        // stacks use OwnTimestamp association: they are matched only at their own
+        // timestamp and never absorb a nearby sample's deferred user stack. Events
+        // without a stack simply never get a fragment and are dropped at flush.
+        if let Some(pid) = self.threads.get_by_tid(tid).map(|t| t.process_id) {
+            self.stack_stitcher.request_stack(
+                tid,
+                timestamp_raw,
+                StackAssociation::OwnTimestamp,
+                StackTarget::Marker {
+                    pid,
+                    thread_handle,
+                    marker_handle,
+                },
+            );
+        }
     }
 
     pub fn is_in_time_range(&self, ts_raw: u64) -> bool {
