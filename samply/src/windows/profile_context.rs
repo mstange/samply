@@ -1340,6 +1340,7 @@ impl ProfileContext {
                 &self.timestamp_converter,
                 1,
                 off_cpu_stack_index,
+                timestamp_raw,
             );
             cpu_delta = CpuDelta::ZERO;
         }

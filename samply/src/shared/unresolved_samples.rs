@@ -124,6 +124,14 @@ impl UnresolvedSamples {
     ///    accumulated running time (`cpu_delta`), and
     ///  - if the range spans more than one sampling interval, a zero-cpu "rest
     ///    sample" at the end covering the remainder.
+    ///
+    /// `stack_timestamp_mono` is the raw time at which `off_cpu_stack` was
+    /// *captured*, which is not the same as where either sample is placed: both
+    /// samples show the one stack, so both must resolve their addresses against
+    /// the library mappings as of that one capture time. The platforms differ on
+    /// when that is — Linux saves the stack at switch-out (the start of the
+    /// range), Windows gets it at switch-in (the end) — which is why the caller
+    /// passes it rather than us picking begin or end here.
     #[allow(clippy::too_many_arguments)]
     pub fn add_off_cpu_sample_group(
         &mut self,
@@ -133,6 +141,7 @@ impl UnresolvedSamples {
         timestamp_converter: &TimestampConverter,
         off_cpu_weight_per_sample: i32,
         off_cpu_stack: UnresolvedStackHandle,
+        stack_timestamp_mono: u64,
     ) {
         let OffCpuSampleGroup {
             begin_timestamp: begin_timestamp_raw,
@@ -144,7 +153,7 @@ impl UnresolvedSamples {
         self.add_sample(
             thread_handle,
             begin_timestamp,
-            begin_timestamp_raw,
+            stack_timestamp_mono,
             off_cpu_stack,
             cpu_delta,
             off_cpu_weight_per_sample,
@@ -157,7 +166,7 @@ impl UnresolvedSamples {
             self.add_sample(
                 thread_handle,
                 end_timestamp,
-                end_timestamp_raw,
+                stack_timestamp_mono,
                 off_cpu_stack,
                 CpuDelta::ZERO,
                 weight,

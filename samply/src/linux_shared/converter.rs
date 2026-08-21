@@ -10,7 +10,7 @@ use fxprof_processed_profile::{
     Category, CategoryColor, CategoryHandle, CpuDelta, FrameFlags, LibraryHandle, LibraryInfo,
     Marker, MarkerField, MarkerTiming, PlatformSpecificReferenceTimestamp, Profile,
     ReferenceTimestamp, SamplingInterval, Schema, SourceLocation, StringHandle, SubcategoryHandle,
-    SymbolTable, ThreadHandle,
+    SymbolTable,
 };
 use linux_perf_data::linux_perf_event_reader::TaskWasPreempted;
 use linux_perf_data::simpleperf_dso_type::{DSO_DEX_FILE, DSO_KERNEL, DSO_KERNEL_MODULE};
@@ -41,7 +41,7 @@ use super::processes::Processes;
 use super::rss_stat::{RssStat, MM_ANONPAGES, MM_FILEPAGES, MM_SHMEMPAGES, MM_SWAPENTS};
 use super::svma_file_range::compute_vma_bias;
 use super::vdso::VdsoObject;
-use crate::shared::context_switch::{ContextSwitchHandler, OffCpuSampleGroup};
+use crate::shared::context_switch::ContextSwitchHandler;
 use crate::shared::jit_category_manager::JitCategoryManager;
 use crate::shared::lib_mappings::{AndroidArtInfo, LibMappingInfo};
 use crate::shared::per_cpu::Cpus;
@@ -54,9 +54,7 @@ use crate::shared::prop_types::ProfileCreationProps;
 use crate::shared::synthetic_jit_library::SyntheticJitLibrary;
 use crate::shared::timestamp_converter::TimestampConverter;
 use crate::shared::types::{StackFrame, StackMode};
-use crate::shared::unresolved_samples::{
-    UnresolvedSamples, UnresolvedStackHandle, UnresolvedStacks,
-};
+use crate::shared::unresolved_samples::{UnresolvedStackHandle, UnresolvedStacks};
 use crate::shared::utils::open_file_with_fallback;
 
 const PROT_EXEC: u32 = 0b100;
@@ -295,14 +293,16 @@ where
             let cpu_delta_ns = self
                 .context_switch_handler
                 .consume_cpu_delta(&mut thread.context_switch_data);
-            process_off_cpu_sample_group(
+            // The stack was saved at switch-out, i.e. at the start of the range.
+            let stack_timestamp_mono = off_cpu_sample.begin_timestamp;
+            process.unresolved_samples.add_off_cpu_sample_group(
                 off_cpu_sample,
                 thread_handle,
-                cpu_delta_ns,
+                CpuDelta::from_nanos(cpu_delta_ns),
                 &self.timestamp_converter,
                 self.off_cpu_weight_per_sample,
                 off_cpu_stack,
-                &mut process.unresolved_samples,
+                stack_timestamp_mono,
             );
         }
 
@@ -872,14 +872,17 @@ where
                     let cpu_delta_ns = self
                         .context_switch_handler
                         .consume_cpu_delta(&mut thread.context_switch_data);
-                    process_off_cpu_sample_group(
+                    let thread_handle = thread.profile_thread;
+                    // The stack was saved at switch-out, i.e. at the start of the range.
+                    let stack_timestamp_mono = off_cpu_sample.begin_timestamp;
+                    process.unresolved_samples.add_off_cpu_sample_group(
                         off_cpu_sample,
-                        thread.profile_thread,
-                        cpu_delta_ns,
+                        thread_handle,
+                        CpuDelta::from_nanos(cpu_delta_ns),
                         &self.timestamp_converter,
                         self.off_cpu_weight_per_sample,
                         off_cpu_stack,
-                        &mut process.unresolved_samples,
+                        stack_timestamp_mono,
                     );
                 }
                 if let (Some(cpus), Some(cpu_index)) = (&mut self.cpus, common.cpu) {
@@ -1816,54 +1819,6 @@ impl SimpleperfSymbolTables {
 //     let file = object::File::parse(&data[..]).unwrap();
 //     dbg!(jit_function_name(&file));
 // }
-
-fn process_off_cpu_sample_group(
-    off_cpu_sample: OffCpuSampleGroup,
-    thread_handle: ThreadHandle,
-    cpu_delta_ns: u64,
-    timestamp_converter: &TimestampConverter,
-    off_cpu_weight_per_sample: i32,
-    off_cpu_stack: UnresolvedStackHandle,
-    samples: &mut UnresolvedSamples,
-) {
-    let OffCpuSampleGroup {
-        begin_timestamp,
-        end_timestamp,
-        sample_count,
-    } = off_cpu_sample;
-
-    // Add a sample at the beginning of the paused range.
-    // This "first sample" will carry any leftover accumulated running time ("cpu delta").
-    let cpu_delta = CpuDelta::from_nanos(cpu_delta_ns);
-    let weight = off_cpu_weight_per_sample;
-    let stack = off_cpu_stack;
-    let profile_timestamp = timestamp_converter.convert_time(begin_timestamp);
-    samples.add_sample(
-        thread_handle,
-        profile_timestamp,
-        begin_timestamp,
-        stack,
-        cpu_delta,
-        weight,
-        None,
-    );
-
-    if sample_count > 1 {
-        // Emit a "rest sample" with a CPU delta of zero covering the rest of the paused range.
-        let cpu_delta = CpuDelta::from_nanos(0);
-        let weight = i32::try_from(sample_count - 1).unwrap_or(0) * off_cpu_weight_per_sample;
-        let profile_timestamp = timestamp_converter.convert_time(end_timestamp);
-        samples.add_sample(
-            thread_handle,
-            profile_timestamp,
-            begin_timestamp,
-            stack,
-            cpu_delta,
-            weight,
-            None,
-        );
-    }
-}
 
 /// Returns true for paths such as the following:
 ///  - "/data/local/tmp/perf.data_jit_app_cache:1039560-1040440"
