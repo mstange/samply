@@ -144,7 +144,7 @@ expression: profile_as_json_value(&profile)
     "interval": 1,
     "markerSchema": [],
     "pausedRanges": [],
-    "preprocessedProfileVersion": 68,
+    "preprocessedProfileVersion": 70,
     "processType": 0,
     "product": "test",
     "sampleUnits": {
@@ -169,6 +169,7 @@ expression: profile_as_json_value(&profile)
       "inlineDepth": [],
       "innerWindowID": [],
       "length": 0,
+      "lib": [],
       "line": [],
       "nativeSymbol": [],
       "originalLocation": [],
@@ -195,7 +196,6 @@ expression: profile_as_json_value(&profile)
     "resourceTable": {
       "host": [],
       "length": 0,
-      "lib": [],
       "name": [],
       "type": []
     },

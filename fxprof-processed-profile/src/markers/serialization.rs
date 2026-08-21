@@ -43,6 +43,9 @@ pub(super) fn write_schema_display<W: Write>(
         if locations.contains(MarkerLocations::TIMELINE_FILEIO) {
             w.string_value("timeline-fileio")?;
         }
+        if locations.contains(MarkerLocations::TIMELINE_NETWORK) {
+            w.string_value("timeline-network")?;
+        }
         Ok(())
     })
 }

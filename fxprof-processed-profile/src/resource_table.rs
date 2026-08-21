@@ -7,18 +7,15 @@ use crate::writer::Writer;
 
 #[derive(Debug, Clone, Default)]
 pub struct ResourceTable {
-    resource_libs: Vec<GlobalLibIndex>,
     resource_names: Vec<StringHandle>,
     lib_to_resource: FastHashMap<GlobalLibIndex, ResourceIndex>,
 }
 
 impl ResourceTable {
     pub fn resource_for_lib(&mut self, lib_index: GlobalLibIndex) -> ResourceIndex {
-        let resource_libs = &mut self.resource_libs;
         let resource_names = &mut self.resource_names;
         *self.lib_to_resource.entry(lib_index).or_insert_with(|| {
-            let resource = ResourceIndex(resource_libs.len() as u32);
-            resource_libs.push(lib_index);
+            let resource = ResourceIndex(resource_names.len() as u32);
             resource_names.push(lib_index.name_string_index());
             resource
         })
@@ -26,17 +23,10 @@ impl ResourceTable {
 
     pub(crate) fn write_json<W: Write>(&self, w: &mut Writer<W>) -> std::io::Result<()> {
         const RESOURCE_TYPE_LIB: u32 = 1;
-        let len = self.resource_libs.len();
+        let len = self.resource_names.len();
         w.object(|w| {
             w.name("length")?;
             w.number_value(len)?;
-            w.name("lib")?;
-            w.array(|w| {
-                for lib in &self.resource_libs {
-                    lib.write_json(w)?;
-                }
-                Ok(())
-            })?;
             w.name("name")?;
             w.array(|w| {
                 for name in &self.resource_names {

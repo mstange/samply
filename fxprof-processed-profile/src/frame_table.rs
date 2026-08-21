@@ -72,6 +72,7 @@ impl FrameInterner {
         let mut line_col = Vec::with_capacity(len);
         let mut column_col = Vec::with_capacity(len);
         let mut address_col = Vec::with_capacity(len);
+        let mut lib_col = Vec::with_capacity(len);
         let mut native_symbol_col = Vec::with_capacity(len);
         let mut inline_depth_col = Vec::with_capacity(len);
 
@@ -93,16 +94,18 @@ impl FrameInterner {
             match frame.variant {
                 InternalFrameVariant::Label => {
                     address_col.push(-1);
+                    lib_col.push(-1);
                     native_symbol_col.push(None);
                     inline_depth_col.push(0);
                 }
                 InternalFrameVariant::Native(NativeFrameData {
+                    lib,
                     native_symbol,
                     relative_address,
                     inline_depth,
-                    ..
                 }) => {
                     address_col.push(relative_address as i32);
+                    lib_col.push(lib.as_i32());
                     native_symbol_col.push(native_symbol);
                     inline_depth_col.push(inline_depth.min(u8::MAX as u16) as u8);
                 }
@@ -116,6 +119,7 @@ impl FrameInterner {
             line_col,
             column_col,
             address_col,
+            lib_col,
             native_symbol_col,
             inline_depth_col,
         };
@@ -136,6 +140,7 @@ pub struct FrameTable {
     line_col: Vec<Option<u32>>,
     column_col: Vec<Option<u32>>,
     address_col: Vec<i32>, // relative address, `-1` if None
+    lib_col: Vec<i32>,     // GlobalLibIndex, `-1` if None
     native_symbol_col: Vec<Option<NativeSymbolIndex>>,
     inline_depth_col: Vec<u8>,
 }
@@ -171,6 +176,8 @@ impl FrameTable {
             w.optional_number_array(&self.column_col)?;
             w.name("address")?;
             w.i32_array(&self.address_col)?;
+            w.name("lib")?;
+            w.i32_array(&self.lib_col)?;
             w.name("nativeSymbol")?;
             w.array(|w| {
                 for n in &self.native_symbol_col {

@@ -170,7 +170,7 @@ expression: profile_as_json_value(&profile)
     ],
     "oscpu": "macOS 14.4",
     "pausedRanges": [],
-    "preprocessedProfileVersion": 68,
+    "preprocessedProfileVersion": 70,
     "processType": 0,
     "product": "test",
     "sampleUnits": {
@@ -297,6 +297,24 @@ expression: profile_as_json_value(&profile)
         0
       ],
       "length": 16,
+      "lib": [
+        -1,
+        0,
+        0,
+        0,
+        0,
+        0,
+        1,
+        1,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        1
+      ],
       "line": [
         null,
         null,
@@ -546,10 +564,6 @@ expression: profile_as_json_value(&profile)
         null
       ],
       "length": 2,
-      "lib": [
-        0,
-        1
-      ],
       "name": [
         1,
         7

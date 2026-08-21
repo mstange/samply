@@ -1506,7 +1506,7 @@ impl Profile {
             w.name("interval")?;
             w.fp(self.interval.as_secs_f64() * 1000.0)?;
             w.name("preprocessedProfileVersion")?;
-            w.number_value(68u32)?;
+            w.number_value(70u32)?;
             w.name("processType")?;
             w.number_value(0u32)?;
             w.name("product")?;
