@@ -30,7 +30,7 @@ use crate::{
     SyncAddressInfo,
 };
 
-enum FullSymbolListEntry<'a> {
+enum FullSymbolListEntry {
     /// A synthesized symbol for a function start address that's known
     /// from some other information (not from the symbol table).
     Synthesized,
@@ -38,16 +38,16 @@ enum FullSymbolListEntry<'a> {
     SynthesizedEntryPoint,
     /// A symbol from the object's list of symbols or dynamic symbols.
     Symbol,
-    Export(Cow<'a, [u8]>),
+    Export,
     PltStub(String),
     EndAddress,
 }
 
-impl<'a> FullSymbolListEntry<'a> {
+impl FullSymbolListEntry {
     fn counts_as_proper_symbol(&self) -> bool {
         match self {
             FullSymbolListEntry::Symbol
-            | FullSymbolListEntry::Export(_)
+            | FullSymbolListEntry::Export
             | FullSymbolListEntry::PltStub(_) => true,
             FullSymbolListEntry::EndAddress
             | FullSymbolListEntry::Synthesized
@@ -143,17 +143,19 @@ where
 }
 
 struct SymbolList<'a, Symbol> {
-    entries: Vec<(u32, FullSymbolListEntry<'a>)>,
+    entries: Vec<(u32, FullSymbolListEntry)>,
     /// Any symbols for which there exists a FullSymbolListEntry::Symbol,
     /// ordered by symbol.address()
     object_symbols: Vec<Symbol>,
+
+    exports: Vec<(u32, Cow<'a, [u8]>)>,
     /// The address that relative addresses are relative to.
     base_address: u64,
 }
 
 impl<'a, Symbol: object::ObjectSymbol<'a>> SymbolList<'a, Symbol> {
     fn add_elf_plt_symbols<'file, O>(
-        entries: &mut Vec<(u32, FullSymbolListEntry<'a>)>,
+        entries: &mut Vec<(u32, FullSymbolListEntry)>,
         object_file: &'file O,
         base_address: u64,
     ) where
@@ -280,19 +282,27 @@ impl<'a, Symbol: object::ObjectSymbol<'a>> SymbolList<'a, Symbol> {
         Self::add_elf_plt_symbols(&mut entries, object_file, base_address);
 
         // 3. Exports (only used by exe / dll objects)
-        if let Ok(exports) = object_file.exports() {
-            entries.extend(exports.map_while(Result::ok).filter_map(|export| {
-                let object::ExportTarget::Address { address } = export.target() else {
-                    return None;
-                };
-                let object::NameOrOrdinal::Name(name) = export.into_name() else {
-                    return None;
-                };
-                Some((
-                    u32::try_from(address.checked_sub(base_address)?).ok()?,
-                    FullSymbolListEntry::Export(name),
-                ))
-            }));
+        let mut exports = Vec::new();
+        if let Ok(object_exports) = object_file.exports() {
+            exports = object_exports
+                .filter_map(|export| {
+                    let export = export.ok()?;
+                    let object::ExportTarget::Address { address } = export.target() else {
+                        return None;
+                    };
+                    let object::NameOrOrdinal::Name(name) = export.into_name() else {
+                        return None;
+                    };
+                    let rel_addr = u32::try_from(address.checked_sub(base_address)?).ok()?;
+                    Some((rel_addr, name))
+                })
+                .collect();
+            exports.sort_by_key(|(addr, _)| *addr);
+            entries.extend(
+                exports
+                    .iter()
+                    .map(|(addr, _)| (*addr, FullSymbolListEntry::Export)),
+            );
         }
 
         // 4. Placeholder symbols based on function start addresses
@@ -380,6 +390,7 @@ impl<'a, Symbol: object::ObjectSymbol<'a>> SymbolList<'a, Symbol> {
         Self {
             entries,
             object_symbols,
+            exports,
             base_address,
         }
     }
@@ -387,7 +398,7 @@ impl<'a, Symbol: object::ObjectSymbol<'a>> SymbolList<'a, Symbol> {
     /// Called when we've already know the symbol exists at this address
     fn name_for_symbol_at_relative_addr<'s>(
         &'s self,
-        symbol: &'s FullSymbolListEntry<'a>,
+        symbol: &'s FullSymbolListEntry,
         addr: u32,
     ) -> Option<Cow<'s, str>> {
         let name = match symbol {
@@ -403,7 +414,14 @@ impl<'a, Symbol: object::ObjectSymbol<'a>> SymbolList<'a, Symbol> {
                 let symbol = &self.object_symbols[sym_index];
                 String::from_utf8_lossy(symbol.name_bytes().ok()?)
             }
-            FullSymbolListEntry::Export(name) => String::from_utf8_lossy(name),
+            FullSymbolListEntry::Export => {
+                let export_index = self
+                    .exports
+                    .binary_search_by_key(&addr, |(addr, _)| *addr)
+                    .unwrap();
+                let (_addr, export_name) = &self.exports[export_index];
+                String::from_utf8_lossy(export_name)
+            }
             FullSymbolListEntry::PltStub(name) => Cow::Borrowed(name.as_str()),
         };
         Some(name)
@@ -899,7 +917,7 @@ where
 }
 
 pub struct SymbolMapIter<'data, 'map, Symbol: object::ObjectSymbol<'data>> {
-    inner: slice::Iter<'map, (u32, FullSymbolListEntry<'data>)>,
+    inner: slice::Iter<'map, (u32, FullSymbolListEntry)>,
     list: &'map SymbolList<'data, Symbol>,
 }
 
