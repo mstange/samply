@@ -1,6 +1,5 @@
 use std::borrow::Cow;
 use std::marker::PhantomData;
-use std::slice;
 use std::sync::{Arc, Mutex};
 
 use addr2line::{LookupResult, SplitDwarfLoad};
@@ -145,7 +144,8 @@ where
 }
 
 struct SymbolList<'a, Symbol> {
-    entries: Vec<(u32, FullSymbolListEntry)>,
+    addr_col: Vec<u32>,
+    entry_col: Vec<FullSymbolListEntry>,
     /// Any symbols for which there exists a FullSymbolListEntry::Symbol,
     /// ordered by symbol.address()
     object_symbols: Vec<Symbol>,
@@ -385,8 +385,16 @@ impl<'a, Symbol: object::ObjectSymbol<'a>> SymbolList<'a, Symbol> {
         entries.sort_by_key(|(address, _)| *address);
         entries.dedup_by_key(|(address, _)| *address);
 
+        let mut addr_col = Vec::with_capacity(entries.len());
+        let mut entry_col = Vec::with_capacity(entries.len());
+        for (addr, entry) in entries {
+            addr_col.push(addr);
+            entry_col.push(entry);
+        }
+
         Self {
-            entries,
+            addr_col,
+            entry_col,
             object_symbols,
             exports,
             plt_symbols,
@@ -435,25 +443,23 @@ impl<'a, Symbol: object::ObjectSymbol<'a>> SymbolList<'a, Symbol> {
     }
 
     pub fn lookup_relative_address(&self, address: u32) -> Option<(u32, u32, Cow<'_, str>)> {
-        let index = match self
-            .entries
-            .binary_search_by_key(&address, |&(addr, _)| addr)
-        {
+        let index = match self.addr_col.binary_search(&address) {
             Err(0) => return None,
             Ok(i) => i,
             Err(i) => i - 1,
         };
-        let (start_addr, entry) = &self.entries[index];
-        let (end_addr, _next_entry) = self.entries.get(index + 1)?;
+        let start_addr = self.addr_col[index];
+        let entry = &self.entry_col[index];
+        let end_addr = *self.addr_col.get(index + 1)?;
         let name = match entry {
             FullSymbolListEntry::EndAddress => {
                 // If the found entry is an EndAddress entry, this means that `address` falls
                 // in the dead space between known functions, and we consider it to be not found.
                 return None;
             }
-            _ => self.name_for_symbol_at_relative_addr(entry, *start_addr)?,
+            _ => self.name_for_symbol_at_relative_addr(entry, start_addr)?,
         };
-        Some((*start_addr, *end_addr, name))
+        Some((start_addr, end_addr, name))
     }
 }
 
@@ -804,14 +810,14 @@ where
     }
 
     fn symbol_count(&self) -> usize {
-        let iter = self.list.entries.iter();
-        iter.filter(|&(_, entry)| entry.counts_as_proper_symbol())
-            .count()
+        let iter = self.list.entry_col.iter();
+        iter.filter(|entry| entry.counts_as_proper_symbol()).count()
     }
 
     fn iter_symbols(&self) -> Box<dyn Iterator<Item = (u32, Cow<'_, str>)> + '_> {
         Box::new(SymbolMapIter {
-            inner: self.list.entries.iter(),
+            i: 0,
+            len: self.list.addr_col.len(),
             list: &self.list,
         })
     }
@@ -924,7 +930,8 @@ where
 }
 
 pub struct SymbolMapIter<'data, 'map, Symbol: object::ObjectSymbol<'data>> {
-    inner: slice::Iter<'map, (u32, FullSymbolListEntry)>,
+    i: usize,
+    len: usize,
     list: &'map SymbolList<'data, Symbol>,
 }
 
@@ -935,11 +942,17 @@ impl<'data, 'map, Symbol: object::ObjectSymbol<'data>> Iterator
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {
-            let (address, entry) = self.inner.next()?;
-            let Some(name) = self.list.name_for_symbol_at_relative_addr(entry, *address) else {
+            let index = self.i;
+            if index >= self.len {
+                return None;
+            }
+            self.i += 1;
+            let address = self.list.addr_col[index];
+            let entry = &self.list.entry_col[index];
+            let Some(name) = self.list.name_for_symbol_at_relative_addr(entry, address) else {
                 continue;
             };
-            return Some((*address, name));
+            return Some((address, name));
         }
     }
 }
