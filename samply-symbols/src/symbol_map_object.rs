@@ -39,7 +39,8 @@ enum FullSymbolListEntry {
     /// A symbol from the object's list of symbols or dynamic symbols.
     Symbol,
     Export,
-    PltStub(String),
+    PltHeader,
+    PltStub,
     EndAddress,
 }
 
@@ -48,7 +49,8 @@ impl FullSymbolListEntry {
         match self {
             FullSymbolListEntry::Symbol
             | FullSymbolListEntry::Export
-            | FullSymbolListEntry::PltStub(_) => true,
+            | FullSymbolListEntry::PltHeader
+            | FullSymbolListEntry::PltStub => true,
             FullSymbolListEntry::EndAddress
             | FullSymbolListEntry::Synthesized
             | FullSymbolListEntry::SynthesizedEntryPoint => false,
@@ -147,8 +149,8 @@ struct SymbolList<'a, Symbol> {
     /// Any symbols for which there exists a FullSymbolListEntry::Symbol,
     /// ordered by symbol.address()
     object_symbols: Vec<Symbol>,
-
     exports: Vec<(u32, Cow<'a, [u8]>)>,
+    plt_symbols: Vec<(u32, String)>,
     /// The address that relative addresses are relative to.
     base_address: u64,
 }
@@ -158,22 +160,17 @@ impl<'a, Symbol: object::ObjectSymbol<'a>> SymbolList<'a, Symbol> {
         entries: &mut Vec<(u32, FullSymbolListEntry)>,
         object_file: &'file O,
         base_address: u64,
-    ) where
+    ) -> Option<Vec<(u32, String)>>
+    where
         'a: 'file,
         O: object::Object<'a, Symbol<'file> = Symbol>,
     {
-        let Some(plt_info) = ElfPltInfo::for_object(object_file) else {
-            return;
-        };
-        let Some(dynamic_relocations) = object_file.dynamic_relocations() else {
-            return;
-        };
+        let plt_info = ElfPltInfo::for_object(object_file)?;
+        let dynamic_relocations = object_file.dynamic_relocations()?;
 
+        let mut plt_symbols = Vec::new();
         if let Some(header_rel) = plt_info.header_relative_address(base_address) {
-            entries.push((
-                header_rel,
-                FullSymbolListEntry::PltStub("<PLT header>".to_owned()),
-            ));
+            entries.push((header_rel, FullSymbolListEntry::PltHeader));
         }
 
         let dynsym_table = object_file.dynamic_symbol_table();
@@ -187,11 +184,11 @@ impl<'a, Symbol: object::ObjectSymbol<'a>> SymbolList<'a, Symbol> {
             let Some(symbol_name) = dynamic_symbol_name(dynsym_table.as_ref(), symbol_index) else {
                 continue;
             };
-            entries.push((
-                plt_rel,
-                FullSymbolListEntry::PltStub(format!("{symbol_name}@plt")),
-            ));
+            plt_symbols.push((plt_rel, format!("{symbol_name}@plt")));
+            entries.push((plt_rel, FullSymbolListEntry::PltStub));
         }
+        plt_symbols.sort_by_key(|(addr, _)| *addr);
+        Some(plt_symbols)
     }
 
     pub fn new<'file, O>(
@@ -279,7 +276,8 @@ impl<'a, Symbol: object::ObjectSymbol<'a>> SymbolList<'a, Symbol> {
         // PLT stubs can have unwind info but no symbol table entry at the stub address,
         // which makes them show up as "fun_XXXX". Derive their names from .got.plt
         // dynamic relocations instead.
-        Self::add_elf_plt_symbols(&mut entries, object_file, base_address);
+        let plt_symbols =
+            Self::add_elf_plt_symbols(&mut entries, object_file, base_address).unwrap_or_default();
 
         // 3. Exports (only used by exe / dll objects)
         let mut exports = Vec::new();
@@ -391,6 +389,7 @@ impl<'a, Symbol: object::ObjectSymbol<'a>> SymbolList<'a, Symbol> {
             entries,
             object_symbols,
             exports,
+            plt_symbols,
             base_address,
         }
     }
@@ -422,7 +421,15 @@ impl<'a, Symbol: object::ObjectSymbol<'a>> SymbolList<'a, Symbol> {
                 let (_addr, export_name) = &self.exports[export_index];
                 String::from_utf8_lossy(export_name)
             }
-            FullSymbolListEntry::PltStub(name) => Cow::Borrowed(name.as_str()),
+            FullSymbolListEntry::PltHeader => "<PLT header>".into(),
+            FullSymbolListEntry::PltStub => {
+                let index = self
+                    .plt_symbols
+                    .binary_search_by_key(&addr, |(addr, _)| *addr)
+                    .unwrap();
+                let (_addr, name) = &self.plt_symbols[index];
+                Cow::Borrowed(name.as_str())
+            }
         };
         Some(name)
     }
