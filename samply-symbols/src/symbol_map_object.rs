@@ -30,55 +30,23 @@ use crate::{
     SyncAddressInfo,
 };
 
-enum FullSymbolListEntry<'a, Symbol> {
+enum FullSymbolListEntry<'a> {
     /// A synthesized symbol for a function start address that's known
     /// from some other information (not from the symbol table).
     Synthesized,
     /// A synthesized symbol for the entry point of the object.
     SynthesizedEntryPoint,
-    Symbol(Symbol),
+    /// A symbol from the object's list of symbols or dynamic symbols.
+    Symbol,
     Export(Cow<'a, [u8]>),
     PltStub(String),
     EndAddress,
 }
 
-impl<'a, Symbol: object::ObjectSymbol<'a>> std::fmt::Debug for FullSymbolListEntry<'a, Symbol> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Synthesized => write!(f, "Synthesized"),
-            Self::SynthesizedEntryPoint => write!(f, "SynthesizedEntryPoint"),
-            Self::Symbol(arg0) => f
-                .debug_tuple("Symbol")
-                .field(&arg0.name().unwrap())
-                .finish(),
-            Self::Export(arg0) => f
-                .debug_tuple("Export")
-                .field(&std::str::from_utf8(arg0).unwrap())
-                .finish(),
-            Self::PltStub(arg0) => f.debug_tuple("PltStub").field(arg0).finish(),
-            Self::EndAddress => write!(f, "EndAddress"),
-        }
-    }
-}
-
-impl<'a, Symbol: object::ObjectSymbol<'a>> FullSymbolListEntry<'a, Symbol> {
-    fn name(&self, addr: u32) -> Option<Cow<'_, str>> {
-        let name = match self {
-            FullSymbolListEntry::EndAddress => return None,
-            FullSymbolListEntry::Synthesized => format!("fun_{addr:x}").into(),
-            FullSymbolListEntry::SynthesizedEntryPoint => "EntryPoint".into(),
-            FullSymbolListEntry::Symbol(symbol) => {
-                String::from_utf8_lossy(symbol.name_bytes().ok()?)
-            }
-            FullSymbolListEntry::Export(name) => String::from_utf8_lossy(name),
-            FullSymbolListEntry::PltStub(name) => Cow::Borrowed(name.as_str()),
-        };
-        Some(name)
-    }
-
+impl<'a> FullSymbolListEntry<'a> {
     fn counts_as_proper_symbol(&self) -> bool {
         match self {
-            FullSymbolListEntry::Symbol(_)
+            FullSymbolListEntry::Symbol
             | FullSymbolListEntry::Export(_)
             | FullSymbolListEntry::PltStub(_) => true,
             FullSymbolListEntry::EndAddress
@@ -175,12 +143,17 @@ where
 }
 
 struct SymbolList<'a, Symbol> {
-    entries: Vec<(u32, FullSymbolListEntry<'a, Symbol>)>,
+    entries: Vec<(u32, FullSymbolListEntry<'a>)>,
+    /// Any symbols for which there exists a FullSymbolListEntry::Symbol,
+    /// ordered by symbol.address()
+    object_symbols: Vec<Symbol>,
+    /// The address that relative addresses are relative to.
+    base_address: u64,
 }
 
-impl<'a, Symbol: object::ObjectSymbol<'a> + 'a> SymbolList<'a, Symbol> {
+impl<'a, Symbol: object::ObjectSymbol<'a>> SymbolList<'a, Symbol> {
     fn add_elf_plt_symbols<'file, O>(
-        entries: &mut Vec<(u32, FullSymbolListEntry<'a, Symbol>)>,
+        entries: &mut Vec<(u32, FullSymbolListEntry<'a>)>,
         object_file: &'file O,
         base_address: u64,
     ) where
@@ -251,53 +224,53 @@ impl<'a, Symbol: object::ObjectSymbol<'a> + 'a> SymbolList<'a, Symbol> {
 
         // 1. Normal symbols
         // 2. Dynamic symbols (only used by ELF files, I think)
-        entries.extend(
-            object_file
-                .symbols()
-                .chain(object_file.dynamic_symbols())
-                .filter(|symbol| {
-                    // Filter out symbols with no address.
-                    if symbol.address() == 0 {
-                        return false;
-                    }
+        let mut object_symbols: Vec<Symbol> = object_file
+            .symbols()
+            .chain(object_file.dynamic_symbols())
+            .filter(|symbol| {
+                // Filter out symbols with no address or before our base address.
+                if symbol.address() == 0 || symbol.address() < base_address {
+                    return false;
+                }
 
-                    // Filter out symbols from non-executable sections.
-                    let in_executable_section = match symbol.section_index() {
-                        Some(section_index) => executable_sections.contains(&section_index),
-                        None => false,
-                    };
-                    if !in_executable_section {
-                        return false;
-                    }
+                // Filter out symbols from non-executable sections.
+                let in_executable_section = match symbol.section_index() {
+                    Some(section_index) => executable_sections.contains(&section_index),
+                    None => false,
+                };
+                if !in_executable_section {
+                    return false;
+                }
 
-                    // Filter out non-Text symbols which don't have a symbol size.
-                    match symbol.kind() {
-                        SymbolKind::Text => {
-                            // Keep. This is a regular function symbol. On mach-O these don't have sizes.
-                        }
-                        SymbolKind::Label if symbol.size() != 0 => {
-                            // Keep. This catches some useful kernel symbols, e.g. asm_exc_page_fault,
-                            // which is a NOTYPE symbol (= SymbolKind::Label).
-                            //
-                            // We require a non-zero symbol size in this case, in order to filter out some
-                            // bad symbols in the middle of functions. For example, the android32-local/libmozglue.so
-                            // fixture has a NOTYPE symbol with zero size at 0x9850f.
-                        }
-                        SymbolKind::Unknown if allow_unknown_kind => {
-                            // On mach-O __TEXT,__objc_stubs etc. can be reported as Unknown
-                        }
-                        _ => return false, // Cull.
+                // Filter out non-Text symbols which don't have a symbol size.
+                match symbol.kind() {
+                    SymbolKind::Text => {
+                        // Keep. This is a regular function symbol. On mach-O these don't have sizes.
                     }
+                    SymbolKind::Label if symbol.size() != 0 => {
+                        // Keep. This catches some useful kernel symbols, e.g. asm_exc_page_fault,
+                        // which is a NOTYPE symbol (= SymbolKind::Label).
+                        //
+                        // We require a non-zero symbol size in this case, in order to filter out some
+                        // bad symbols in the middle of functions. For example, the android32-local/libmozglue.so
+                        // fixture has a NOTYPE symbol with zero size at 0x9850f.
+                    }
+                    SymbolKind::Unknown if allow_unknown_kind => {
+                        // On mach-O __TEXT,__objc_stubs etc. can be reported as Unknown
+                    }
+                    _ => return false, // Cull.
+                }
 
-                    true
-                })
-                .filter_map(|symbol| {
-                    Some((
-                        u32::try_from(symbol.address().checked_sub(base_address)?).ok()?,
-                        FullSymbolListEntry::Symbol(symbol),
-                    ))
-                }),
-        );
+                true
+            })
+            .collect();
+        object_symbols.sort_by_key(|s| s.address());
+        entries.extend(object_symbols.iter().map(|symbol| {
+            (
+                (symbol.address() - base_address) as u32,
+                FullSymbolListEntry::Symbol,
+            )
+        }));
 
         // PLT stub symbols for ELF.
         //
@@ -404,7 +377,36 @@ impl<'a, Symbol: object::ObjectSymbol<'a> + 'a> SymbolList<'a, Symbol> {
         entries.sort_by_key(|(address, _)| *address);
         entries.dedup_by_key(|(address, _)| *address);
 
-        Self { entries }
+        Self {
+            entries,
+            object_symbols,
+            base_address,
+        }
+    }
+
+    /// Called when we've already know the symbol exists at this address
+    fn name_for_symbol_at_relative_addr<'s>(
+        &'s self,
+        symbol: &'s FullSymbolListEntry<'a>,
+        addr: u32,
+    ) -> Option<Cow<'s, str>> {
+        let name = match symbol {
+            FullSymbolListEntry::EndAddress => return None,
+            FullSymbolListEntry::Synthesized => format!("fun_{addr:x}").into(),
+            FullSymbolListEntry::SynthesizedEntryPoint => "EntryPoint".into(),
+            FullSymbolListEntry::Symbol => {
+                let svma = self.base_address + addr as u64;
+                let sym_index = self
+                    .object_symbols
+                    .binary_search_by_key(&svma, |s| s.address())
+                    .unwrap();
+                let symbol = &self.object_symbols[sym_index];
+                String::from_utf8_lossy(symbol.name_bytes().ok()?)
+            }
+            FullSymbolListEntry::Export(name) => String::from_utf8_lossy(name),
+            FullSymbolListEntry::PltStub(name) => Cow::Borrowed(name.as_str()),
+        };
+        Some(name)
     }
 
     pub fn lookup_relative_address(&self, address: u32) -> Option<(u32, u32, Cow<'_, str>)> {
@@ -424,7 +426,7 @@ impl<'a, Symbol: object::ObjectSymbol<'a> + 'a> SymbolList<'a, Symbol> {
                 // in the dead space between known functions, and we consider it to be not found.
                 return None;
             }
-            _ => entry.name(*start_addr)?,
+            _ => self.name_for_symbol_at_relative_addr(entry, *start_addr)?,
         };
         Some((*start_addr, *end_addr, name))
     }
@@ -785,6 +787,7 @@ where
     fn iter_symbols(&self) -> Box<dyn Iterator<Item = (u32, Cow<'_, str>)> + '_> {
         Box::new(SymbolMapIter {
             inner: self.list.entries.iter(),
+            list: &self.list,
         })
     }
 
@@ -896,7 +899,8 @@ where
 }
 
 pub struct SymbolMapIter<'data, 'map, Symbol: object::ObjectSymbol<'data>> {
-    inner: slice::Iter<'map, (u32, FullSymbolListEntry<'data, Symbol>)>,
+    inner: slice::Iter<'map, (u32, FullSymbolListEntry<'data>)>,
+    list: &'map SymbolList<'data, Symbol>,
 }
 
 impl<'data, 'map, Symbol: object::ObjectSymbol<'data>> Iterator
@@ -907,7 +911,7 @@ impl<'data, 'map, Symbol: object::ObjectSymbol<'data>> Iterator
     fn next(&mut self) -> Option<Self::Item> {
         loop {
             let (address, entry) = self.inner.next()?;
-            let Some(name) = entry.name(*address) else {
+            let Some(name) = self.list.name_for_symbol_at_relative_addr(entry, *address) else {
                 continue;
             };
             return Some((*address, name));
