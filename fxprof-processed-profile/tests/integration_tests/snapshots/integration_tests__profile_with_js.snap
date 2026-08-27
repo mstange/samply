@@ -33,7 +33,7 @@ expression: profile_as_json_value(&profile)
     "interval": 1,
     "markerSchema": [],
     "pausedRanges": [],
-    "preprocessedProfileVersion": 68,
+    "preprocessedProfileVersion": 70,
     "processType": 0,
     "product": "test with js",
     "sampleUnits": {
@@ -76,6 +76,10 @@ expression: profile_as_json_value(&profile)
         0
       ],
       "length": 2,
+      "lib": [
+        -1,
+        -1
+      ],
       "line": [
         null,
         null
@@ -138,7 +142,6 @@ expression: profile_as_json_value(&profile)
     "resourceTable": {
       "host": [],
       "length": 0,
-      "lib": [],
       "name": [],
       "type": []
     },

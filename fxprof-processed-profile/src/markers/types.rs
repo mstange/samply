@@ -94,6 +94,8 @@ bitflags! {
         const TIMELINE_IPC = 1 << 4;
         /// This adds markers to the FileIO timeline area in the header.
         const TIMELINE_FILEIO = 1 << 5;
+        /// This adds markers to the Network track.
+        const TIMELINE_NETWORK = 1 << 6;
     }
 }
 

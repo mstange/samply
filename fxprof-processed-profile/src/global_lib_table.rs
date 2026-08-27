@@ -123,6 +123,10 @@ impl GlobalLibIndex {
         self.1
     }
 
+    pub(crate) fn as_i32(self) -> i32 {
+        self.0 as i32
+    }
+
     pub(crate) fn write_json<W: Write>(self, w: &mut Writer<W>) -> std::io::Result<()> {
         w.number_value(self.0 as u32)
     }
