@@ -33,8 +33,10 @@ pub fn parse_unk_size_null_utf16_string(v: &[u8]) -> String {
 
 pub fn parse_unk_size_null_unicode_size(v: &[u8]) -> usize {
     // TODO: Make sure is aligned
-    v.chunks_exact(2)
-        .take_while(|&a| a != [0, 0]) // Take until null terminator
+    v.as_chunks::<2>()
+        .0
+        .iter()
+        .take_while(|&&a| a != [0, 0]) // Take until null terminator
         .count()
         * 2
         + 2
@@ -42,9 +44,11 @@ pub fn parse_unk_size_null_unicode_size(v: &[u8]) -> usize {
 
 pub fn parse_unk_size_null_unicode_vec(v: &[u8]) -> Vec<u16> {
     // TODO: Make sure is aligned
-    v.chunks_exact(2)
-        .take_while(|&a| a != [0, 0]) // Take until null terminator
-        .map(|a| u16::from_ne_bytes([a[0], a[1]]))
+    v.as_chunks::<2>()
+        .0
+        .iter()
+        .take_while(|&&a| a != [0, 0]) // Take until null terminator
+        .map(|a| u16::from_ne_bytes(*a))
         .collect::<Vec<u16>>()
 }
 
@@ -64,8 +68,10 @@ pub fn parse_unk_size_null_ansi_vec(v: &[u8]) -> Vec<u8> {
 
 pub fn parse_null_utf16_string(v: &[u8]) -> String {
     String::from_utf16_lossy(
-        v.chunks_exact(2)
-            .map(|a| u16::from_ne_bytes([a[0], a[1]]))
+        v.as_chunks::<2>()
+            .0
+            .iter()
+            .map(|a| u16::from_ne_bytes(*a))
             .collect::<Vec<u16>>()
             .as_slice(),
     )
@@ -75,8 +81,10 @@ pub fn parse_null_utf16_string(v: &[u8]) -> String {
 
 pub fn parse_utf16_guid(v: &[u8]) -> String {
     String::from_utf16_lossy(
-        v.chunks_exact(2)
-            .map(|a| u16::from_ne_bytes([a[0], a[1]]))
+        v.as_chunks::<2>()
+            .0
+            .iter()
+            .map(|a| u16::from_ne_bytes(*a))
             .collect::<Vec<u16>>()
             .as_slice(),
     )

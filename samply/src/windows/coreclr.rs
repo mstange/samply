@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::convert::TryInto;
 use std::fmt::Display;
 
 use bitflags::bitflags;
@@ -506,9 +505,11 @@ pub fn handle_coreclr_event(
             // are in user data buffer.
             let first_addresses: Vec<u8> = parser.parse("Stack");
             let address_iter = first_addresses
-                .chunks_exact(8)
-                .chain(parser.buffer.chunks_exact(8))
-                .map(|chunk| u64::from_le_bytes(chunk.try_into().unwrap()));
+                .as_chunks::<8>()
+                .0
+                .iter()
+                .chain(parser.buffer.as_chunks::<8>().0)
+                .map(|chunk| u64::from_le_bytes(*chunk));
 
             context.handle_coreclr_stack(timestamp_raw, tid, address_iter, marker);
             handled = true;

@@ -194,8 +194,10 @@ fn process_trace(
                 let stack_len = parser.buffer.len() / 8;
                 let stack_address_iter = parser
                     .buffer
-                    .chunks_exact(8)
-                    .map(|a| u64::from_ne_bytes(a.try_into().unwrap()));
+                    .as_chunks::<8>()
+                    .0
+                    .iter()
+                    .map(|a| u64::from_ne_bytes(*a));
                 if is_arm64 {
                     context.handle_stack_arm64(
                         referenced_timestamp_raw,
