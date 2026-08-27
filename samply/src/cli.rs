@@ -5,6 +5,8 @@ use std::time::Duration;
 
 use clap::{Args, Parser, Subcommand, ValueEnum};
 
+use crate::shared::event_display::{validate_events_display, EventDisplaySelector};
+
 use super::cli_utils::{parse_time_range, split_at_first_equals};
 use super::server::{PortSelection, ServerProps};
 use super::shared::included_processes::IncludedProcesses;
@@ -90,6 +92,13 @@ pub struct ImportArgs {
 
     #[command(flatten)]
     pub profile_creation_args: ProfileCreationArgs,
+
+    /// By default, the first event in a profile file is used as the main event, and others are added as markers.
+    ///
+    /// This allows overriding the way events are displayed, choosing between markers, tracks,
+    /// or one of the alternative sampling metrics supported by firefox profiler.
+    #[arg(long, value_delimiter = ';', default_value = "#0=timing_data;*=marker")]
+    pub events_display: Vec<EventDisplaySelector>,
 
     /// Do not run a local server after recording.
     #[arg(short, long)]
@@ -376,8 +385,15 @@ impl ImportArgs {
     pub fn profile_creation_props(&self) -> ProfileCreationProps {
         let filename = self.file.file_name().unwrap_or(self.file.as_os_str());
         let fallback_profile_name = filename.to_string_lossy().into();
-        self.profile_creation_args
-            .profile_creation_props_with_fallback_name(fallback_profile_name)
+        let mut props = self
+            .profile_creation_args
+            .profile_creation_props_with_fallback_name(fallback_profile_name);
+        if let Err(msg) = validate_events_display(&self.events_display) {
+            eprintln!("{msg}");
+            std::process::exit(1);
+        }
+        props.events_display = dbg!(self.events_display.clone()); // override the default with the user-provided
+        props
     }
 
     // TODO: Use for perf.data import
@@ -537,6 +553,10 @@ impl ProfileCreationArgs {
             unknown_event_markers: self.unknown_event_markers,
             #[cfg(not(target_os = "windows"))]
             unknown_event_markers: false,
+            events_display: vec![
+                "#0=timing_data".parse().unwrap(),
+                "*=marker".parse().unwrap(),
+            ],
         }
     }
 }
@@ -617,5 +637,19 @@ mod test {
         // Make sure you can't pass both a pid and a command name at the same time.
         let opt_res = Opt::try_parse_from(["samply", "record", "-p", "1234", "rustup"]);
         assert!(opt_res.is_err());
+    }
+
+    #[test]
+    fn test_custom_events_override() {
+        let opt = Opt::parse_from([
+            "samply",
+            "import",
+            "--events-display",
+            "#0=timing_data;*foo=marker",
+            "/dev/null",
+        ]);
+        assert!(
+            matches!(opt.action, Action::Import(import_args) if import_args.events_display[0].selector.matches(0, "foo") && !import_args.events_display[1].selector.matches(1, "whatever"))
+        )
     }
 }

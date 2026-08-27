@@ -19,6 +19,7 @@ use crate::shared::process_sample_data::{MarkerSpanOnThread, ProcessSampleData};
 use crate::shared::recycling::{ProcessRecyclingData, ThreadRecycler};
 use crate::shared::synthetic_jit_library::SyntheticJitLibrary;
 use crate::shared::timestamp_converter::TimestampConverter;
+use crate::shared::types::FastHashMap;
 use crate::shared::unresolved_samples::UnresolvedSamples;
 
 pub struct Process<U> {
@@ -38,6 +39,7 @@ pub struct Process<U> {
     pub prev_mm_swapents_size: i64,
     pub prev_mm_shmempages_size: i64,
     pub mem_counter: Option<CounterHandle>,
+    pub event_counters: FastHashMap<usize, (CounterHandle, u64)>,
 }
 
 pub struct ProcessForkData<U> {
@@ -85,6 +87,7 @@ where
             prev_mm_swapents_size: 0,
             prev_mm_shmempages_size: 0,
             mem_counter: None,
+            event_counters: FastHashMap::default(),
         }
     }
 
@@ -359,5 +362,25 @@ where
                 "Amount of allocated memory",
             )
         })
+    }
+    pub fn make_event_counter_if_not_exists(
+        &mut self,
+        attr_index: usize,
+        event_name: &str,
+        profile: &mut Profile,
+    ) -> (CounterHandle, &mut u64) {
+        let (counter, prev) = self.event_counters.entry(attr_index).or_insert_with(|| {
+            (
+                profile.add_counter(
+                    self.profile_process,
+                    event_name,
+                    "perf event",
+                    CounterDisplayConfig::default_with_label(event_name),
+                    &format!("Counter for perf event {event_name}"),
+                ),
+                0,
+            )
+        });
+        (*counter, prev)
     }
 }
