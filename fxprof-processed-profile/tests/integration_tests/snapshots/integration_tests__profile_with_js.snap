@@ -33,7 +33,7 @@ expression: profile_as_json_value(&profile)
     "interval": 1,
     "markerSchema": [],
     "pausedRanges": [],
-    "preprocessedProfileVersion": 70,
+    "preprocessedProfileVersion": 71,
     "processType": 0,
     "product": "test with js",
     "sampleUnits": {
@@ -52,24 +52,24 @@ expression: profile_as_json_value(&profile)
   "shared": {
     "frameTable": {
       "address": [
-        -1,
-        -1
+        0,
+        0
       ],
       "category": [
         1,
         1
       ],
       "column": [
-        null,
-        null
+        0,
+        0
+      ],
+      "flags": [
+        4,
+        4
       ],
       "func": [
         0,
         1
-      ],
-      "inlineDepth": [
-        0,
-        0
       ],
       "innerWindowID": [
         0,
@@ -77,20 +77,20 @@ expression: profile_as_json_value(&profile)
       ],
       "length": 2,
       "lib": [
-        -1,
-        -1
+        0,
+        0
       ],
       "line": [
-        null,
-        null
+        0,
+        0
       ],
       "nativeSymbol": [
-        null,
-        null
+        0,
+        0
       ],
       "originalLocation": [
-        null,
-        null
+        0,
+        0
       ],
       "subcategory": [
         0,

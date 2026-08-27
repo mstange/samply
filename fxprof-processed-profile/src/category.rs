@@ -48,7 +48,7 @@ impl IntoSubcategoryHandle for Category<'_> {
 ///
 /// The handle is specific to a [`Profile`] instance and cannot be reused across profiles.
 #[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash)]
-pub struct CategoryHandle(pub(crate) u16);
+pub struct CategoryHandle(pub(crate) u8);
 
 impl CategoryHandle {
     /// The "Other" category. All profiles have this category.
@@ -89,10 +89,6 @@ pub struct SubcategoryIndex(pub u16);
 impl SubcategoryIndex {
     /// The "Other" subcategory. All categories have this subcategory as their first subcategory.
     pub const OTHER: Self = SubcategoryIndex(0);
-
-    pub(crate) fn write_json<W: Write>(self, w: &mut Writer<W>) -> std::io::Result<()> {
-        w.number_value(self.0)
-    }
 }
 
 /// A handle for a [`Subcategory`], or for the default subcategory of a [`CategoryHandle`].

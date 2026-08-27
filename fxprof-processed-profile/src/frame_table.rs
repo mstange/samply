@@ -1,6 +1,6 @@
 use std::io::Write;
 
-use crate::category::{CategoryHandle, SubcategoryHandle, SubcategoryIndex};
+use crate::category::SubcategoryHandle;
 use crate::fast_hash_map::FastIndexSet;
 use crate::frame::FrameFlags;
 use crate::func_table::{FuncKey, FuncTable};
@@ -66,6 +66,7 @@ impl FrameInterner {
 
     pub fn create_tables(&self) -> FrameInternerTables {
         let len = self.frame_key_set.len();
+        let mut flags_col = Vec::with_capacity(len);
         let mut func_col = Vec::with_capacity(len);
         let mut category_col = Vec::with_capacity(len);
         let mut subcategory_col = Vec::with_capacity(len);
@@ -74,7 +75,6 @@ impl FrameInterner {
         let mut address_col = Vec::with_capacity(len);
         let mut lib_col = Vec::with_capacity(len);
         let mut native_symbol_col = Vec::with_capacity(len);
-        let mut inline_depth_col = Vec::with_capacity(len);
 
         let mut func_table = FuncTable::default();
         let mut resource_table = ResourceTable::default();
@@ -84,44 +84,66 @@ impl FrameInterner {
             let func_key = frame.func_key(&mut source_table, &mut resource_table);
             let func = func_table.index_for_func(func_key);
 
-            func_col.push(func.0);
+            // Every frame we emit has a category.
+            let mut flags = FLAG_HAS_CATEGORY;
             let SubcategoryHandle(category, subcategory) = frame.subcategory;
-            category_col.push(category);
-            subcategory_col.push(subcategory);
-            line_col.push(frame.source_location.line);
-            column_col.push(frame.source_location.col);
 
-            match frame.variant {
-                InternalFrameVariant::Label => {
-                    address_col.push(-1);
-                    lib_col.push(-1);
-                    native_symbol_col.push(None);
-                    inline_depth_col.push(0);
-                }
+            let line_val = if let Some(line) = frame.source_location.line {
+                flags |= FLAG_HAS_LINE;
+                line as i32
+            } else {
+                0
+            };
+            let col_val = if let Some(col) = frame.source_location.col {
+                flags |= FLAG_HAS_COLUMN;
+                col as i32
+            } else {
+                0
+            };
+
+            let (addr_val, lib_val, native_sym_val) = match frame.variant {
+                InternalFrameVariant::Label => (0, 0, 0),
                 InternalFrameVariant::Native(NativeFrameData {
                     lib,
                     native_symbol,
                     relative_address,
                     inline_depth,
                 }) => {
-                    address_col.push(relative_address as i32);
-                    lib_col.push(lib.as_i32());
-                    native_symbol_col.push(native_symbol);
-                    inline_depth_col.push(inline_depth.min(u8::MAX as u16) as u8);
+                    flags |= FLAG_HAS_ADDRESS;
+                    if inline_depth > 0 {
+                        flags |= FLAG_IS_INLINED;
+                    }
+                    let native_sym_val = if let Some(native_symbol) = native_symbol {
+                        flags |= FLAG_HAS_NATIVE_SYMBOL;
+                        native_symbol.as_i32()
+                    } else {
+                        0
+                    };
+                    (relative_address, lib.as_i32(), native_sym_val)
                 }
-            }
+            };
+
+            func_col.push(func.0);
+            category_col.push(category.0);
+            subcategory_col.push(subcategory.0);
+            line_col.push(line_val);
+            column_col.push(col_val);
+            address_col.push(addr_val);
+            lib_col.push(lib_val);
+            native_symbol_col.push(native_sym_val);
+            flags_col.push(flags);
         }
 
         let frame_table = FrameTable {
+            flags_col,
             func_col,
             category_col,
-            subcategory_col,
+            subcategory_col: SubcategoryColumn::new(subcategory_col),
             line_col,
             column_col,
             address_col,
             lib_col,
             native_symbol_col,
-            inline_depth_col,
         };
 
         FrameInternerTables {
@@ -133,16 +155,46 @@ impl FrameInterner {
     }
 }
 
+// The bits of the frame table's `flags` column, as defined by the processed
+// profile format (added in version 71). Each `HAS_*` bit determines whether
+// the value in the corresponding column is meaningful.
+// The format also has a `HasOriginalLocation` bit at `1 << 6`, but this crate
+// does not emit original locations yet - those are used by source maps which
+// our API doesn't support yet.
+const FLAG_IS_INLINED: u8 = 1 << 0;
+const FLAG_HAS_ADDRESS: u8 = 1 << 1;
+const FLAG_HAS_CATEGORY: u8 = 1 << 2;
+const FLAG_HAS_NATIVE_SYMBOL: u8 = 1 << 3;
+const FLAG_HAS_LINE: u8 = 1 << 4;
+const FLAG_HAS_COLUMN: u8 = 1 << 5;
+
+/// The `subcategory` column. The format allows this column to be 8 or 16 bits
+/// wide; we only pay for 16 bits if some category has more than 256
+/// subcategories.
+enum SubcategoryColumn {
+    U8(Vec<u8>),
+    U16(Vec<u16>),
+}
+
+impl SubcategoryColumn {
+    fn new(values: Vec<u16>) -> Self {
+        match values.iter().all(|v| *v <= u8::MAX as u16) {
+            true => Self::U8(values.into_iter().map(|v| v as u8).collect()),
+            false => Self::U16(values),
+        }
+    }
+}
+
 pub struct FrameTable {
+    flags_col: Vec<u8>,
     func_col: Vec<i32>,
-    category_col: Vec<CategoryHandle>,
-    subcategory_col: Vec<SubcategoryIndex>,
-    line_col: Vec<Option<u32>>,
-    column_col: Vec<Option<u32>>,
-    address_col: Vec<i32>, // relative address, `-1` if None
-    lib_col: Vec<i32>,     // GlobalLibIndex, `-1` if None
-    native_symbol_col: Vec<Option<NativeSymbolIndex>>,
-    inline_depth_col: Vec<u8>,
+    category_col: Vec<u8>,
+    subcategory_col: SubcategoryColumn,
+    line_col: Vec<i32>,          // `0` if no line, see FLAG_HAS_LINE
+    column_col: Vec<i32>,        // `0` if no column, see FLAG_HAS_COLUMN
+    address_col: Vec<u32>,       // relative address, `0` if no address, see FLAG_HAS_ADDRESS
+    lib_col: Vec<i32>,           // GlobalLibIndex, `0` if no lib, see FLAG_HAS_ADDRESS
+    native_symbol_col: Vec<i32>, // NativeSymbolIndex, `0` if none, see FLAG_HAS_NATIVE_SYMBOL
 }
 
 impl FrameTable {
@@ -154,48 +206,33 @@ impl FrameTable {
         w.object(|w| {
             w.name("length")?;
             w.number_value(len)?;
+            w.name("flags")?;
+            w.typed_array(&self.flags_col)?;
             w.name("func")?;
-            w.i32_array(&self.func_col)?;
+            w.typed_array(&self.func_col)?;
             w.name("category")?;
-            w.array(|w| {
-                for c in &self.category_col {
-                    c.write_json(w)?;
-                }
-                Ok(())
-            })?;
+            w.typed_array(&self.category_col)?;
             w.name("subcategory")?;
-            w.array(|w| {
-                for s in &self.subcategory_col {
-                    s.write_json(w)?;
-                }
-                Ok(())
-            })?;
+            match &self.subcategory_col {
+                SubcategoryColumn::U8(values) => w.typed_array(values)?,
+                SubcategoryColumn::U16(values) => w.typed_array(values)?,
+            }
             w.name("line")?;
-            w.optional_number_array(&self.line_col)?;
+            w.typed_array(&self.line_col)?;
             w.name("column")?;
-            w.optional_number_array(&self.column_col)?;
+            w.typed_array(&self.column_col)?;
             w.name("address")?;
-            w.i32_array(&self.address_col)?;
+            w.typed_array(&self.address_col)?;
             w.name("lib")?;
-            w.i32_array(&self.lib_col)?;
+            w.typed_array(&self.lib_col)?;
             w.name("nativeSymbol")?;
-            w.array(|w| {
-                for n in &self.native_symbol_col {
-                    NativeSymbolIndex::write_optional(*n, w)?;
-                }
-                Ok(())
-            })?;
-            w.name("inlineDepth")?;
-            w.u8_array(&self.inline_depth_col)?;
+            w.typed_array(&self.native_symbol_col)?;
+            // We never have an innerWindowID; `0` means "no innerWindowID".
             w.name("innerWindowID")?;
-            w.array(|w| {
-                for _ in 0..len {
-                    w.number_value(0u32)?;
-                }
-                Ok(())
-            })?;
+            w.f64_array_from_iter(len, std::iter::repeat(0.0).take(len))?;
+            // We never have original locations, so no frame has HAS_ORIGINAL_LOCATION.
             w.name("originalLocation")?;
-            w.null_array(len)
+            w.typed_array_from_iter(len, std::iter::repeat(0i32).take(len))
         })
     }
 }

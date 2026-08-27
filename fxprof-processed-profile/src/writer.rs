@@ -2,7 +2,7 @@
 
 use std::io::Write;
 
-use json_slabs::{Builder, SLAB_REF_KEY};
+use json_slabs::{Builder, SlabPrimitive, SLAB_REF_KEY};
 use struson::writer::{FiniteNumber, JsonNumberError, JsonStreamWriter, JsonWriter};
 
 /// All write_json methods in this crate take a `Writer`.
@@ -15,9 +15,9 @@ use struson::writer::{FiniteNumber, JsonNumberError, JsonStreamWriter, JsonWrite
 /// nested JSON object that was extracted into its own slab, see
 /// `Writer::split_out_object`.
 ///
-/// This writer will create typed-array slabs when methods like `i32_array`,
-/// or `u8_array` are called - in JSON mode those just become regular number
-/// arrays in the JSON.
+/// This writer will create typed-array slabs when methods like `typed_array`
+/// or `typed_array_from_iter` are called - in JSON mode those just become
+/// regular number arrays in the JSON.
 ///
 /// Lifetimes:
 /// - 'w: The mutable borrows of the JSON stream writer and the JSLB builder
@@ -130,16 +130,25 @@ impl<'p, W: Write> Writer<'_, 'p, W> {
 
     // -- JSLB routing -------------------------------------------------------
 
-    /// Write an `i32` column. In JSLB mode, register the slice as a
+    /// Write a numeric column. In JSLB mode, register the slice as a
     /// typed-array slab (bytes written directly at flush time on LE
     /// hosts) and emit a `{"$s":N}` placeholder. Otherwise, write the
     /// values inline as a JSON array of numbers.
     ///
+    /// The Rust element type picks the slab type, and thus the kind of typed
+    /// array the front-end will see: `i32` becomes an `Int32Array`, `u8` a
+    /// `Uint8Array`, and so on.
+    ///
     /// Warning: Only use this for columns which are allowed to be typed arrays
     /// in the version of the "processed profile" format that we emit! Otherwise,
     /// the front-end will have a typed array in a place where it was expecting
-    /// a regular JS array, and things won't work correctly.
-    pub fn i32_array(&mut self, values: &'p [i32]) -> std::io::Result<()> {
+    /// a regular JS array, and things won't work correctly. This includes the
+    /// element type: a column which is specified as an `Int32Array` must not be
+    /// written as, say, a `u16` slice.
+    pub fn typed_array<N: SlabPrimitive + FiniteNumber + Copy + 'p>(
+        &mut self,
+        values: &'p [N],
+    ) -> std::io::Result<()> {
         match self.jslb_builder.as_deref_mut() {
             Some(builder) => {
                 let p = builder.add_slab(values);
@@ -149,20 +158,30 @@ impl<'p, W: Write> Writer<'_, 'p, W> {
         }
     }
 
-    /// Write a `u8` column. In JSLB mode, register the slice as a
-    /// typed-array slab; otherwise write inline as a JSON array.
+    /// Write a numeric column produced by `iter`. In JSLB mode, register the
+    /// iterator as a streaming typed-array slab (no intermediate `Vec<N>` is
+    /// materialized); otherwise, walk the iterator and write the values inline.
     ///
-    /// Warning: Only use this for columns which are allowed to be typed arrays
-    /// in the version of the "processed profile" format that we emit! Otherwise,
-    /// the front-end will have a typed array in a place where it was expecting
-    /// a regular JS array, and things won't work correctly.
-    pub fn u8_array(&mut self, values: &'p [u8]) -> std::io::Result<()> {
+    /// Use this for columns which aren't stored as a contiguous slice, e.g.
+    /// constant columns. See [`Writer::typed_array`] for the caveats about
+    /// which columns may be written as typed arrays, and about the element type.
+    pub fn typed_array_from_iter<N, I>(&mut self, count: usize, iter: I) -> std::io::Result<()>
+    where
+        N: SlabPrimitive + FiniteNumber + Copy + 'p,
+        I: IntoIterator<Item = N>,
+        I::IntoIter: 'p,
+    {
         match self.jslb_builder.as_deref_mut() {
             Some(builder) => {
-                let p = builder.add_slab(values);
+                let p = builder.add_slab_from_iter(count, iter);
                 self.write_slab_placeholder(p)
             }
-            None => self.number_array(values),
+            None => self.array(|w| {
+                for v in iter {
+                    w.json.number_value(v)?;
+                }
+                Ok(())
+            }),
         }
     }
 
