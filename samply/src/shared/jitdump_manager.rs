@@ -214,7 +214,7 @@ impl SingleJitDumpProcessor {
                         };
 
                     let (category, js_frame) =
-                        jit_category_manager.classify_jit_symbol(symbol_name, profile);
+                        jit_category_manager.classify_jit_symbol(symbol_name, None, profile);
                     self.lib_mapping_ops.push(
                         raw_jitdump_record.timestamp,
                         LibMappingOp::Add(LibMappingAdd {

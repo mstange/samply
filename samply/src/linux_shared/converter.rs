@@ -9,8 +9,8 @@ use framehop::{ExplicitModuleSectionInfo, FrameAddress, Module, Unwinder};
 use fxprof_processed_profile::{
     Category, CategoryColor, CategoryHandle, CpuDelta, FrameFlags, LibraryHandle, LibraryInfo,
     Marker, MarkerField, MarkerTiming, PlatformSpecificReferenceTimestamp, Profile,
-    ReferenceTimestamp, SamplingInterval, Schema, StringHandle, SubcategoryHandle, SymbolTable,
-    ThreadHandle,
+    ReferenceTimestamp, SamplingInterval, Schema, SourceLocation, StringHandle, SubcategoryHandle,
+    SymbolTable, ThreadHandle,
 };
 use linux_perf_data::linux_perf_event_reader::TaskWasPreempted;
 use linux_perf_data::simpleperf_dso_type::{DSO_DEX_FILE, DSO_KERNEL, DSO_KERNEL_MODULE};
@@ -224,9 +224,6 @@ where
 
     pub fn finish(mut self) -> Profile {
         let mut profile = self.profile;
-        self.simpleperf
-            .jit_app_cache_library
-            .finish_and_set_symbol_table(&mut profile);
         self.processes.finish(
             &mut profile,
             &self.unresolved_stacks,
@@ -1333,13 +1330,17 @@ where
             .get_simpleperf_jit_function_name(&path, address)
             .unwrap_or_else(|| (format!("jit_fun_{address:x}"), mapping_size as u32));
 
-        let process = self.processes.get_by_pid(e.pid, &mut self.profile);
         let synthetic_lib = &mut self.simpleperf.jit_app_cache_library;
-        let info = LibMappingInfo::new_java_mapping(
-            synthetic_lib.lib_handle(),
-            Some(synthetic_lib.default_category()),
-        );
-        process.add_jit_function(timestamp_raw, synthetic_lib, name, address, len, info);
+        let (lib_handle, default_category) =
+            (synthetic_lib.lib_handle(), synthetic_lib.default_category());
+        // We have no source information for these.
+        let symbol =
+            synthetic_lib.add_function(&name, len, SourceLocation::default(), &mut self.profile);
+        let info = LibMappingInfo::new_java_mapping(lib_handle, Some(default_category))
+            .with_jit_symbol(symbol);
+
+        let process = self.processes.get_by_pid(e.pid, &mut self.profile);
+        process.add_jit_function(timestamp_raw, symbol.symbol_address, address, len, info);
     }
 
     fn get_simpleperf_jit_function_name(

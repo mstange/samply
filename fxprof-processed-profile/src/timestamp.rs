@@ -48,51 +48,51 @@ impl Timestamp {
     }
 }
 
-/// Write timestamps as a JSON array of deltas (in milliseconds).
-pub fn write_timestamps_as_deltas<W: Write>(
-    w: &mut Writer<W>,
-    times: &[Timestamp],
+/// Write timestamps as a `Float64Array` slab of deltas (in milliseconds).
+pub fn write_timestamps_as_deltas<'p, W: Write>(
+    w: &mut Writer<'_, 'p, W>,
+    times: &'p [Timestamp],
 ) -> std::io::Result<()> {
-    w.array(|w| {
-        let mut prev_nanos = 0u64;
-        for ts in times {
-            let cur = ts.nanos;
-            let delta = cur - prev_nanos;
-            prev_nanos = cur;
-            w.fp((delta as f64) / 1_000_000.0)?;
-        }
-        Ok(())
-    })
+    let iter = times.iter().scan(0u64, |prev, ts| {
+        let cur = ts.nanos;
+        let delta = cur - *prev;
+        *prev = cur;
+        Some((delta as f64) / 1_000_000.0)
+    });
+    w.f64_array_from_iter(times.len(), iter)
 }
 
-/// Write timestamps as a JSON array of deltas (in milliseconds), permuted by `indexes`.
-pub fn write_timestamps_as_deltas_with_permutation<W: Write>(
-    w: &mut Writer<W>,
-    times: &[Timestamp],
-    indexes: &[usize],
+/// Write timestamps as a `Float64Array` slab of deltas (in milliseconds),
+/// permuted by `indexes`.
+///
+/// Takes `indexes` by value so the resulting scan iterator only borrows
+/// `times` (which has the builder's lifetime `'p`) — the owned
+/// `IntoIter<usize>` inside the iterator carries no lifetime constraint,
+/// so nothing needs to be materialized into a `Vec<f64>` up front.
+pub fn write_timestamps_as_deltas_with_permutation<'p, W: Write>(
+    w: &mut Writer<'_, 'p, W>,
+    times: &'p [Timestamp],
+    indexes: Vec<usize>,
 ) -> std::io::Result<()> {
-    w.array(|w| {
-        let mut prev_nanos = 0u64;
-        for &i in indexes {
-            let cur = times[i].nanos;
-            let delta = cur - prev_nanos;
-            prev_nanos = cur;
-            w.fp((delta as f64) / 1_000_000.0)?;
-        }
-        Ok(())
-    })
+    let count = indexes.len();
+    let iter = indexes.into_iter().scan(0u64, move |prev, i| {
+        let cur = times[i].nanos;
+        let delta = cur - *prev;
+        *prev = cur;
+        Some((delta as f64) / 1_000_000.0)
+    });
+    w.f64_array_from_iter(count, iter)
 }
 
-/// Write `column` as a JSON array of fractional-millisecond timestamps, using `0.0` for `None`.
-pub fn write_optional_timestamp_column_as_zero_default<W: Write>(
-    w: &mut Writer<W>,
-    column: &[Option<Timestamp>],
+/// Write `column` as a `Float64Array` slab of fractional-millisecond
+/// timestamps, using `0.0` for `None`. (The value for `None` is ignored by
+/// the front-end when the marker phase marks that endpoint as meaningless.)
+pub fn write_optional_timestamp_column_as_zero_default<'p, W: Write>(
+    w: &mut Writer<'_, 'p, W>,
+    column: &'p [Option<Timestamp>],
 ) -> std::io::Result<()> {
-    w.array(|w| {
-        for ts in column {
-            let millis = ts.map_or(0.0, Timestamp::as_millis_f64);
-            w.fp(millis)?;
-        }
-        Ok(())
-    })
+    let iter = column
+        .iter()
+        .map(|ts| ts.map_or(0.0, Timestamp::as_millis_f64));
+    w.f64_array_from_iter(column.len(), iter)
 }

@@ -1,0 +1,161 @@
+---
+source: samply-api/tests/integration_tests/main.rs
+expression: response
+---
+{
+  "results": [
+    {
+      "found_modules": {
+        "firefox.pdb/AA152DEB2D9B76084C4C44205044422E1": true,
+        "mozglue.pdb/63C609072D3499F64C4C44205044422E1": true
+      },
+      "stacks": [
+        [
+          {
+            "file": "hg:hg.mozilla.org/mozilla-central:security/sandbox/chromium/sandbox/win/src/process_mitigations_win32k_dispatcher.cc:1706d4d54ec68fae1280305b70a02cb24c16ff68",
+            "frame": 0,
+            "function": "sandbox::ProcessMitigationsWin32KDispatcher::EnumDisplayMonitors(sandbox::IPCInfo*, sandbox::CountedBuffer*)",
+            "function_offset": "0x28",
+            "function_size": "0x1c0",
+            "line": 274,
+            "module": "firefox.pdb",
+            "module_offset": "0x31fe8"
+          },
+          {
+            "file": "hg:hg.mozilla.org/mozilla-central:security/sandbox/chromium/base/win/pe_image.cc:1706d4d54ec68fae1280305b70a02cb24c16ff68",
+            "frame": 1,
+            "function": "base::win::PEImage::GetProcOrdinal(char const*, unsigned short*) const",
+            "function_offset": "0x13f",
+            "function_size": "0x16a",
+            "line": 277,
+            "module": "firefox.pdb",
+            "module_offset": "0x1f98f"
+          },
+          {
+            "file": "hg:hg.mozilla.org/mozilla-central:security/sandbox/chromium/sandbox/win/src/restricted_token_utils.cc:1706d4d54ec68fae1280305b70a02cb24c16ff68",
+            "frame": 2,
+            "function": "sandbox::CreateRestrictedToken(void*, sandbox::TokenLevel, sandbox::IntegrityLevel, sandbox::TokenType, bool, void*, bool, base::win::GenericScopedHandle<base::win::HandleTraits,base::win::VerifierTraits>*)",
+            "function_offset": "0x832",
+            "function_size": "0xded",
+            "inlines": [
+              {
+                "file": "hg:hg.mozilla.org/mozilla-central:vs2017_15.8.4/VC/include/xmemory0:1706d4d54ec68fae1280305b70a02cb24c16ff68",
+                "function": "std::_Default_allocator_traits<std::allocator<sandbox::Sid> >::construct(std::allocator<sandbox::Sid>&, sandbox::Sid* const, sandbox::Sid&&)",
+                "line": 880
+              },
+              {
+                "file": "hg:hg.mozilla.org/mozilla-central:vs2017_15.8.4/VC/include/vector:1706d4d54ec68fae1280305b70a02cb24c16ff68",
+                "function": "std::vector<sandbox::Sid,std::allocator<sandbox::Sid> >::_Emplace_back_with_unused_capacity(sandbox::Sid&&)",
+                "line": 902
+              },
+              {
+                "file": "hg:hg.mozilla.org/mozilla-central:vs2017_15.8.4/VC/include/vector:1706d4d54ec68fae1280305b70a02cb24c16ff68",
+                "function": "std::vector<sandbox::Sid,std::allocator<sandbox::Sid> >::emplace_back(sandbox::Sid&&)",
+                "line": 919
+              },
+              {
+                "file": "hg:hg.mozilla.org/mozilla-central:vs2017_15.8.4/VC/include/vector:1706d4d54ec68fae1280305b70a02cb24c16ff68",
+                "function": "std::vector<sandbox::Sid,std::allocator<sandbox::Sid> >::push_back(sandbox::Sid&&)",
+                "line": 937
+              }
+            ],
+            "line": 99,
+            "module": "firefox.pdb",
+            "module_offset": "0x3ba42"
+          },
+          {
+            "file": "hg:hg.mozilla.org/mozilla-central:security/sandbox/chromium/sandbox/win/src/restricted_token_utils.cc:1706d4d54ec68fae1280305b70a02cb24c16ff68",
+            "frame": 3,
+            "function": "sandbox::CreateRestrictedToken(void*, sandbox::TokenLevel, sandbox::IntegrityLevel, sandbox::TokenType, bool, void*, bool, base::win::GenericScopedHandle<base::win::HandleTraits,base::win::VerifierTraits>*)",
+            "function_offset": "0x7eb",
+            "function_size": "0xded",
+            "inlines": [
+              {
+                "file": "hg:hg.mozilla.org/mozilla-central:security/sandbox/chromium/sandbox/win/src/sid.cc:1706d4d54ec68fae1280305b70a02cb24c16ff68",
+                "function": "sandbox::Sid::Sid(<unnamed-tag>)",
+                "line": 66
+              }
+            ],
+            "line": 108,
+            "module": "firefox.pdb",
+            "module_offset": "0x3b9fb"
+          },
+          {
+            "file": "hg:hg.mozilla.org/mozilla-central:mozglue/baseprofiler/core/ProfileBufferEntry.cpp:1706d4d54ec68fae1280305b70a02cb24c16ff68",
+            "frame": 4,
+            "function": "mozilla::baseprofiler::ProfileBuffer::StreamSamplesToJSON::<unnamed-tag>::operator()(mozilla::ProfileChunkedBuffer::Reader*) const",
+            "function_offset": "0x412",
+            "function_size": "0xbbc",
+            "inlines": [
+              {
+                "file": "hg:hg.mozilla.org/mozilla-central:mfbt/JSONWriter.h:1706d4d54ec68fae1280305b70a02cb24c16ff68",
+                "function": "mozilla::JSONWriter::DoubleElement(double)",
+                "line": 403
+              },
+              {
+                "file": "hg:hg.mozilla.org/mozilla-central:mozglue/baseprofiler/core/ProfileBufferEntry.cpp:1706d4d54ec68fae1280305b70a02cb24c16ff68",
+                "function": "mozilla::baseprofiler::AutoArraySchemaWriter::DoubleElement(unsigned int, double)",
+                "line": 161
+              },
+              {
+                "file": "hg:hg.mozilla.org/mozilla-central:mozglue/baseprofiler/core/ProfileBufferEntry.cpp:1706d4d54ec68fae1280305b70a02cb24c16ff68",
+                "function": "mozilla::baseprofiler::WriteSample(mozilla::baseprofiler::SpliceableJSONWriter&, mozilla::baseprofiler::UniqueJSONStrings&, mozilla::baseprofiler::ProfileSample const&)",
+                "line": 365
+              }
+            ],
+            "line": 809,
+            "module": "mozglue.pdb",
+            "module_offset": "0x3ba42"
+          },
+          {
+            "file": "hg:hg.mozilla.org/mozilla-central:mozglue/baseprofiler/core/ProfileBufferEntry.cpp:1706d4d54ec68fae1280305b70a02cb24c16ff68",
+            "frame": 5,
+            "function": "mozilla::baseprofiler::ProfileBuffer::StreamSamplesToJSON::<unnamed-tag>::operator()(mozilla::ProfileChunkedBuffer::Reader*) const",
+            "function_offset": "0x3cb",
+            "function_size": "0xbbc",
+            "inlines": [
+              {
+                "file": "hg:hg.mozilla.org/mozilla-central:mfbt/JSONWriter.h:1706d4d54ec68fae1280305b70a02cb24c16ff68",
+                "function": "mozilla::JSONWriter::StartCollection(char const*, char const*, mozilla::JSONWriter::CollectionStyle)",
+                "line": 318
+              },
+              {
+                "file": "hg:hg.mozilla.org/mozilla-central:mfbt/JSONWriter.h:1706d4d54ec68fae1280305b70a02cb24c16ff68",
+                "function": "mozilla::JSONWriter::StartArrayProperty(char const*, mozilla::JSONWriter::CollectionStyle)",
+                "line": 417
+              },
+              {
+                "file": "hg:hg.mozilla.org/mozilla-central:mfbt/JSONWriter.h:1706d4d54ec68fae1280305b70a02cb24c16ff68",
+                "function": "mozilla::JSONWriter::StartArrayElement(mozilla::JSONWriter::CollectionStyle)",
+                "line": 422
+              },
+              {
+                "file": "hg:hg.mozilla.org/mozilla-central:mozglue/baseprofiler/core/ProfileBufferEntry.cpp:1706d4d54ec68fae1280305b70a02cb24c16ff68",
+                "function": "mozilla::baseprofiler::AutoArraySchemaWriter::AutoArraySchemaWriter(mozilla::baseprofiler::SpliceableJSONWriter&, mozilla::baseprofiler::UniqueJSONStrings&)",
+                "line": 141
+              },
+              {
+                "file": "hg:hg.mozilla.org/mozilla-central:mozglue/baseprofiler/core/ProfileBufferEntry.cpp:1706d4d54ec68fae1280305b70a02cb24c16ff68",
+                "function": "mozilla::baseprofiler::WriteSample(mozilla::baseprofiler::SpliceableJSONWriter&, mozilla::baseprofiler::UniqueJSONStrings&, mozilla::baseprofiler::ProfileSample const&)",
+                "line": 361
+              }
+            ],
+            "line": 809,
+            "module": "mozglue.pdb",
+            "module_offset": "0x3b9fb"
+          },
+          {
+            "file": "hg:hg.mozilla.org/mozilla-central:mozglue/baseprofiler/public/ProfileBufferChunkManagerSingle.h:1706d4d54ec68fae1280305b70a02cb24c16ff68",
+            "frame": 6,
+            "function": "mozilla::ProfileBufferChunkManagerSingle::RequestChunk(std::function<void (mozilla::UniquePtr<mozilla::ProfileBufferChunk,mozilla::DefaultDelete<mozilla::ProfileBufferChunk> >)>&&)",
+            "function_offset": "0x7",
+            "function_size": "0x79",
+            "line": 79,
+            "module": "mozglue.pdb",
+            "module_offset": "0x3a0e7"
+          }
+        ]
+      ]
+    }
+  ]
+}

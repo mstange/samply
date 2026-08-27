@@ -16,6 +16,7 @@ rustc-hash = "2"
 indexmap = "2.7"
 hashbrown = "0.17"
 struson = "0.7"
+json-slabs = "0.2"
 
 [dev-dependencies]
 insta = { version = "1.48", features = ["json"] }

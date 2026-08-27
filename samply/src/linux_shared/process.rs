@@ -17,7 +17,6 @@ use crate::shared::marker_file::get_markers;
 use crate::shared::perf_map::try_load_perf_map;
 use crate::shared::process_sample_data::{MarkerSpanOnThread, ProcessSampleData};
 use crate::shared::recycling::{ProcessRecyclingData, ThreadRecycler};
-use crate::shared::synthetic_jit_library::SyntheticJitLibrary;
 use crate::shared::timestamp_converter::TimestampConverter;
 use crate::shared::types::FastHashMap;
 use crate::shared::unresolved_samples::UnresolvedSamples;
@@ -318,7 +317,7 @@ where
         }
 
         let (category, js_frame) =
-            jit_category_manager.classify_jit_symbol(symbol_name.unwrap_or(""), profile);
+            jit_category_manager.classify_jit_symbol(symbol_name.unwrap_or(""), None, profile);
         self.lib_mapping_ops.push(
             timestamp,
             LibMappingOp::Add(LibMappingAdd {
@@ -333,20 +332,17 @@ where
     pub fn add_jit_function(
         &mut self,
         timestamp_raw: u64,
-        jit_lib: &mut SyntheticJitLibrary,
-        name: String,
+        relative_address_at_start: u32,
         start_avma: u64,
         size: u32,
         info: LibMappingInfo,
     ) {
-        let relative_address = jit_lib.add_function(name, size);
-
         self.jit_app_cache_mapping_ops.push(
             timestamp_raw,
             LibMappingOp::Add(LibMappingAdd {
                 start_avma,
                 end_avma: start_avma + u64::from(size),
-                relative_address_at_start: relative_address,
+                relative_address_at_start,
                 info,
             }),
         );

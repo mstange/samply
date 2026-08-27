@@ -1,7 +1,7 @@
 use std::error::Error;
 
 use object::read::elf::{FileHeader, SectionHeader};
-use object::{elf, Endianness, U16, U32, U64};
+use object::{elf, Endianness};
 
 /// Returns a `Vec<u8>` with ELF data of an equivalent image with no program
 /// headers and fixed section offsets.
@@ -64,7 +64,7 @@ pub fn drop_phdr<Elf: FileHeader<Endian = Endianness>>(
     let section_offsets: Vec<usize> = in_sections
         .iter()
         .map(|s: &Elf::SectionHeader| {
-            if s.sh_type(endian) & elf::SHT_NOBITS == 0 {
+            if s.sh_type(endian) != elf::SHT_NOBITS {
                 let addralign = s.sh_addralign(endian).into() as usize;
                 if addralign != 0 {
                     reserved_len = align(reserved_len, addralign);
@@ -85,70 +85,26 @@ pub fn drop_phdr<Elf: FileHeader<Endian = Endianness>>(
     out_data.reserve(reserved_len);
 
     // We're done reserving, start writing.
+    let encoder = object::write::elf::Encoder::new(endian, is_64, in_header.e_machine(endian));
 
     // Write the ELF header.
     {
         // We copy all information from the original header, except the header size + version,
         // the section table offset, and the program header information (set to offset 0 + num 0).
-        // This code would be simpler if the elf::FileHeader trait had setters, and not just getters.
-        let e_ident = *in_header.e_ident();
-        let e_type = in_header.e_type(endian);
-        let e_machine = in_header.e_machine(endian);
-        let e_version = elf::EV_CURRENT.into();
-        let e_entry = in_header.e_entry(endian).into();
-        let e_phoff = 0; // No program headers
-        let e_shoff = section_table_offset as u64; // Adjusted section table offset
-        let e_flags = in_header.e_flags(endian);
-        let e_ehsize = in_header.e_ehsize(endian);
-        let e_phentsize = in_header.e_phentsize(endian);
-        let e_phnum = 0; // No program headers
-        let e_shentsize = std::mem::size_of::<Elf::SectionHeader>() as u16;
-        let e_shnum = in_header.e_shnum(endian);
-        let e_shstrndx = in_header.e_shstrndx(endian);
-        if is_64 {
-            let out_header = elf::FileHeader64 {
-                e_ident,
-                e_type: U16::new(endian, e_type),
-                e_machine: U16::new(endian, e_machine),
-                e_version: U32::new(endian, e_version),
-                e_entry: U64::new(endian, e_entry),
-                e_phoff: U64::new(endian, e_phoff),
-                e_shoff: U64::new(endian, e_shoff),
-                e_flags: U32::new(endian, e_flags),
-                e_ehsize: U16::new(endian, e_ehsize),
-                e_phentsize: U16::new(endian, e_phentsize),
-                e_phnum: U16::new(endian, e_phnum),
-                e_shentsize: U16::new(endian, e_shentsize),
-                e_shnum: U16::new(endian, e_shnum),
-                e_shstrndx: U16::new(endian, e_shstrndx),
-            };
-            out_data.write_pod(&out_header);
-        } else {
-            let out_header = elf::FileHeader32 {
-                e_ident,
-                e_type: U16::new(endian, e_type),
-                e_machine: U16::new(endian, e_machine),
-                e_version: U32::new(endian, e_version),
-                e_entry: U32::new(endian, e_entry as u32),
-                e_phoff: U32::new(endian, e_phoff as u32),
-                e_shoff: U32::new(endian, e_shoff as u32),
-                e_flags: U32::new(endian, e_flags),
-                e_ehsize: U16::new(endian, e_ehsize),
-                e_phentsize: U16::new(endian, e_phentsize),
-                e_phnum: U16::new(endian, e_phnum),
-                e_shentsize: U16::new(endian, e_shentsize),
-                e_shnum: U16::new(endian, e_shnum),
-                e_shstrndx: U16::new(endian, e_shstrndx),
-            };
-            out_data.write_pod(&out_header);
-        }
+        let out_header = object::write::elf::FileHeader::from_raw(endian, in_header);
+        let mut out_layout =
+            object::write::elf::FileHeaderLayout::from_raw(endian, in_header, in_data)?;
+        out_layout.e_phoff = 0; // No program headers
+        out_layout.segment_num = 0; // No program headers
+        out_layout.e_shoff = section_table_offset as u64; // Adjusted section table offset
+        encoder.file_header(&mut out_data, &out_header, &out_layout)?;
     }
 
     // Do not write any program headers.
 
     // Write the section data.
     for (section, offset) in in_sections.iter().zip(section_offsets.iter()) {
-        if section.sh_type(endian) & elf::SHT_NOBITS == 0 {
+        if section.sh_type(endian) != elf::SHT_NOBITS {
             write_align(&mut out_data, section.sh_addralign(endian).into() as usize);
             debug_assert_eq!(out_data.len(), *offset);
             out_data.write_bytes(section.data(endian, in_data)?);
@@ -160,53 +116,16 @@ pub fn drop_phdr<Elf: FileHeader<Endian = Endianness>>(
     debug_assert_eq!(out_data.len(), section_table_offset);
     for (in_section, offset) in in_sections.iter().zip(section_offsets.iter()) {
         // We copy all information from the original section except the offset.
-        // This would be simpler if the elf::SectionHeader trait had setters, and not just getters.
-        let sh_name = in_section.sh_name(endian);
-        let sh_type = in_section.sh_type(endian);
-        let sh_flags = in_section.sh_flags(endian).into();
-        let sh_addr = in_section.sh_addr(endian).into();
+        let mut out_section = object::write::elf::SectionHeader::from_raw(endian, in_section);
 
         // Fix section offset
-        let sh_offset = if sh_type == elf::SHT_NULL {
+        out_section.sh_offset = if out_section.sh_type == elf::SHT_NULL {
             0
         } else {
             *offset as u64
         };
 
-        let sh_size = in_section.sh_size(endian).into();
-        let sh_link = in_section.sh_link(endian);
-        let sh_info = in_section.sh_info(endian);
-        let sh_addralign = in_section.sh_addralign(endian).into();
-        let sh_entsize = in_section.sh_entsize(endian).into();
-        if is_64 {
-            let out_section = elf::SectionHeader64 {
-                sh_name: U32::new(endian, sh_name),
-                sh_type: U32::new(endian, sh_type),
-                sh_flags: U64::new(endian, sh_flags),
-                sh_addr: U64::new(endian, sh_addr),
-                sh_offset: U64::new(endian, sh_offset),
-                sh_size: U64::new(endian, sh_size),
-                sh_link: U32::new(endian, sh_link),
-                sh_info: U32::new(endian, sh_info),
-                sh_addralign: U64::new(endian, sh_addralign),
-                sh_entsize: U64::new(endian, sh_entsize),
-            };
-            out_data.write_pod(&out_section);
-        } else {
-            let out_section = elf::SectionHeader32 {
-                sh_name: U32::new(endian, sh_name),
-                sh_type: U32::new(endian, sh_type),
-                sh_flags: U32::new(endian, sh_flags as u32),
-                sh_addr: U32::new(endian, sh_addr as u32),
-                sh_offset: U32::new(endian, sh_offset as u32),
-                sh_size: U32::new(endian, sh_size as u32),
-                sh_link: U32::new(endian, sh_link),
-                sh_info: U32::new(endian, sh_info),
-                sh_addralign: U32::new(endian, sh_addralign as u32),
-                sh_entsize: U32::new(endian, sh_entsize as u32),
-            };
-            out_data.write_pod(&out_section);
-        }
+        encoder.section_header(&mut out_data, &out_section);
     }
 
     // We're done.

@@ -27,7 +27,7 @@ version = "0.33"
 [dependencies.object]
 default-features = false
 features = ["std", "read_core", "archive", "elf", "macho", "pe", "unaligned", "compression"]
-version = "0.39"
+version = "0.40"
 
 [dependencies]
 #pdb-addr2line = { path = "../../pdb-addr2line" }
@@ -63,3 +63,4 @@ crc32fast = "1.4.2"
 memmap2 = "0.9.9"
 anyhow = "1"
 tempfile = "3"
+insta = "1.48"

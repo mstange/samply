@@ -1,8 +1,6 @@
 use std::fs::File;
-use std::io::{Read, Write};
 use std::path::PathBuf;
 
-use assert_json_diff::assert_json_eq;
 pub use samply_api::debugid::DebugId;
 use samply_api::samply_symbols;
 use samply_symbols::{
@@ -204,13 +202,13 @@ impl FileResolver {
             if let Some(filename) = path.file_name() {
                 let redirected_path = self.symbol_directory.join(filename);
                 if std::fs::metadata(&redirected_path).is_ok() {
-                    eprintln!("Redirecting {:?} to {:?}", &path, &redirected_path);
+                    eprintln!("Redirecting {:?} to {:?}", path, redirected_path);
                     path = redirected_path;
                 }
             }
         }
 
-        eprintln!("Reading file {:?}", &path);
+        eprintln!("Reading file {:?}", path);
         let file = File::open(&path)?;
         Ok(unsafe { memmap2::MmapOptions::new().map(&file)? })
     }
@@ -367,43 +365,28 @@ fn fixtures_dir() -> PathBuf {
     this_dir.join("..").join("fixtures")
 }
 
-fn compare_snapshot(
+/// Runs a query and returns the JSON response.
+///
+/// The response is turned into a `serde_json::Value` so that object keys end up
+/// in a deterministic (sorted) order even where the response is serialized from
+/// a `HashMap`.
+///
+/// The `insta::assert_json_snapshot!` calls need to stay in the test functions
+/// themselves; insta derives the snapshot name from the name of the function
+/// which contains the assertion.
+fn query_api_json(
     request_url: &str,
     request_json: &str,
     symbol_directory: PathBuf,
-    snapshot_filename: &str,
-    output_filename: &str,
-) {
+) -> serde_json::Value {
     let output = crate::query_api(request_url, request_json, symbol_directory);
-    let output = serde_json::to_string(&output).unwrap();
-
-    let output_json: serde_json::Value = serde_json::from_str(&output).unwrap();
-
-    let mut expected_json: Option<serde_json::Value> = None;
-    if let Ok(mut snapshot_file) =
-        File::open(fixtures_dir().join("snapshots").join(snapshot_filename))
-    {
-        let mut expected: String = String::new();
-        snapshot_file.read_to_string(&mut expected).unwrap();
-        expected_json = Some(serde_json::from_str(&expected).unwrap());
-    }
-
-    if expected_json.as_ref() != Some(&output_json) {
-        let mut output_file =
-            File::create(fixtures_dir().join("snapshots").join(output_filename)).unwrap();
-        output_file.write_all(output.as_bytes()).unwrap();
-    }
-
-    match expected_json {
-        Some(expected_json) => assert_json_eq!(output_json, expected_json),
-        None => panic!("No snapshot found"),
-    }
+    serde_json::to_value(&output).expect("response must serialize")
 }
 
 #[test]
 fn win64_local_v5_snapshot_1() {
     // This gets the symbols from the DLL exports, not from the PDB.
-    compare_snapshot(
+    let response = query_api_json(
         "/symbolicate/v5",
         r#"{
                 "memoryMap": [
@@ -419,14 +402,14 @@ fn win64_local_v5_snapshot_1() {
                 ]
               }"#,
         fixtures_dir().join("win64-local"),
-        "api-v5-win64-local-1.txt",
-        "output-api-v5-win64-local-1.txt",
     );
+
+    insta::assert_json_snapshot!(response);
 }
 
 #[test]
 fn win64_ci_v5_snapshot() {
-    compare_snapshot(
+    let response = query_api_json(
         "/symbolicate/v5",
         r#"{
                 "memoryMap": [
@@ -452,14 +435,14 @@ fn win64_ci_v5_snapshot() {
                 ]
               }"#,
         fixtures_dir().join("win64-ci"),
-        "api-v5-win64-ci.txt",
-        "output-api-v5-win64-ci.txt",
     );
+
+    insta::assert_json_snapshot!(response);
 }
 
 #[test]
 fn android32_v5_local() {
-    compare_snapshot(
+    let response = query_api_json(
         "/symbolicate/v5",
         r#"{
                 "memoryMap": [
@@ -477,9 +460,9 @@ fn android32_v5_local() {
                 ]
               }"#,
         fixtures_dir().join("android32-local"),
-        "api-v5-android32-local.txt",
-        "output-api-v5-android32-local.txt",
     );
+
+    insta::assert_json_snapshot!(response);
 }
 
 #[test]
@@ -488,7 +471,7 @@ fn stripped_macos() {
     // It should not be considered part of the last function in the __text section.
     // Returning no symbol at all for it is better than returning fun_384d0.
     // (0x384d0 being the start address of the last function in __text)
-    compare_snapshot(
+    let response = query_api_json(
         "/symbolicate/v5",
         r#"{
                 "memoryMap": [
@@ -505,9 +488,9 @@ fn stripped_macos() {
                 ]
               }"#,
         fixtures_dir().join("macos-ci"),
-        "api-v5-stripped-macos.txt",
-        "output-api-v5-stripped-macos.txt",
     );
+
+    insta::assert_json_snapshot!(response);
 }
 
 #[test]
@@ -520,7 +503,7 @@ fn win_exe() {
     // lump it in with the placeholder function fun_26ab0.
     // The actual function containing 0x26b6e starts at 0x26b60 and ends at 0x26b7d
     // but we currently don't know how to obtain this information from the exe.
-    compare_snapshot(
+    let response = query_api_json(
         "/symbolicate/v5",
         r#"{
                 "memoryMap": [
@@ -537,9 +520,9 @@ fn win_exe() {
                 ]
               }"#,
         fixtures_dir().join("win64-local"),
-        "api-v5-win-exe.txt",
-        "output-api-v5-win-exe.txt",
     );
+
+    insta::assert_json_snapshot!(response);
 }
 
 #[test]
@@ -556,7 +539,7 @@ fn asm_with_continue() {
     // wrong symbol, and compute the wrong function end address, and not continue
     // disassembling far enough.
     // This is not a great situation but I'm not sure how to handle this case.
-    compare_snapshot(
+    let response = query_api_json(
         "/asm/v1",
         r#"{
             "name": "libmozglue.so",
@@ -568,14 +551,14 @@ fn asm_with_continue() {
             "continueUntilFunctionEnd": true
         }"#,
         fixtures_dir().join("android32-local"),
-        "asm_with_continue.txt",
-        "output-asm_with_continue.txt",
-    )
+    );
+
+    insta::assert_json_snapshot!(response);
 }
 
 #[test]
 fn asm_x86_64() {
-    compare_snapshot(
+    let response = query_api_json(
         "/asm/v1",
         r#"{
             "name": "firefox.exe",
@@ -585,14 +568,14 @@ fn asm_x86_64() {
             "size": "0x3a"
         }"#,
         fixtures_dir().join("win64-local"),
-        "asm_x86_64.txt",
-        "output-asm_x86_64.txt",
-    )
+    );
+
+    insta::assert_json_snapshot!(response);
 }
 
 #[test]
 fn asm_arm64() {
-    compare_snapshot(
+    let response = query_api_json(
         "/asm/v1",
         r#"{
             "name": "libmozglue.dylib",
@@ -602,7 +585,7 @@ fn asm_arm64() {
             "size": "0xe8"
         }"#,
         fixtures_dir().join("macos-arm64-local"),
-        "asm_arm64.txt",
-        "output-asm_arm64.txt",
-    )
+    );
+
+    insta::assert_json_snapshot!(response);
 }

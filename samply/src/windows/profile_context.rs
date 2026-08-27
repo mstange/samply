@@ -6,8 +6,8 @@ use debugid::DebugId;
 use fxprof_processed_profile::{
     Category, CategoryColor, CategoryHandle, CounterDisplayConfig, CounterHandle, CpuDelta,
     FrameFlags, LibraryHandle, LibraryInfo, Marker, MarkerField, MarkerHandle, MarkerLocations,
-    MarkerTiming, ProcessHandle, Profile, SamplingInterval, Schema, StringHandle, ThreadHandle,
-    Timestamp,
+    MarkerTiming, ProcessHandle, Profile, SamplingInterval, Schema, SourceLocation, StringHandle,
+    ThreadHandle, Timestamp,
 };
 use shlex::Shlex;
 use wholesym::PeCodeId;
@@ -18,7 +18,7 @@ use crate::shared::context_switch::{
     ContextSwitchHandler, OffCpuSampleGroup, ThreadContextSwitchData,
 };
 use crate::shared::included_processes::IncludedProcesses;
-use crate::shared::jit_category_manager::{JitCategoryManager, JsFrame};
+use crate::shared::jit_category_manager::{JitCategoryManager, JsFrame, JsScriptSource};
 use crate::shared::jit_function_add_marker::JitFunctionAddMarker;
 use crate::shared::jit_function_recycler::JitFunctionRecycler;
 use crate::shared::lib_mappings::{LibMappingAdd, LibMappingInfo, LibMappingOp, LibMappingOpQueue};
@@ -337,24 +337,20 @@ impl Process {
         })
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub fn add_jit_function(
         &mut self,
         timestamp_raw: u64,
-        jit_lib: &mut SyntheticJitLibrary,
-        name: String,
+        relative_address_at_start: u32,
         start_avma: u64,
         size: u32,
         info: LibMappingInfo,
     ) {
-        let relative_address = jit_lib.add_function(name, size);
-
         self.jit_lib_mapping_ops.push(
             timestamp_raw,
             LibMappingOp::Add(LibMappingAdd {
                 start_avma,
                 end_avma: start_avma + u64::from(size),
-                relative_address_at_start: relative_address,
+                relative_address_at_start,
                 info,
             }),
         );
@@ -1704,7 +1700,7 @@ impl ProfileContext {
         &mut self,
         timestamp_raw: u64,
         pid: u32,
-        mut method_name: String,
+        method_name: String,
         method_start_address: u64,
         method_size: u32,
         source_id: u64,
@@ -1715,35 +1711,59 @@ impl ProfileContext {
             return;
         };
 
-        let (category, js_frame) = if let Some(url) = process.js_sources.get(&source_id) {
-            if method_name.starts_with("JS:") {
-                // Probably a JIT frame from a locally patched version of Chrome where
-                // we made it prefix the ETW JIT frames with the same prefixes as with
-                // the Jitdump backend. The prefix gives us the Jit tier / category.
-                self.js_category_manager
-                    .classify_jit_symbol(&method_name, &mut self.profile)
-            } else {
-                // A JIT frame from a regular Chrome / Edge build.
-                // For now we just add the script URL at the end of the function name.
-                // In the future, we should store the function name and the script URL
-                // separately in the profile.
-                use std::fmt::Write;
-                write!(&mut method_name, " {url}").unwrap();
-                if line != 0 {
-                    write!(&mut method_name, ":{line}:{column}").unwrap();
-                }
-                let category = self.js_jit_lib.default_category();
-                let js_frame = Some(JsFrame::NativeFrameIsJs);
-                (category, js_frame)
-            }
-        } else {
-            // Probably a JIT frame from Firefox. Firefox doesn't emit SourceLoad events yet.
-            self.js_category_manager
-                .classify_jit_symbol(&method_name, &mut self.profile)
+        // We leave the name alone, and store the script URL and the function's start
+        // line + column as proper source information on the frames. This differs from
+        // the other platforms, where the JS engine bakes the location into the name
+        // and we have no way to separate the two back out.
+        //
+        // We need to handle these cases:
+        // - `myFun` + sourceID (Chrome)
+        // - `RegExp.< src: 'x' flags: ''` with no sourceID (Chrome)
+        // - `Ion: myFun (url:line:col)` with no sourceID (old Firefox)
+        // - `Ion: myFun` + sourceID (new Firefox)
+        // - `Trampoline: MegamorphicLoadPermissive` with no sourceID (old + new Firefox)
+        //
+        // Only the cases with a sourceID get source information; for the others the
+        // location either stays in the name (old Firefox) or doesn't exist at all.
+        let script_source = process
+            .js_sources
+            .get(&source_id)
+            .map(|url| JsScriptSource {
+                url,
+                function_start_line: line,
+                function_start_col: column,
+            });
+
+        // The name prefix gives us the JIT tier / category. Names without a known
+        // prefix fall back to the generic JIT category, which is also what
+        // self.js_jit_lib defaults to.
+        let (category, mut js_frame) = self.js_category_manager.classify_jit_symbol(
+            &method_name,
+            script_source,
+            &mut self.profile,
+        );
+        if js_frame.is_none() && script_source.is_some() {
+            // Stock Chrome / Edge emit the bare function name, with no prefix to
+            // classify. We classify a method with a script source as a JS function
+            // regardless.
+            js_frame = Some(JsFrame::NativeFrameIsJs);
+        }
+
+        // The native frame gets the same source location as the JS label frame which
+        // may be prepended to it.
+        let source_location = match script_source {
+            Some(script_source) => script_source.source_location(&mut self.profile),
+            None => SourceLocation::default(),
         };
 
-        let lib = &mut self.js_jit_lib;
-        let info = LibMappingInfo::new_jit_function(lib.lib_handle(), category, js_frame);
+        let symbol = self.js_jit_lib.add_function(
+            &method_name,
+            method_size,
+            source_location,
+            &mut self.profile,
+        );
+        let info = LibMappingInfo::new_jit_function(symbol.lib_handle, category, js_frame)
+            .with_jit_symbol(symbol);
 
         if self.profile_creation_props.should_emit_jit_markers {
             let name_handle = self.profile.handle_for_string(&method_name);
@@ -1757,8 +1777,7 @@ impl ProfileContext {
 
         process.add_jit_function(
             timestamp_raw,
-            lib,
-            method_name,
+            symbol.symbol_address,
             method_start_address,
             method_size,
             info,
@@ -1777,13 +1796,20 @@ impl ProfileContext {
             return;
         };
 
-        let lib = &mut self.coreclr_jit_lib;
-        let info = LibMappingInfo::new_jit_function(lib.lib_handle(), lib.default_category(), None);
+        let default_category = self.coreclr_jit_lib.default_category();
+        // CoreCLR doesn't give us any source information.
+        let symbol = self.coreclr_jit_lib.add_function(
+            &method_name,
+            method_size,
+            SourceLocation::default(),
+            &mut self.profile,
+        );
+        let info = LibMappingInfo::new_jit_function(symbol.lib_handle, default_category, None)
+            .with_jit_symbol(symbol);
 
         process.add_jit_function(
             timestamp_raw,
-            lib,
-            method_name,
+            symbol.symbol_address,
             method_start_address,
             method_size,
             info,
@@ -2007,17 +2033,14 @@ impl ProfileContext {
 
     pub fn finish(mut self) -> Profile {
         // Push queued samples into the profile.
-        // We queue them so that we can get symbolicated JIT function names. To get symbolicated JIT function names,
-        // we have to call profile.add_sample after we call profile.set_lib_symbol_table, and we don't have the
-        // complete JIT symbol table before we've seen all JIT symbols.
-        // (This is a rather weak justification. The better justification is that this is consistent with what
-        // samply does on Linux and macOS, where the queued samples also want to respect JIT function names from
-        // a /tmp/perf-1234.map file, and this file may not exist until the profiled process finishes.)
+        // We queue them so that this is consistent with what samply does on Linux and macOS,
+        // where the queued samples want to respect JIT function names from a
+        // /tmp/perf-1234.map file, and this file may not exist until the profiled process
+        // finishes.
+        // (JIT function names used to be another reason: they arrived via a lib symbol table
+        // which wasn't complete until we'd seen all JIT symbols. These days each JIT frame
+        // carries its own native symbol, so that reason is gone.)
         let mut stack_frame_scratch_buf = Vec::new();
-        self.js_jit_lib
-            .finish_and_set_symbol_table(&mut self.profile);
-        self.coreclr_jit_lib
-            .finish_and_set_symbol_table(&mut self.profile);
         let process_sample_datas = self.processes.finish();
 
         let user_category = self.categories.get(KnownCategory::User, &mut self.profile);

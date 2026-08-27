@@ -1,10 +1,9 @@
-use std::sync::Arc;
-
 use debugid::DebugId;
 use fxprof_processed_profile::{
-    LibraryHandle, LibraryInfo, Profile, SubcategoryHandle, Symbol, SymbolTable,
+    LibraryHandle, LibraryInfo, Profile, SourceLocation, StringHandle, SubcategoryHandle,
 };
 
+use super::lib_mappings::JitSymbolInfo;
 use super::types::FastHashMap;
 
 #[derive(Debug)]
@@ -12,8 +11,7 @@ pub struct SyntheticJitLibrary {
     lib_handle: LibraryHandle,
     default_category: SubcategoryHandle,
     next_relative_address: u32,
-    symbols: Vec<Symbol>,
-    recycler: Option<FastHashMap<(String, u32), u32>>,
+    recycler: Option<FastHashMap<(StringHandle, u32), u32>>,
 }
 
 impl SyntheticJitLibrary {
@@ -41,37 +39,45 @@ impl SyntheticJitLibrary {
             lib_handle,
             default_category,
             next_relative_address: 0,
-            symbols: Vec::new(),
             recycler,
         }
     }
 
-    /// Returns the relative address of the added function.
-    pub fn add_function(&mut self, name: String, size: u32) -> u32 {
-        if let Some(recycler) = self.recycler.as_mut() {
-            let key = (name, size);
-            if let Some(relative_address) = recycler.get(&key) {
-                return *relative_address;
-            }
-            let relative_address = self.next_relative_address;
-            self.next_relative_address += size;
-            self.symbols.push(Symbol {
-                address: relative_address,
-                size: Some(size),
-                name: key.0.clone(),
-            });
-            recycler.insert(key, relative_address);
-            relative_address
-        } else {
-            let relative_address = self.next_relative_address;
-            self.next_relative_address += size;
-            self.symbols.push(Symbol {
-                address: relative_address,
-                size: Some(size),
-                name,
-            });
-            relative_address
+    /// Add a function to this library and return its native symbol.
+    ///
+    /// `source_location` ends up on the native frames for this function. If a JS
+    /// label frame gets prepended to those frames, that label frame carries its
+    /// own source location instead.
+    pub fn add_function(
+        &mut self,
+        name: &str,
+        size: u32,
+        source_location: SourceLocation,
+        profile: &mut Profile,
+    ) -> JitSymbolInfo {
+        let name = profile.handle_for_string(name);
+        let symbol_address = self.relative_address_for_function(name, size);
+        JitSymbolInfo {
+            lib_handle: self.lib_handle,
+            name,
+            symbol_address,
+            symbol_size: Some(size),
+            source_location,
         }
+    }
+
+    fn relative_address_for_function(&mut self, name: StringHandle, size: u32) -> u32 {
+        if let Some(recycler) = &self.recycler {
+            if let Some(&relative_address) = recycler.get(&(name, size)) {
+                return relative_address;
+            }
+        }
+        let relative_address = self.next_relative_address;
+        self.next_relative_address += size;
+        if let Some(recycler) = &mut self.recycler {
+            recycler.insert((name, size), relative_address);
+        }
+        relative_address
     }
 
     pub fn lib_handle(&self) -> LibraryHandle {
@@ -80,10 +86,5 @@ impl SyntheticJitLibrary {
 
     pub fn default_category(&self) -> SubcategoryHandle {
         self.default_category
-    }
-
-    pub fn finish_and_set_symbol_table(self, profile: &mut Profile) {
-        let symbol_table = Arc::new(SymbolTable::new(self.symbols));
-        profile.set_lib_symbol_table(self.lib_handle, symbol_table);
     }
 }

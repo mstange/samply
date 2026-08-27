@@ -1,21 +1,33 @@
-//! Thin JSON writer wrapper.
-//!
-//! `Writer` bundles the underlying `JsonStreamWriter` with a few convenience
-//! helpers (`object`, `array`, `fp`, `empty_array`, `null_array`,
-//! `number_array`, `optional_number_array`) that keep call sites in the rest
-//! of the crate readable. Primitive JSON operations (`name`, `string_value`,
-//! `number_value`, `bool_value`, `null_value`) are forwarded to `self.json`;
-//! callers can also reach `self.json` directly.
+//! JSON writer with optional JSLB output.
 
 use std::io::Write;
 
+use json_slabs::{Builder, SLAB_REF_KEY};
 use struson::writer::{FiniteNumber, JsonNumberError, JsonStreamWriter, JsonWriter};
 
-pub struct Writer<'a, W: Write> {
-    pub json: &'a mut JsonStreamWriter<W>,
+/// All write_json methods in this crate take a `Writer`.
+///
+/// If `jslb_builder` is `None`, the writer just writes to the inner
+/// `JsonStreamWriter`, with a few extra convenience methods around it.
+///
+/// If `jslb_builder` is `Some`, the `JsonStreamWriter` is the writer
+/// for a JSON slab. This can be the root JSON slab, or it can be a
+/// nested JSON object that was extracted into its own slab, see
+/// `Writer::split_out_object`.
+///
+/// This writer will create typed-array slabs when methods like `i32_array`,
+/// or `u8_array` are called - in JSON mode those just become regular number
+/// arrays in the JSON.
+///
+/// Lifetimes:
+/// - 'w: The mutable borrows of the JSON stream writer and the JSLB builder
+/// - 'p: The profile-owned data referenced by the JSLB builder, e.g. columns in tables
+pub struct Writer<'w, 'p, W: Write> {
+    pub json: &'w mut JsonStreamWriter<W>,
+    pub jslb_builder: Option<&'w mut Builder<'p>>,
 }
 
-impl<W: Write> Writer<'_, W> {
+impl<'p, W: Write> Writer<'_, 'p, W> {
     // -- Compound helpers ----------------------------------------------------
 
     #[inline]
@@ -115,4 +127,111 @@ impl<W: Write> Writer<'_, W> {
     pub fn null_value(&mut self) -> std::io::Result<()> {
         self.json.null_value()
     }
+
+    // -- JSLB routing -------------------------------------------------------
+
+    /// Write an `i32` column. In JSLB mode, register the slice as a
+    /// typed-array slab (bytes written directly at flush time on LE
+    /// hosts) and emit a `{"$s":N}` placeholder. Otherwise, write the
+    /// values inline as a JSON array of numbers.
+    ///
+    /// Warning: Only use this for columns which are allowed to be typed arrays
+    /// in the version of the "processed profile" format that we emit! Otherwise,
+    /// the front-end will have a typed array in a place where it was expecting
+    /// a regular JS array, and things won't work correctly.
+    pub fn i32_array(&mut self, values: &'p [i32]) -> std::io::Result<()> {
+        match self.jslb_builder.as_deref_mut() {
+            Some(builder) => {
+                let p = builder.add_slab(values);
+                self.write_slab_placeholder(p)
+            }
+            None => self.number_array(values),
+        }
+    }
+
+    /// Write a `u8` column. In JSLB mode, register the slice as a
+    /// typed-array slab; otherwise write inline as a JSON array.
+    ///
+    /// Warning: Only use this for columns which are allowed to be typed arrays
+    /// in the version of the "processed profile" format that we emit! Otherwise,
+    /// the front-end will have a typed array in a place where it was expecting
+    /// a regular JS array, and things won't work correctly.
+    pub fn u8_array(&mut self, values: &'p [u8]) -> std::io::Result<()> {
+        match self.jslb_builder.as_deref_mut() {
+            Some(builder) => {
+                let p = builder.add_slab(values);
+                self.write_slab_placeholder(p)
+            }
+            None => self.number_array(values),
+        }
+    }
+
+    /// Write an `f64` column produced by `iter`. In JSLB mode, register
+    /// the iterator as a streaming typed-array slab (no intermediate
+    /// `Vec<f64>` is materialized); otherwise, walk the iterator and
+    /// write the values inline.
+    ///
+    /// Warning: Only use this for columns which are allowed to be typed arrays
+    /// in the version of the "processed profile" format that we emit! Otherwise,
+    /// the front-end will have a typed array in a place where it was expecting
+    /// a regular JS array, and things won't work correctly.
+    pub fn f64_array_from_iter<I>(&mut self, count: usize, iter: I) -> std::io::Result<()>
+    where
+        I: IntoIterator<Item = f64> + 'p,
+        I::IntoIter: 'p,
+    {
+        match self.jslb_builder.as_deref_mut() {
+            Some(builder) => {
+                let p = builder.add_slab_from_iter(count, iter);
+                self.write_slab_placeholder(p)
+            }
+            None => self.array(|w| {
+                for v in iter {
+                    w.fp(v)?;
+                }
+                Ok(())
+            }),
+        }
+    }
+
+    /// Write a JSON sub-document. In JSLB mode, run `body` into a scratch
+    /// buffer, register the buffer as a `SlabType::Json` slab, and emit a
+    /// `{"$s":N}` placeholder on the current stream. Otherwise, run `body`
+    /// directly on the current writer.
+    pub fn split_out_object<B: SplitOutObjectBody<'p>>(&mut self, body: B) -> std::io::Result<()> {
+        let Some(builder) = self.jslb_builder.as_deref_mut() else {
+            return body.write_body(self);
+        };
+        let mut buf = Vec::new();
+        {
+            let mut json = JsonStreamWriter::new(&mut buf);
+            let mut inner = Writer {
+                json: &mut json,
+                jslb_builder: Some(&mut *builder),
+            };
+            body.write_body(&mut inner)?;
+            json.finish_document()?;
+        }
+        let p = builder.add_json_slab(buf);
+        self.write_slab_placeholder(p)
+    }
+
+    fn write_slab_placeholder(&mut self, p: json_slabs::SlabPlaceholder) -> std::io::Result<()> {
+        self.object(|w| {
+            w.json.name(SLAB_REF_KEY)?;
+            w.json.number_value(p.index())
+        })
+    }
+}
+
+/// A JSON sub-document that can be written either inline into the current
+/// JSON stream or split out into a `SlabType::Json` JSLB slab.
+///
+/// The two paths use different underlying writer types (`JsonStreamWriter<W>`
+/// for inline, `JsonStreamWriter<&mut Vec<u8>>` for the scratch buffer),
+/// so the body must be generic over `W`. Rust's HRTBs don't quantify over
+/// types, so a trait with a generic method is the way to express "this body
+/// works for any `W: Write`".
+pub(crate) trait SplitOutObjectBody<'p> {
+    fn write_body<W: Write>(self, w: &mut Writer<'_, 'p, W>) -> std::io::Result<()>;
 }

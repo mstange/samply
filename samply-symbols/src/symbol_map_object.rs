@@ -37,7 +37,7 @@ enum FullSymbolListEntry<'a, Symbol> {
     /// A synthesized symbol for the entry point of the object.
     SynthesizedEntryPoint,
     Symbol(Symbol),
-    Export(object::Export<'a>),
+    Export(Cow<'a, [u8]>),
     PltStub(String),
     EndAddress,
 }
@@ -53,7 +53,7 @@ impl<'a, Symbol: object::ObjectSymbol<'a>> std::fmt::Debug for FullSymbolListEnt
                 .finish(),
             Self::Export(arg0) => f
                 .debug_tuple("Export")
-                .field(&std::str::from_utf8(arg0.name()).unwrap())
+                .field(&std::str::from_utf8(arg0).unwrap())
                 .finish(),
             Self::PltStub(arg0) => f.debug_tuple("PltStub").field(arg0).finish(),
             Self::EndAddress => write!(f, "EndAddress"),
@@ -70,7 +70,7 @@ impl<'a, Symbol: object::ObjectSymbol<'a>> FullSymbolListEntry<'a, Symbol> {
             FullSymbolListEntry::Symbol(symbol) => {
                 String::from_utf8_lossy(symbol.name_bytes().ok()?)
             }
-            FullSymbolListEntry::Export(export) => String::from_utf8_lossy(export.name()),
+            FullSymbolListEntry::Export(name) => String::from_utf8_lossy(name),
             FullSymbolListEntry::PltStub(name) => Cow::Borrowed(name.as_str()),
         };
         Some(name)
@@ -149,13 +149,13 @@ fn relative_address_u32(address: u64, base_address: u64) -> Option<u32> {
 fn is_executable_section<'data, S: ObjectSection<'data>>(section: &S) -> bool {
     match (section.kind(), section.flags()) {
         (SectionKind::Text, _) => true,
-        (_, SectionFlags::MachO { flags })
-            if flags & object::macho::S_ATTR_PURE_INSTRUCTIONS != 0 =>
+        (_, SectionFlags::MachO { flags, .. })
+            if flags.contains(object::macho::S_ATTR_PURE_INSTRUCTIONS) =>
         {
             true
         }
-        (SectionKind::UninitializedData, SectionFlags::Elf { sh_flags })
-            if sh_flags & u64::from(object::elf::SHF_EXECINSTR) != 0 =>
+        (SectionKind::UninitializedData, SectionFlags::Elf { sh_flags, .. })
+            if sh_flags.contains(object::elf::SHF_EXECINSTR) =>
         {
             true
         }
@@ -308,12 +308,18 @@ impl<'a, Symbol: object::ObjectSymbol<'a> + 'a> SymbolList<'a, Symbol> {
 
         // 3. Exports (only used by exe / dll objects)
         if let Ok(exports) = object_file.exports() {
-            for export in exports {
-                entries.push((
-                    (export.address() - base_address) as u32,
-                    FullSymbolListEntry::Export(export),
-                ));
-            }
+            entries.extend(exports.map_while(Result::ok).filter_map(|export| {
+                let object::ExportTarget::Address { address } = export.target() else {
+                    return None;
+                };
+                let object::NameOrOrdinal::Name(name) = export.into_name() else {
+                    return None;
+                };
+                Some((
+                    u32::try_from(address.checked_sub(base_address)?).ok()?,
+                    FullSymbolListEntry::Export(name),
+                ))
+            }));
         }
 
         // 4. Placeholder symbols based on function start addresses

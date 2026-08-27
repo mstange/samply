@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 use std::io::Write;
 
 use crate::fast_hash_map::FastHashSet;
-use crate::frame_table::{FrameInterner, InternalFrame};
+use crate::frame_table::{FrameInterner, FrameInternerTables, InternalFrame};
 use crate::global_lib_table::{GlobalLibIndex, UsedLibraryAddressesCollector};
 use crate::native_symbols::{NativeSymbolIndex, NativeSymbols};
 use crate::profile_symbol_info::LibSymbolInfo;
@@ -56,6 +56,10 @@ impl ProfileSharedData {
         self.frame_interner.gather_used_rvas(collector);
     }
 
+    pub fn create_tables(&self) -> FrameInternerTables {
+        self.frame_interner.create_tables()
+    }
+
     pub fn make_symbolicated_shared(
         self,
         libs: &FastHashSet<GlobalLibIndex>,
@@ -91,18 +95,49 @@ impl ProfileSharedData {
         )
     }
 
-    pub(crate) fn write_json<W: Write>(&self, ctx: &mut Writer<W>) -> std::io::Result<()> {
-        let (frame_table, func_table, source_table, resource_table) =
-            self.frame_interner.create_tables();
+    pub(crate) fn write_json<'p, W: Write>(
+        &'p self,
+        ctx: &mut Writer<'_, 'p, W>,
+        tables: &'p FrameInternerTables,
+    ) -> std::io::Result<()> {
+        let FrameInternerTables {
+            frame_table,
+            func_table,
+            source_table,
+            resource_table,
+        } = tables;
 
         ctx.object(|w| {
+            // Some of the tables in profile.shared use write_json and some
+            // use split_out_object. For JSON output, the two are equivalent.
+            //
+            // But for JSLB output, split_out_object puts the JSON into a separate
+            // JSON slab. The goal of splitting out certain subobjects is to keep
+            // the root JSON slab small. We only need to do this as long as those
+            // subobjects produce a large JSON, which is to say, as long as those
+            // subobjects include JSON arrays rather than typed arrays.
+            // The profile format is still in the process of evolving to accept
+            // typed arrays in more places. For example, the stackTable already
+            // uses typed arrays for all its columns, but the frameTable and
+            // funcTable do not. So that means at the moment, the frameTable and
+            // funcTable still produce a lot of JSON. So it's worth splitting them
+            // out.
+            //
+            // Once those tables have been converted to use typed-array columns in
+            // future profile versions (which requires front-end work), we'll be
+            // able to just include the table in the root JSON - it'll be small
+            // because it'll just be a JSON skeleton with placeholder objects which
+            // reference the out-of-line typed array columns.
+            //
+            // The exception is the stringArray - that one will probably remain
+            // JSON and it will keep using `split_out_object`.
+
             w.name("stackTable")?;
             self.stack_table.write_json(w)?;
             w.name("frameTable")?;
-            frame_table.write_json(w)?;
+            w.split_out_object(frame_table)?;
             w.name("funcTable")?;
-            func_table.write_json(w)?;
-
+            w.split_out_object(func_table)?;
             w.name("nativeSymbols")?;
             self.native_symbols.write_json(w)?;
             w.name("resourceTable")?;
@@ -122,7 +157,7 @@ impl ProfileSharedData {
             })?;
 
             w.name("stringArray")?;
-            self.string_table.write_json(w)
+            w.split_out_object(&self.string_table)
         })
     }
 }

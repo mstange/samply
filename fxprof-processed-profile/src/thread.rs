@@ -208,9 +208,9 @@ impl Thread {
     }
 
     #[allow(clippy::too_many_arguments)]
-    pub(crate) fn write_json<W: Write>(
-        &self,
-        w: &mut Writer<W>,
+    pub(crate) fn write_json<'p, W: Write>(
+        &'p self,
+        w: &mut Writer<'_, 'p, W>,
         process_start_time: Timestamp,
         process_end_time: Option<Timestamp>,
         process_name: &str,

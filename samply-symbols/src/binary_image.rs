@@ -352,7 +352,7 @@ fn object_arch_to_string(arch: object::Architecture) -> Option<&'static str> {
 }
 
 fn elf_machine_arch_to_string(elf_machine_arch: u32) -> Option<&'static str> {
-    let s = match elf_machine_arch as u16 {
+    let s = match object::elf::Machine(elf_machine_arch as u16) {
         object::elf::EM_ARM => "arm",
         object::elf::EM_AARCH64 => "arm64",
         object::elf::EM_386 => "x86",
