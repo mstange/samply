@@ -151,9 +151,9 @@ impl StackTable {
             w.name("length")?;
             w.number_value(len)?;
             w.name("prefixOffset")?;
-            w.i32_array(&cols.prefix_offset)?;
+            w.typed_array(&cols.prefix_offset)?;
             w.name("frame")?;
-            w.i32_array(&cols.frame)
+            w.typed_array(&cols.frame)
         })
     }
 }

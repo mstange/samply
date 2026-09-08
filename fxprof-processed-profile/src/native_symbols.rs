@@ -193,13 +193,7 @@ impl NativeSymbols {
 pub struct NativeSymbolIndex(u32);
 
 impl NativeSymbolIndex {
-    pub(crate) fn write_optional<W: Write>(
-        this: Option<NativeSymbolIndex>,
-        w: &mut Writer<W>,
-    ) -> std::io::Result<()> {
-        match this {
-            Some(n) => w.number_value(n.0),
-            None => w.null_value(),
-        }
+    pub(crate) fn as_i32(self) -> i32 {
+        self.0 as i32
     }
 }

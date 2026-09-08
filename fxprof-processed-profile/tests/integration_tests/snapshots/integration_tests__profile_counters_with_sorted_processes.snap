@@ -144,7 +144,7 @@ expression: profile_as_json_value(&profile)
     "interval": 1,
     "markerSchema": [],
     "pausedRanges": [],
-    "preprocessedProfileVersion": 70,
+    "preprocessedProfileVersion": 71,
     "processType": 0,
     "product": "test",
     "sampleUnits": {
@@ -165,8 +165,8 @@ expression: profile_as_json_value(&profile)
       "address": [],
       "category": [],
       "column": [],
+      "flags": [],
       "func": [],
-      "inlineDepth": [],
       "innerWindowID": [],
       "length": 0,
       "lib": [],
