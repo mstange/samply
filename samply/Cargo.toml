@@ -88,7 +88,7 @@ runas = "1.2.0"
 which = "8"
 winver = "1"
 
-# etw-reader = { path = "../etw-reader" }
+
 
 [target.'cfg(windows)'.dependencies.windows]
 version = "0.61"

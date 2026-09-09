@@ -16,7 +16,6 @@ members = [
     "tools/dump_table",
     "tools/query_api"
 ]
-exclude = ["etw-reader"] # Should not be compiled on non-Windows
 
 # The profile that 'cargo dist' will build with
 [profile.dist]
