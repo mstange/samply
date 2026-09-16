@@ -14,20 +14,25 @@ use crate::string_table::StringHandle;
 use crate::writer::{SplitOutObjectBody, Writer};
 use crate::{FrameHandle, SourceLocation};
 
-/// Interns frames in two levels.
+/// Interns frames, in two levels.
 ///
-/// A frame is a [`FrameTemplate`] (the symbolication result: func, source
-/// location, native symbol, category, inline depth) plus the relative address
-/// of one specific instruction. Templates dedup extremely well - there are
-/// only as many as there are distinct code locations - whereas the number of
-/// distinct addresses is bounded only by the size of the code.
+/// The two levels are:
 ///
-/// So we intern the two separately: templates in a `FastIndexSet`, which
-/// stores them by value, and the (template, address) pairs in a
-/// [`ColumnarInterner`], which stores only the two 4-byte columns and a
-/// `HashTable<u32>` of indexes into them. Storing the full frame by value in
-/// the per-address level would cost ~96 bytes per frame rather than ~14, which
-/// matters for profilers that emit a frame per address range of a large binary.
+/// 1. One set of [`FrameTemplate`] items (everything except address), and
+/// 2. One set of [`FrameCols`] items (template + address).
+///
+/// The point of this distinction is to reduce memory consumption for the
+/// common case of having almost-duplicate frames which only differ in the
+/// address. This happens in the presence of inlining:
+///
+/// Let's say you sample five instructions in a function called `inner` that
+/// was inlined into a function called `outer`, with the call to `inner` at
+/// file.cpp:123. Every sampled instruction gets two frames each: one for
+/// `outer` and one for `inner`. The frames for `inner` may have different
+/// line numbers, dependending on which code inside `inner` was responsible
+/// for the sampled instruction. But the frames for `outer` will all have the
+/// same line number, because there's only call to `inner`. Those frames for
+/// `outer` will only differ in the instruction address.
 #[derive(Debug, Clone, Default)]
 pub struct FrameInterner {
     templates: FastIndexSet<FrameTemplate>,
@@ -339,11 +344,11 @@ pub enum FrameTemplateVariant {
     Native(NativeTemplateData),
 }
 
-/// A complete frame: a [`FrameTemplate`] plus an address.
+/// A complete frame.
 ///
-/// This is the type callers pass in and get back out; it is never what we
-/// store. [`FrameInterner`] splits it on the way in and reassembles it on the
-/// way out.
+/// This is the type callers pass in and get back out, but we don't store
+/// it. Instead, frames are stored in two pieces: [`FrameTemplate`] for
+// everything except the address, and then [`FrameCols`] adds the address.
 #[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash)]
 pub struct InternalFrame {
     pub name: StringHandle,
