@@ -56,7 +56,7 @@ impl ProfileSharedData {
         self.frame_interner.gather_used_rvas(collector);
     }
 
-    pub fn create_tables(&self) -> FrameInternerTables {
+    pub fn create_tables(&self) -> FrameInternerTables<'_> {
         self.frame_interner.create_tables()
     }
 
@@ -98,7 +98,7 @@ impl ProfileSharedData {
     pub(crate) fn write_json<'p, W: Write>(
         &'p self,
         ctx: &mut Writer<'_, 'p, W>,
-        tables: &'p FrameInternerTables,
+        tables: &'p FrameInternerTables<'p>,
     ) -> std::io::Result<()> {
         let FrameInternerTables {
             frame_table,
