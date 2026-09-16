@@ -48,7 +48,7 @@ pub struct NativeSymbols {
 #[derive(Debug, Clone, Default)]
 struct NativeSymbolCols {
     addresses: Vec<u32>,
-    function_sizes: Vec<Option<u32>>,
+    function_sizes: Vec<i32>,
     lib_indexes: Vec<GlobalLibIndex>,
     names: Vec<StringHandle>,
 }
@@ -57,9 +57,16 @@ struct NativeSymbolCols {
 pub struct NativeSymbolKey {
     pub lib_index: GlobalLibIndex,
     pub address: u32,
-    pub function_size: Option<u32>,
+    /// The size of the function's machine code, in bytes, or
+    /// [`FUNCTION_SIZE_UNKNOWN`] if the size isn't known.
+    pub function_size: i32,
     pub name: StringHandle,
 }
+
+/// The value the processed profile format uses in the native symbol table's
+/// `functionSize` column when the size of the function isn't known.
+/// (Before format version 74, this was `null`.)
+const FUNCTION_SIZE_UNKNOWN: i32 = -1;
 
 impl ColumnarStore for NativeSymbolCols {
     type Row = NativeSymbolKey;
@@ -121,10 +128,14 @@ impl NativeSymbols {
         symbol_size: Option<u32>,
         symbol_name_string_index: StringHandle,
     ) -> NativeSymbolIndex {
+        let function_size = match symbol_size {
+            Some(size) => size as i32,
+            None => FUNCTION_SIZE_UNKNOWN,
+        };
         NativeSymbolIndex(self.set.insert(NativeSymbolKey {
             lib_index,
             address: symbol_address,
-            function_size: symbol_size,
+            function_size,
             name: symbol_name_string_index,
         }))
     }
@@ -142,13 +153,13 @@ impl NativeSymbols {
             if libs.contains(&lib_index) {
                 old_index_to_new_index.push(0);
             } else {
-                let new_idx = new_table.symbol_index_for_symbol(
+                let new_idx = new_table.set.insert(NativeSymbolKey {
                     lib_index,
-                    cols.addresses[i],
-                    cols.function_sizes[i],
-                    cols.names[i],
-                );
-                old_index_to_new_index.push(new_idx.0);
+                    address: cols.addresses[i],
+                    function_size: cols.function_sizes[i],
+                    name: cols.names[i],
+                });
+                old_index_to_new_index.push(new_idx);
             }
         }
         (
@@ -161,30 +172,24 @@ impl NativeSymbols {
         self.set.store().names[native_symbol_index.0 as usize]
     }
 
-    pub(crate) fn write_json<W: Write>(&self, w: &mut Writer<W>) -> std::io::Result<()> {
+    pub(crate) fn write_json<'p, W: Write>(
+        &'p self,
+        w: &mut Writer<'_, 'p, W>,
+    ) -> std::io::Result<()> {
         let cols = self.set.store();
         let len = self.set.len();
         w.object(|w| {
             w.name("length")?;
             w.number_value(len)?;
+            // All four columns can be typed arrays as of format version 74.
             w.name("address")?;
-            w.number_array(&cols.addresses)?;
+            w.typed_array(&cols.addresses)?;
             w.name("functionSize")?;
-            w.optional_number_array(&cols.function_sizes)?;
+            w.typed_array(&cols.function_sizes)?;
             w.name("libIndex")?;
-            w.array(|w| {
-                for li in &cols.lib_indexes {
-                    li.write_json(w)?;
-                }
-                Ok(())
-            })?;
+            w.typed_array_from_iter(len, cols.lib_indexes.iter().map(|li| li.as_i32()))?;
             w.name("name")?;
-            w.array(|w| {
-                for n in &cols.names {
-                    n.write_json(w)?;
-                }
-                Ok(())
-            })
+            w.typed_array_from_iter(len, cols.names.iter().map(|n| n.as_u32() as i32))
         })
     }
 }
@@ -195,5 +200,77 @@ pub struct NativeSymbolIndex(u32);
 impl NativeSymbolIndex {
     pub(crate) fn as_i32(self) -> i32 {
         self.0 as i32
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use json_slabs::{ParsedFile, SlabPlaceholder, SlabType, SLAB_REF_KEY};
+
+    use crate::{
+        LibraryInfo, Profile, ProfileFormat, ReferenceTimestamp, SamplingInterval, Timestamp,
+    };
+
+    /// The `nativeSymbols` columns have to be typed arrays of the exact types
+    /// the format specifies (processed format version 74), and the "size
+    /// unknown" sentinel has to be `-1`.
+    #[test]
+    fn native_symbols_are_typed_arrays_in_jslb() {
+        let mut profile = Profile::new(
+            "test",
+            ReferenceTimestamp::from_millis_since_unix_epoch(0.0),
+            SamplingInterval::from_millis(1),
+        );
+        let lib = profile.add_lib(LibraryInfo {
+            name: "libfoo.so".into(),
+            debug_name: "libfoo.so".into(),
+            path: "/usr/lib/libfoo.so".into(),
+            debug_path: "/usr/lib/libfoo.so".into(),
+            debug_id: debugid::DebugId::nil(),
+            code_id: None,
+            arch: None,
+        });
+        let process = profile.add_process("test", 123, Timestamp::from_millis_since_reference(0.0));
+        let _thread = profile.add_thread(
+            process,
+            12345,
+            Timestamp::from_millis_since_reference(0.0),
+            true,
+        );
+        let name_1 = profile.handle_for_string("known_size");
+        let name_2 = profile.handle_for_string("unknown_size");
+        profile.handle_for_native_symbol(lib, 0x1000, Some(0x20), name_1);
+        profile.handle_for_native_symbol(lib, 0x2000, None, name_2);
+
+        let bytes = profile.to_vec(ProfileFormat::JsonSlabs);
+        let file = ParsedFile::parse(&bytes).unwrap();
+        let root: serde_json::Value = serde_json::from_slice(file.root_json_bytes()).unwrap();
+        let native_symbols = &root["shared"]["nativeSymbols"];
+        assert_eq!(native_symbols["length"], 2);
+
+        let placeholder = |column: &str| -> SlabPlaceholder {
+            let index = native_symbols[column][SLAB_REF_KEY]
+                .as_u64()
+                .unwrap_or_else(|| panic!("{column} should be a slab reference"));
+            SlabPlaceholder(index as usize)
+        };
+        let slab_type = |column: &str| file.slab_at(placeholder(column)).unwrap().slab_type;
+        assert_eq!(slab_type("libIndex"), SlabType::Int32);
+        assert_eq!(slab_type("address"), SlabType::Uint32);
+        assert_eq!(slab_type("name"), SlabType::Int32);
+        assert_eq!(slab_type("functionSize"), SlabType::Int32);
+
+        assert_eq!(
+            file.read::<u32>(placeholder("address")).unwrap(),
+            [0x1000, 0x2000]
+        );
+        assert_eq!(
+            file.read::<i32>(placeholder("functionSize")).unwrap(),
+            [0x20, -1]
+        );
+        assert_eq!(
+            file.read::<i32>(placeholder("name")).unwrap(),
+            [name_1.as_u32() as i32, name_2.as_u32() as i32]
+        );
     }
 }

@@ -132,7 +132,7 @@ fn profile_without_js() {
             },
             Symbol {
                 address: 172156,
-                size: Some(20),
+                size: None,
                 name: "libc_symbol_2".to_string(),
             },
         ])),

@@ -174,7 +174,7 @@ expression: profile_as_json_value(&profile)
     ],
     "oscpu": "macOS 14.4",
     "pausedRanges": [],
-    "preprocessedProfileVersion": 73,
+    "preprocessedProfileVersion": 74,
     "processType": 0,
     "product": "test",
     "sampleUnits": {
@@ -547,7 +547,7 @@ expression: profile_as_json_value(&profile)
       ],
       "functionSize": [
         180,
-        20,
+        -1,
         44
       ],
       "length": 3,

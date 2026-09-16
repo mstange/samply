@@ -47,7 +47,7 @@ expression: profile_as_json_value(&profile)
       }
     ],
     "pausedRanges": [],
-    "preprocessedProfileVersion": 73,
+    "preprocessedProfileVersion": 74,
     "processType": 0,
     "product": "test",
     "sampleUnits": {
