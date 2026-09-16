@@ -16,7 +16,17 @@ pub(super) fn write_schema_field<W: Write>(
             w.string_value(&field.label)?;
         }
         w.name("format")?;
-        field.format.write_json(w)
+        field.format.write_json(w)?;
+        if !field.contains_pii.is_empty() {
+            w.name("containsPII")?;
+            w.array(|w| {
+                for category in &field.contains_pii {
+                    category.write_json(w)?;
+                }
+                Ok(())
+            })?;
+        }
+        Ok(())
     })
 }
 

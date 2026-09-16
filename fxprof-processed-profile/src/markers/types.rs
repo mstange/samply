@@ -173,3 +173,54 @@ impl GraphColor {
         w.string_value(self.as_json_str())
     }
 }
+
+/// A category of privacy-sensitive information which can occur in the value of
+/// a marker field.
+///
+/// Declared per field, in
+/// [`MarkerField::contains_pii`](super::static_schema::MarkerField::contains_pii)
+/// or in [`DynamicSchemaMarkerField::contains_pii`](super::dynamic_schema::DynamicSchemaMarkerField::contains_pii).
+///
+/// The Firefox Profiler uses these categories when the user sanitizes a profile
+/// before uploading it: for each category the user chose to remove, the
+/// affected field values are redacted (or, for
+/// [`PrivateBrowsing`](Self::PrivateBrowsing), the entire marker is dropped).
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Ord, PartialOrd, Hash)]
+pub enum MarkerFieldPIICategory {
+    /// The value contains one or more URLs. URLs are stripped down to their
+    /// origin when URLs are removed.
+    ///
+    /// You don't need this category if the field's format already is
+    /// [`MarkerStringFieldFormat::Url`](super::field_format::MarkerStringFieldFormat::Url)
+    /// or [`MarkerStringFieldFormat::FilePath`](super::field_format::MarkerStringFieldFormat::FilePath),
+    /// because those formats are sanitized based on their format. Use this
+    /// category for fields whose format is something else but whose value can
+    /// still contain a URL, for example a free-form text field.
+    Url,
+    /// The value contains the ID of a browser extension. The ID is removed when
+    /// extension information is removed.
+    ExtensionId,
+    /// The value is the value of a preference / setting. It is cleared when
+    /// preference values are removed.
+    PreferenceValue,
+    /// The value says whether this marker is about private browsing activity.
+    /// Markers whose value for this field is "truthy" (a non-zero number, or a
+    /// non-empty string) are removed entirely when private browsing data is
+    /// removed.
+    PrivateBrowsing,
+}
+
+impl MarkerFieldPIICategory {
+    fn as_json_str(self) -> &'static str {
+        match self {
+            MarkerFieldPIICategory::Url => "url",
+            MarkerFieldPIICategory::ExtensionId => "extension-id",
+            MarkerFieldPIICategory::PreferenceValue => "preference-value",
+            MarkerFieldPIICategory::PrivateBrowsing => "private-browsing",
+        }
+    }
+
+    pub(crate) fn write_json<W: Write>(self, w: &mut Writer<W>) -> std::io::Result<()> {
+        w.string_value(self.as_json_str())
+    }
+}

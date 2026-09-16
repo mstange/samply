@@ -3,7 +3,7 @@ use std::io::Write;
 use crate::writer::Writer;
 
 /// The field format for marker fields of kind [`MarkerFieldKind::String`](super::types::MarkerFieldKind::String).
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MarkerStringFieldFormat {
     // ----------------------------------------------------
     // String types.
@@ -42,7 +42,7 @@ impl MarkerStringFieldFormat {
 }
 
 /// The field format for marker fields of kind [`MarkerFieldKind::Number`](super::types::MarkerFieldKind::Number).
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MarkerNumberFieldFormat {
     // ----------------------------------------------------
     // Numeric types
@@ -122,7 +122,7 @@ impl MarkerNumberFieldFormat {
 }
 
 /// The field format for marker fields of kind [`MarkerFieldKind::Flow`](super::types::MarkerFieldKind::Flow).
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MarkerFlowFieldFormat {
     /// A flow is a u64 identifier that's unique across processes. All of
     /// the markers with same flow id before a terminating flow id will be

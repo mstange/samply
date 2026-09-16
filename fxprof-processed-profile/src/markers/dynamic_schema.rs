@@ -7,7 +7,8 @@ use super::field_format::{
     MarkerFlowFieldFormat, MarkerNumberFieldFormat, MarkerStringFieldFormat,
 };
 use super::types::{
-    GraphColor, MarkerFieldKind, MarkerGraphType, MarkerLocations, MarkerTypeHandle,
+    GraphColor, MarkerFieldKind, MarkerFieldPIICategory, MarkerGraphType, MarkerLocations,
+    MarkerTypeHandle,
 };
 
 /// The trait for markers. You can implement [`Marker`](super::static_schema::Marker)
@@ -57,6 +58,11 @@ pub struct DynamicSchemaMarkerField {
 
     /// The format of this field.
     pub format: DynamicSchemaMarkerFieldFormat,
+
+    /// The categories of privacy-sensitive information which can occur in this
+    /// field's values, so that the Firefox Profiler can redact them when the
+    /// user sanitizes the profile before uploading it. Usually empty.
+    pub contains_pii: Vec<MarkerFieldPIICategory>,
 }
 
 /// Describes a marker type, including the names and types of the marker's fields.
@@ -86,21 +92,25 @@ pub struct DynamicSchemaMarkerField {
 ///             key: "eventName".into(),
 ///             label: "Event name".into(),
 ///             format: MarkerStringFieldFormat::String.into(),
+///             contains_pii: Vec::new(),
 ///         },
 ///         DynamicSchemaMarkerField {
 ///             key: "allocationSize".into(),
 ///             label: "Allocation size".into(),
 ///             format: MarkerNumberFieldFormat::Bytes.into(),
+///             contains_pii: Vec::new(),
 ///         },
 ///         DynamicSchemaMarkerField {
 ///             key: "url".into(),
 ///             label: "URL".into(),
 ///             format: MarkerStringFieldFormat::Url.into(),
+///             contains_pii: Vec::new(),
 ///         },
 ///         DynamicSchemaMarkerField {
 ///             key: "latency".into(),
 ///             label: "Latency".into(),
 ///             format: MarkerNumberFieldFormat::Duration.into(),
+///             contains_pii: Vec::new(),
 ///         },
 ///     ],
 ///     description: Some("This is a test marker with a custom schema.".into()),

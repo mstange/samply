@@ -121,6 +121,10 @@ expression: profile_as_json_value(&profile)
         ],
         "fields": [
           {
+            "containsPII": [
+              "url",
+              "extension-id"
+            ],
             "format": "unique-string",
             "key": "name",
             "label": "Details"
@@ -170,7 +174,7 @@ expression: profile_as_json_value(&profile)
     ],
     "oscpu": "macOS 14.4",
     "pausedRanges": [],
-    "preprocessedProfileVersion": 71,
+    "preprocessedProfileVersion": 72,
     "processType": 0,
     "product": "test",
     "sampleUnits": {

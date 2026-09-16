@@ -103,8 +103,8 @@ pub use library_info::{LibraryInfo, Symbol, SymbolTable};
 pub use markers::{
     DynamicSchemaMarker, DynamicSchemaMarkerField, DynamicSchemaMarkerFieldFormat,
     DynamicSchemaMarkerGraph, DynamicSchemaMarkerSchema, FlowId, GraphColor, Marker, MarkerField,
-    MarkerFieldKind, MarkerFlowFieldFormat, MarkerGraph, MarkerGraphType, MarkerHandle,
-    MarkerLocations, MarkerNumberFieldFormat, MarkerStringFieldFormat, MarkerTiming,
+    MarkerFieldKind, MarkerFieldPIICategory, MarkerFlowFieldFormat, MarkerGraph, MarkerGraphType,
+    MarkerHandle, MarkerLocations, MarkerNumberFieldFormat, MarkerStringFieldFormat, MarkerTiming,
     MarkerTypeHandle, Schema,
 };
 pub use native_symbols::NativeSymbolHandle;
