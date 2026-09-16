@@ -1456,7 +1456,7 @@ impl Profile {
     fn write_json<'p, W: Write>(
         &'p self,
         ctx: &mut Writer<'_, 'p, W>,
-        tables: &'p FrameInternerTables,
+        tables: &'p FrameInternerTables<'p>,
     ) -> std::io::Result<()> {
         let (sorted_threads, first_thread_index_per_process, new_thread_indices) =
             self.sorted_threads();

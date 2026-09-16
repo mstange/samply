@@ -4,10 +4,11 @@ use std::sync::Arc;
 
 use debugid::DebugId;
 use samply_symbols::{
-    self, AddressInfo, Error, ExternalFileAddressInFileRef, ExternalFileAddressRef, FrameDebugInfo,
-    FunctionNameHandle, LibraryInfo, LoadBinary, LoadExternalFile, LookupAddress, LookupOutput,
-    LookupQuery, MultiArchDisambiguator, SourceFilePath, SourceFilePathHandle,
-    SymbolMapStringInterner, SymbolMapTrait, SymbolNameHandle, SyncAddressInfo,
+    self, AccessPatternHint, AddressInfo, Error, ExternalFileAddressInFileRef,
+    ExternalFileAddressRef, FrameDebugInfo, FunctionNameHandle, LibraryInfo, LoadBinary,
+    LoadExternalFile, LookupAddress, LookupOutput, LookupQuery, MultiArchDisambiguator,
+    SourceFilePath, SourceFilePathHandle, SymbolMapStringInterner, SymbolMapTrait,
+    SymbolNameHandle, SyncAddressInfo,
 };
 
 use crate::config::SymbolManagerConfig;
@@ -165,6 +166,16 @@ impl SymbolMap {
 
     pub fn resolve_symbol_name(&self, handle: SymbolNameHandle) -> Cow<'_, str> {
         self.inner.resolve_symbol_name(handle)
+    }
+
+    /// Tell this `SymbolMap` about the order in which lookups are going to happen.
+    ///
+    /// If all lookups happen in ascending address order, declaring this with
+    /// [`AccessPatternHint::SequentialLookup`] allows the `SymbolMap` to discard
+    /// cached per-function information once it moves on to the next function,
+    /// which can save a lot of memory when looking up every address in a binary.
+    pub fn set_access_pattern_hint(&self, hint: AccessPatternHint) {
+        self.inner.set_access_pattern_hint(hint);
     }
 }
 
