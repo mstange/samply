@@ -329,9 +329,10 @@ impl FileInventory {
 
         // Delete the largest files first.
         files_to_delete.sort_unstable_by_key(|file_info| {
-            let size = i32::try_from(file_info.size_in_bytes).unwrap();
-            let negative_size = size.checked_neg().unwrap();
-            (negative_size, file_info.last_access_time)
+            (
+                std::cmp::Reverse(file_info.size_in_bytes),
+                file_info.last_access_time,
+            )
         });
         files_to_delete
     }
