@@ -9,6 +9,7 @@ mod windows;
 
 mod cli;
 mod cli_utils;
+mod config;
 mod import;
 mod linux_shared;
 mod name;
@@ -33,6 +34,7 @@ use mac::profiler;
 #[cfg(target_os = "windows")]
 use windows::profiler;
 
+use config::Config;
 use profile_json_preparse::parse_libinfo_map_from_profile_file;
 use server::{start_server, RunningServerInfo, ServerProps};
 use shared::presymbolicate::get_presymbolicate_info;
@@ -45,9 +47,12 @@ fn main() {
 
     use clap::Parser;
     let opt = cli::Opt::parse();
+    let config_path = opt.config.as_deref();
     match opt.action {
-        cli::Action::Load(load_args) => do_load_action(load_args),
-        cli::Action::Import(import_args) => do_import_action(import_args),
+        cli::Action::Load(load_args) => do_load_action(load_args, &load_config(config_path)),
+        cli::Action::Import(import_args) => {
+            do_import_action(import_args, &load_config(config_path))
+        }
 
         #[cfg(any(
             target_os = "android",
@@ -55,8 +60,14 @@ fn main() {
             target_os = "linux",
             target_os = "windows"
         ))]
-        cli::Action::Record(record_args) => do_record_action(record_args),
+        cli::Action::Record(record_args) => {
+            do_record_action(record_args, &load_config(config_path))
+        }
 
+        // The elevated helper doesn't use the config. Loading it would also
+        // write the config template if it's missing, and the helper runs with
+        // administrator rights, possibly as a different user than the one who
+        // launched samply.
         #[cfg(target_os = "windows")]
         cli::Action::RunElevatedHelper(args) => {
             windows::run_elevated_helper(&args.ipc_directory, args.output_path)
@@ -67,6 +78,13 @@ fn main() {
     }
 }
 
+fn load_config(explicit_path: Option<&Path>) -> Config {
+    config::load(explicit_path).unwrap_or_else(|e| {
+        eprintln!("{e}");
+        std::process::exit(1)
+    })
+}
+
 fn build_runtime() -> tokio::runtime::Runtime {
     tokio::runtime::Builder::new_multi_thread()
         .enable_all()
@@ -74,16 +92,17 @@ fn build_runtime() -> tokio::runtime::Runtime {
         .unwrap()
 }
 
-fn do_load_action(load_args: cli::LoadArgs) {
+fn do_load_action(load_args: cli::LoadArgs, config: &Config) {
     let runtime = build_runtime();
+    let symbol_props = load_args.symbol_props(config.symbols.to_symbol_props());
     runtime.block_on(serve_profile(
         &load_args.file,
         load_args.server_props(),
-        load_args.symbol_props(),
+        symbol_props,
     ));
 }
 
-fn do_import_action(import_args: cli::ImportArgs) {
+fn do_import_action(import_args: cli::ImportArgs, config: &Config) {
     let input_path = &import_args.file;
     let input_file = File::open(input_path).unwrap_or_else(|err| {
         eprintln!("Could not open file {input_path:?}: {err}");
@@ -91,16 +110,14 @@ fn do_import_action(import_args: cli::ImportArgs) {
     });
 
     let runtime = build_runtime();
-    let import_props = import_args.import_props();
+    let symbol_props = import_args.symbol_props(config.symbols.to_symbol_props());
+    let import_props = import_args.import_props(symbol_props.clone());
     let presymbolicate = import_props.profile_creation_props.presymbolicate;
     let mut profile = convert_file_to_profile(&input_file, input_path, import_props);
 
     if presymbolicate {
         eprintln!("Symbolicating...");
-        let symbol_info = runtime.block_on(get_presymbolicate_info(
-            &profile,
-            import_args.symbol_props(),
-        ));
+        let symbol_info = runtime.block_on(get_presymbolicate_info(&profile, symbol_props.clone()));
         profile = profile.make_symbolicated_profile(&symbol_info);
         profile.set_symbolicated(true);
     }
@@ -114,7 +131,7 @@ fn do_import_action(import_args: cli::ImportArgs) {
         runtime.block_on(serve_profile(
             &import_args.output,
             server_props,
-            import_args.symbol_props(),
+            symbol_props,
         ));
     }
 }
@@ -125,12 +142,13 @@ fn do_import_action(import_args: cli::ImportArgs) {
     target_os = "linux",
     target_os = "windows"
 ))]
-fn do_record_action(record_args: cli::RecordArgs) {
+fn do_record_action(record_args: cli::RecordArgs, config: &Config) {
     let runtime = build_runtime();
     let recording_props = record_args.recording_props();
     let recording_mode = record_args.recording_mode();
     let profile_creation_props = record_args.profile_creation_props();
     let presymbolicate = profile_creation_props.presymbolicate;
+    let symbol_props = record_args.symbol_props(config.symbols.to_symbol_props());
 
     let (mut profile, exit_status) =
         profiler::run(recording_mode, recording_props, profile_creation_props).unwrap_or_else(
@@ -142,10 +160,7 @@ fn do_record_action(record_args: cli::RecordArgs) {
 
     if presymbolicate {
         eprintln!("Symbolicating...");
-        let symbol_info = runtime.block_on(get_presymbolicate_info(
-            &profile,
-            record_args.symbol_props(),
-        ));
+        let symbol_info = runtime.block_on(get_presymbolicate_info(&profile, symbol_props.clone()));
         profile = profile.make_symbolicated_profile(&symbol_info);
         profile.set_symbolicated(true);
     }
@@ -160,7 +175,7 @@ fn do_record_action(record_args: cli::RecordArgs) {
         runtime.block_on(serve_profile(
             &record_args.output,
             server_props,
-            record_args.symbol_props(),
+            symbol_props,
         ));
     }
 
