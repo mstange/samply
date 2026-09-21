@@ -35,7 +35,10 @@ EXAMPLES:
     # Import perf.data files from Linux perf or Android simpleperf:
     samply import perf.data
 
-Symbol servers and symbol cache limits are configured in ~/.config/samply/config.toml
+By default, recorded profiles are stored in the profile store
+(~/.local/share/samply/profiles on macOS and Linux, %LOCALAPPDATA%\samply\profiles
+on Windows) and old profiles are deleted automatically. Symbol servers and the
+eviction limits are configured in ~/.config/samply/config.toml
 (%APPDATA%\samply\config.toml on Windows).
 "#
 )]
@@ -102,9 +105,9 @@ pub struct ImportArgs {
     #[arg(short, long)]
     pub save_only: bool,
 
-    /// Output filename.
-    #[arg(short, long, default_value = "profile.jslb.gz")]
-    pub output: PathBuf,
+    /// Output filename. Defaults to a new timestamped file in the profile store.
+    #[arg(short, long)]
+    pub output: Option<PathBuf>,
 
     #[command(flatten)]
     pub server_args: ServerArgs,
@@ -159,9 +162,9 @@ pub struct RecordArgs {
     #[arg(short, long)]
     pub save_only: bool,
 
-    /// Output filename.
-    #[arg(short, long, default_value = "profile.jslb.gz")]
-    pub output: PathBuf,
+    /// Output filename. Defaults to a new timestamped file in the profile store.
+    #[arg(short, long)]
+    pub output: Option<PathBuf>,
 
     #[command(flatten)]
     pub server_args: ServerArgs,
@@ -431,8 +434,9 @@ impl RecordArgs {
         self.symbol_args.apply_to(base)
     }
 
+    /// `output_file` is the resolved output path; on Windows, the ETL file paths are derived from it.
     #[allow(unused)]
-    pub fn recording_props(&self) -> RecordingProps {
+    pub fn recording_props(&self, output_file: PathBuf) -> RecordingProps {
         let time_limit = self.duration.map(Duration::from_secs_f64);
         if self.rate <= 0.0 {
             eprintln!(
@@ -443,7 +447,7 @@ impl RecordArgs {
         }
         let interval = Duration::from_secs_f64(1.0 / self.rate);
         RecordingProps {
-            output_file: self.output.clone(),
+            output_file,
             time_limit,
             interval,
             gfx: self.gfx,
@@ -643,6 +647,21 @@ mod test {
         // Make sure you can't pass both a pid and a command name at the same time.
         let opt_res = Opt::try_parse_from(["samply", "record", "-p", "1234", "rustup"]);
         assert!(opt_res.is_err());
+    }
+
+    #[cfg(any(target_os = "android", target_os = "macos", target_os = "linux"))]
+    #[test]
+    fn verify_output_is_optional() {
+        let opt = Opt::parse_from(["samply", "record", "rustup"]);
+        assert!(matches!(opt.action, Action::Record(record_args) if record_args.output.is_none()));
+
+        let opt = Opt::parse_from(["samply", "record", "-o", "x.json", "rustup"]);
+        assert!(
+            matches!(opt.action, Action::Record(record_args) if record_args.output == Some(PathBuf::from("x.json")))
+        );
+
+        let opt = Opt::parse_from(["samply", "import", "perf.data"]);
+        assert!(matches!(opt.action, Action::Import(import_args) if import_args.output.is_none()));
     }
 
     #[test]

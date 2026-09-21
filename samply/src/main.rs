@@ -14,6 +14,7 @@ mod import;
 mod linux_shared;
 mod name;
 mod profile_json_preparse;
+mod profile_store;
 mod server;
 mod shared;
 mod symbols;
@@ -21,8 +22,9 @@ mod symbols;
 use std::ffi::OsStr;
 use std::fs::File;
 use std::io::BufReader;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::SystemTime;
 
 use fxprof_processed_profile::Profile;
 use shared::ctrl_c::CtrlC;
@@ -34,8 +36,9 @@ use mac::profiler;
 #[cfg(target_os = "windows")]
 use windows::profiler;
 
-use config::Config;
+use config::{Config, ProfilesConfig};
 use profile_json_preparse::parse_libinfo_map_from_profile_file;
+use profile_store::{ProfileStore, PROFILE_FILE_EXTENSION};
 use server::{start_server, RunningServerInfo, ServerProps};
 use shared::presymbolicate::get_presymbolicate_info;
 use shared::prop_types::{ImportProps, SymbolProps};
@@ -92,14 +95,76 @@ fn build_runtime() -> tokio::runtime::Runtime {
         .unwrap()
 }
 
+/// Picks the output path: the explicit `-o` path, or a new file in the
+/// profile store. An explicit path bypasses the store entirely.
+fn resolve_output_path(
+    explicit_output: Option<PathBuf>,
+    profiles_config: &ProfilesConfig,
+    profile_name: &str,
+    runtime: &tokio::runtime::Runtime,
+) -> (PathBuf, Option<ProfileStore>) {
+    if let Some(path) = explicit_output {
+        return (path, None);
+    }
+
+    // The store's QuotaManager spawns a tokio task, so opening it needs a
+    // runtime context. The guard is dropped right away: synchronous code
+    // which blocks on tokio (e.g. the Windows Ctrl+C wait) panics inside one.
+    let store = {
+        let _guard = runtime.enter();
+        ProfileStore::open(profiles_config)
+    };
+    match store {
+        Ok(store) => {
+            let path = store.new_profile_path(profile_name, SystemTime::now());
+            (path, Some(store))
+        }
+        Err(e) => {
+            eprintln!("Warning: {e}. Writing the profile to the current directory instead.");
+            (
+                PathBuf::from(format!("profile.{PROFILE_FILE_EXTENSION}")),
+                None,
+            )
+        }
+    }
+}
+
+fn is_inside_dir(path: &Path, dir: &Path) -> bool {
+    let path = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+    let dir = dir.canonicalize().unwrap_or_else(|_| dir.to_path_buf());
+    path.starts_with(dir)
+}
+
 fn do_load_action(load_args: cli::LoadArgs, config: &Config) {
     let runtime = build_runtime();
+
+    // If the file lives in the profile store, mark it as recently used so
+    // that it isn't evicted soon.
+    let is_in_store = config
+        .profiles
+        .resolved_dir()
+        .is_some_and(|dir| is_inside_dir(&load_args.file, &dir));
+    let store = if is_in_store {
+        let _guard = runtime.enter();
+        ProfileStore::open(&config.profiles).ok()
+    } else {
+        None
+    };
+    if let Some(store) = &store {
+        store.on_profile_accessed(&load_args.file);
+        store.trigger_eviction();
+    }
+
     let symbol_props = load_args.symbol_props(config.symbols.to_symbol_props());
     runtime.block_on(serve_profile(
         &load_args.file,
         load_args.server_props(),
         symbol_props,
     ));
+
+    if let Some(store) = store {
+        runtime.block_on(store.finish());
+    }
 }
 
 fn do_import_action(import_args: cli::ImportArgs, config: &Config) {
@@ -113,6 +178,17 @@ fn do_import_action(import_args: cli::ImportArgs, config: &Config) {
     let symbol_props = import_args.symbol_props(config.symbols.to_symbol_props());
     let import_props = import_args.import_props(symbol_props.clone());
     let presymbolicate = import_props.profile_creation_props.presymbolicate;
+    let profile_name = import_props
+        .profile_creation_props
+        .profile_name()
+        .to_string();
+    let (output_path, store) = resolve_output_path(
+        import_args.output.clone(),
+        &config.profiles,
+        &profile_name,
+        &runtime,
+    );
+
     let mut profile = convert_file_to_profile(&input_file, input_path, import_props);
 
     if presymbolicate {
@@ -122,17 +198,21 @@ fn do_import_action(import_args: cli::ImportArgs, config: &Config) {
         profile.set_symbolicated(true);
     }
 
-    save_profile_to_file(&profile, &import_args.output).expect("Couldn't write JSON");
+    save_profile_to_file(&profile, &output_path).expect("Couldn't write JSON");
+    eprintln!("Saved profile to {}", output_path.display());
+    if let Some(store) = &store {
+        store.on_profile_saved(&output_path);
+    }
 
     // Drop the profile so that it doesn't take up memory while the server is running.
     drop(profile);
 
     if let Some(server_props) = import_args.server_props() {
-        runtime.block_on(serve_profile(
-            &import_args.output,
-            server_props,
-            symbol_props,
-        ));
+        runtime.block_on(serve_profile(&output_path, server_props, symbol_props));
+    }
+
+    if let Some(store) = store {
+        runtime.block_on(store.finish());
     }
 }
 
@@ -144,11 +224,20 @@ fn do_import_action(import_args: cli::ImportArgs, config: &Config) {
 ))]
 fn do_record_action(record_args: cli::RecordArgs, config: &Config) {
     let runtime = build_runtime();
-    let recording_props = record_args.recording_props();
     let recording_mode = record_args.recording_mode();
     let profile_creation_props = record_args.profile_creation_props();
     let presymbolicate = profile_creation_props.presymbolicate;
     let symbol_props = record_args.symbol_props(config.symbols.to_symbol_props());
+
+    // The output path must be known before recording starts: on Windows, the
+    // ETL file paths are derived from it.
+    let (output_path, store) = resolve_output_path(
+        record_args.output.clone(),
+        &config.profiles,
+        profile_creation_props.profile_name(),
+        &runtime,
+    );
+    let recording_props = record_args.recording_props(output_path.clone());
 
     let (mut profile, exit_status) =
         profiler::run(recording_mode, recording_props, profile_creation_props).unwrap_or_else(
@@ -165,18 +254,29 @@ fn do_record_action(record_args: cli::RecordArgs, config: &Config) {
         profile.set_symbolicated(true);
     }
 
-    save_profile_to_file(&profile, &record_args.output).expect("Couldn't write JSON");
+    save_profile_to_file(&profile, &output_path).expect("Couldn't write JSON");
+    eprintln!("Saved profile to {}", output_path.display());
+    if let Some(store) = &store {
+        store.on_profile_saved(&output_path);
+
+        // Kept ETL files sit next to the profile; make them subject to eviction too.
+        #[cfg(target_os = "windows")]
+        if record_args.keep_etl {
+            store.register_existing_file(&windows::etl_path_for_output(&output_path, "kernel.etl"));
+            store.register_existing_file(&windows::etl_path_for_output(&output_path, "user.etl"));
+        }
+    }
 
     // Drop the profile so that it doesn't take up memory while the server is running.
     drop(profile);
 
     // then fire up the server for the profiler front end, if not save-only
     if let Some(server_props) = record_args.server_props() {
-        runtime.block_on(serve_profile(
-            &record_args.output,
-            server_props,
-            symbol_props,
-        ));
+        runtime.block_on(serve_profile(&output_path, server_props, symbol_props));
+    }
+
+    if let Some(store) = store {
+        runtime.block_on(store.finish());
     }
 
     std::process::exit(exit_status.code().unwrap_or(0));

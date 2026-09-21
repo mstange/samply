@@ -78,6 +78,7 @@ You can see which functions were running for how long. You can see flame graphs 
 
 All data is kept locally (on disk and in RAM) until you choose to upload your profile.
 
+
 samply is a sampling profiler and collects stack traces, per thread, at some sampling interval (the default 1000Hz, i.e. 1ms). On macOS and Windows, both on- and off-cpu samples are collected (so you can see under which stack you were blocking on a lock, for example). On Linux, only on-cpu samples are collected at the moment.
 
 On Linux, samply needs access to performance events system for unprivileged users. For this, you can either:
@@ -108,7 +109,9 @@ sudo sysctl kernel.perf_event_mlock_kb=2048
 
 ### Symbols and configuration
 
-Symbol servers can be configured in the config file at `~/.config/samply/config.toml` (`%APPDATA%\samply\config.toml` on Windows). You can also specify the maximum size etc. of the symbol cache.
+Symbol servers can be configured in the config file at `~/.config/samply/config.toml` (`%APPDATA%\samply\config.toml` on Windows). You can also specify the maximum size of the symbol cache and of the profile store.
+
+By default, the profiles produces by `samply record` and `samply import` are stored in `~/.local/share/samply/profiles/` (`%LOCALAPPDATA%\samply\profiles\` on Windows).
 
 ## Examples
 

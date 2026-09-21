@@ -4,9 +4,14 @@
 
 ## Unreleased - ReleaseDate
 
+### Breaking changes
+
+ - All platforms: `samply record` and `samply import` no longer write `profile.jslb.gz` into the current directory by default. Profiles are now stored in the per-user profile store (`~/.local/share/samply/profiles` on macOS and Linux, `%LOCALAPPDATA%\samply\profiles` on Windows), and the path of the saved profile is printed. Pass `-o <path>` to write the profile somewhere else.
+
 ### Features
 
- - All platforms: Add a config file at `~/.config/samply/config.toml` (`%APPDATA%\samply\config.toml` on Windows). It configures symbol servers, symbol directories, and the eviction limits of the symbol cache. A commented template is written on first run. Use `--config <path>` or `SAMPLY_CONFIG` to point samply at a different file.
+ - All platforms: Add a config file at `~/.config/samply/config.toml` (`%APPDATA%\samply\config.toml` on Windows). It configures symbol servers, symbol directories, and the eviction limits of the profile store and the symbol cache. A commented template is written on first run. Use `--config <path>` or `SAMPLY_CONFIG` to point samply at a different file.
+ - All platforms: Old profiles in the profile store are deleted automatically, by default after 30 days or once the store exceeds 5 GB. Profiles created or opened within the last day are never deleted.
  - All platforms: The symbol cache limits (previously fixed at 10 GB / 2 weeks) can now be configured, and symbols used within the last day are no longer deleted at startup.
  - Windows: The Microsoft Symbol Server is enabled by default in the generated config file, so system library symbols work without `--windows-symbol-server`.
 
