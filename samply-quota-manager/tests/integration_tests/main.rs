@@ -234,3 +234,105 @@ async fn test_quota_manager_nonempty_dirs_remain() {
     assert!(quota_dir.join("dir1").exists());
     assert!(b_40.exists());
 }
+
+#[tokio::test]
+async fn test_quota_manager_min_age_protects_from_max_age() {
+    let temp_dir = TempDir::new().unwrap();
+    let db_path = temp_dir.path().join("quota.db");
+    let quota_dir = temp_dir.path().join("quota");
+    fs::create_dir(&quota_dir).unwrap();
+
+    // 5 second age limit, but files accessed within the last 100 seconds are protected.
+    let quota_manager = QuotaManager::new(&quota_dir, &db_path).unwrap();
+    quota_manager.set_max_age(Some(5));
+    quota_manager.set_min_age(Some(100));
+    let notifier = quota_manager.notifier();
+
+    let old = quota_dir.join("old.txt");
+    let recent = quota_dir.join("recent.txt");
+    fs::write(&old, vec![0u8; 100]).unwrap();
+    fs::write(&recent, vec![0u8; 100]).unwrap();
+
+    let now = SystemTime::now();
+    notifier.on_file_created(&old, 100, now - Duration::from_secs(200));
+    // Older than the max age, but within the min age.
+    notifier.on_file_created(&recent, 100, now - Duration::from_secs(50));
+
+    notifier.trigger_eviction_if_needed();
+    quota_manager.finish().await;
+
+    assert!(!old.exists());
+    assert!(recent.exists());
+}
+
+#[tokio::test]
+async fn test_quota_manager_min_age_protects_from_max_size() {
+    let temp_dir = TempDir::new().unwrap();
+    let db_path = temp_dir.path().join("quota.db");
+    let quota_dir = temp_dir.path().join("quota");
+    fs::create_dir(&quota_dir).unwrap();
+
+    // 1000 byte size limit, but recently accessed files are protected.
+    let quota_manager = QuotaManager::new(&quota_dir, &db_path).unwrap();
+    quota_manager.set_max_total_size(Some(1000));
+    quota_manager.set_min_age(Some(100));
+    let notifier = quota_manager.notifier();
+
+    let a_400 = quota_dir.join("a_400.txt");
+    let b_400 = quota_dir.join("b_400.txt");
+    let c_400 = quota_dir.join("c_400.txt");
+    fs::write(&a_400, vec![0u8; 400]).unwrap();
+    fs::write(&b_400, vec![0u8; 400]).unwrap();
+    fs::write(&c_400, vec![0u8; 400]).unwrap();
+
+    let now = SystemTime::now();
+    notifier.on_file_created(&a_400, 400, now);
+    notifier.on_file_created(&b_400, 400, now);
+    notifier.on_file_created(&c_400, 400, now);
+
+    notifier.trigger_eviction_if_needed();
+    quota_manager.finish().await;
+
+    // Everything is protected, so the size limit is exceeded and nothing is deleted.
+    assert!(a_400.exists());
+    assert!(b_400.exists());
+    assert!(c_400.exists());
+
+    let quota_manager = QuotaManager::new(&quota_dir, &db_path).unwrap();
+    assert_eq!(quota_manager.current_total_size(), 1200);
+    quota_manager.finish().await;
+}
+
+#[tokio::test]
+async fn test_quota_manager_min_age_partial() {
+    let temp_dir = TempDir::new().unwrap();
+    let db_path = temp_dir.path().join("quota.db");
+    let quota_dir = temp_dir.path().join("quota");
+    fs::create_dir(&quota_dir).unwrap();
+
+    let quota_manager = QuotaManager::new(&quota_dir, &db_path).unwrap();
+    quota_manager.set_max_total_size(Some(500));
+    quota_manager.set_min_age(Some(100));
+    let notifier = quota_manager.notifier();
+
+    let old = quota_dir.join("old.txt");
+    let recent1 = quota_dir.join("recent1.txt");
+    let recent2 = quota_dir.join("recent2.txt");
+    fs::write(&old, vec![0u8; 400]).unwrap();
+    fs::write(&recent1, vec![0u8; 400]).unwrap();
+    fs::write(&recent2, vec![0u8; 400]).unwrap();
+
+    let now = SystemTime::now();
+    notifier.on_file_created(&old, 400, now - Duration::from_secs(200));
+    notifier.on_file_created(&recent1, 400, now);
+    notifier.on_file_created(&recent2, 400, now);
+
+    notifier.trigger_eviction_if_needed();
+    quota_manager.finish().await;
+
+    // Only the unprotected file can be deleted. The two protected files
+    // still exceed the limit, but they must survive.
+    assert!(!old.exists());
+    assert!(recent1.exists());
+    assert!(recent2.exists());
+}
