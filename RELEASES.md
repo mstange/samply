@@ -4,6 +4,12 @@
 
 ## Unreleased - ReleaseDate
 
+### Features
+
+ - All platforms: Add a config file at `~/.config/samply/config.toml` (`%APPDATA%\samply\config.toml` on Windows). It configures symbol servers, symbol directories, and the eviction limits of the symbol cache. A commented template is written on first run. Use `--config <path>` or `SAMPLY_CONFIG` to point samply at a different file.
+ - All platforms: The symbol cache limits (previously fixed at 10 GB / 2 weeks) can now be configured, and symbols used within the last day are no longer deleted at startup.
+ - Windows: The Microsoft Symbol Server is enabled by default in the generated config file, so system library symbols work without `--windows-symbol-server`.
+
 ## 0.13.1 - 2025-02-01
 
 ## 0.13.0 - 2025-02-01
@@ -20,7 +26,7 @@ And thanks to the authors of the https://github.com/n4r1b/ferrisetw crate; sampl
 
 Known issues:
 
- - By default, you won't get Windows symbols, but you can use `samply record --windows-symbol-server https://msdl.microsoft.com/download/symbols` to fix this - this will download symbols for Windows system libraries and kernel stacks from Microsoft's server. I'm planning to add a config file for samply so that symbol servers can be configured more permanently, but it doesn't exist yet.
+ - By default, you won't get Windows symbols, but you can use `samply record --windows-symbol-server https://msdl.microsoft.com/download/symbols` to fix this - this will download symbols for Windows system libraries and kernel stacks from Microsoft's server. (Fixed in the next release: the Microsoft Symbol Server is now in the config file by default.)
  - Missing symbols for precompiled .NET code: This is [getsentry/pdb#153](https://github.com/getsentry/pdb/issues/153), which has a potential patch in [getsentry/pdb#154](https://github.com/getsentry/pdb/pull/154).
  - CoreCLR support could be better - some of it isn't working correctly any more (see [#483](https://github.com/mstange/samply/issues/483))
 

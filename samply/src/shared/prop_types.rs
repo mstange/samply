@@ -5,6 +5,7 @@ use std::time::Duration;
 use serde_derive::{Deserialize, Serialize};
 
 use super::included_processes::IncludedProcesses;
+use crate::config::EvictionConfig;
 
 #[derive(Debug, Default, Clone, Copy, Serialize, Deserialize)]
 pub struct CoreClrProfileProps {
@@ -150,4 +151,12 @@ pub struct SymbolProps {
     pub breakpad_symbol_cache: Option<PathBuf>,
     /// Extra directory containing symbol files, with the directory structure used by simpleperf's scripts
     pub simpleperf_binary_cache: Option<PathBuf>,
+    /// Overrides the base directory of the symbol cache
+    pub symbol_cache_dir: Option<PathBuf>,
+    /// Eviction settings for the symbol cache
+    pub eviction: EvictionConfig,
+    /// Look up symbols via debuginfod
+    pub use_debuginfod: bool,
+    /// Respect the `_NT_SYMBOL_PATH` environment variable
+    pub respect_nt_symbol_path: bool,
 }
