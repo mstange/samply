@@ -245,6 +245,13 @@ async fn do_record_action(record_args: cli::RecordArgs, config: &Config) {
     let store = open_profile_store(profile_dir, &config.profiles);
     if let Some(store) = &store {
         store.on_profile_saved(&output_path);
+
+        // Kept ETL files sit next to the profile; make them subject to eviction too.
+        #[cfg(target_os = "windows")]
+        if record_args.keep_etl {
+            store.register_existing_file(&windows::etl_path_for_output(&output_path, "kernel.etl"));
+            store.register_existing_file(&windows::etl_path_for_output(&output_path, "user.etl"));
+        }
     }
 
     // Drop the profile so that it doesn't take up memory while the server is running.
