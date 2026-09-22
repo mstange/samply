@@ -127,6 +127,17 @@ fn open_profile_store(
     Some(ProfileStore::for_dir(&dir, profiles_config))
 }
 
+/// Reports a failure to serve a profile and exits.
+///
+/// The profile itself has already been written at this point, so we can
+/// just abort, there's nothing else useful to do.
+fn exit_on_serve_error(result: Result<(), ServeError>) {
+    if let Err(e) = result {
+        eprintln!("Error: {e}");
+        std::process::exit(1);
+    }
+}
+
 fn is_inside_dir(path: &Path, dir: &Path) -> bool {
     let path = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
     let dir = dir.canonicalize().unwrap_or_else(|_| dir.to_path_buf());
@@ -152,7 +163,8 @@ async fn do_load_action(load_args: cli::LoadArgs, config: &Config) {
     }
 
     let symbol_props = load_args.symbol_props(config.symbols.to_symbol_props());
-    serve_profile(&load_args.file, load_args.server_props(), symbol_props).await;
+    let result = serve_profile(&load_args.file, load_args.server_props(), symbol_props).await;
+    exit_on_serve_error(result);
 
     if let Some(store) = store {
         store.finish().await;
@@ -196,7 +208,8 @@ async fn do_import_action(import_args: cli::ImportArgs, config: &Config) {
     drop(profile);
 
     if let Some(server_props) = import_args.server_props() {
-        serve_profile(&output_path, server_props, symbol_props).await;
+        let result = serve_profile(&output_path, server_props, symbol_props).await;
+        exit_on_serve_error(result);
     }
 
     if let Some(store) = store {
@@ -260,7 +273,8 @@ async fn do_record_action(record_args: cli::RecordArgs, config: &Config) {
 
     // then fire up the server for the profiler front end, if not save-only
     if let Some(server_props) = record_args.server_props() {
-        serve_profile(&output_path, server_props, symbol_props).await;
+        let result = serve_profile(&output_path, server_props, symbol_props).await;
+        exit_on_serve_error(result);
     }
 
     if let Some(store) = store {
@@ -319,16 +333,43 @@ fn convert_file_to_profile(
     })
 }
 
-/// Serves the profile and its symbols until Ctrl+C is pressed.
-async fn serve_profile(profile_path: &Path, server_props: ServerProps, symbol_props: SymbolProps) {
-    let libinfo_map = {
-        let profile_file = File::open(profile_path).unwrap_or_else(|err| {
-            eprintln!("Could not open file {profile_path:?}: {err}");
-            std::process::exit(1)
-        });
+/// The reason a profile could not be served.
+#[derive(Debug, thiserror::Error)]
+enum ServeError {
+    #[error("Could not open profile file {}: {source}", path.display())]
+    OpenProfile {
+        path: PathBuf,
+        source: std::io::Error,
+    },
 
-        parse_libinfo_map_from_profile_file(profile_file, profile_path)
-            .expect("Couldn't parse libinfo map from profile file")
+    #[error("Could not read library information from profile file {}: {source}", path.display())]
+    ReadLibInfo {
+        path: PathBuf,
+        source: std::io::Error,
+    },
+
+    #[error(transparent)]
+    Bind(#[from] server::BindError),
+}
+
+/// Serves the profile and its symbols until Ctrl+C is pressed.
+async fn serve_profile(
+    profile_path: &Path,
+    server_props: ServerProps,
+    symbol_props: SymbolProps,
+) -> Result<(), ServeError> {
+    let libinfo_map = {
+        let profile_file = File::open(profile_path).map_err(|source| ServeError::OpenProfile {
+            path: profile_path.to_owned(),
+            source,
+        })?;
+
+        parse_libinfo_map_from_profile_file(profile_file, profile_path).map_err(|source| {
+            ServeError::ReadLibInfo {
+                path: profile_path.to_owned(),
+                source,
+            }
+        })?
     };
 
     let (mut symbol_manager, quota_manager) =
@@ -359,7 +400,7 @@ async fn serve_profile(profile_path: &Path, server_props: ServerProps, symbol_pr
         symbol_manager,
         ctrl_c_receiver,
     )
-    .await;
+    .await?;
 
     eprintln!("Local server listening at {server_origin}");
     if !open_in_browser {
@@ -383,4 +424,6 @@ async fn serve_profile(profile_path: &Path, server_props: ServerProps, symbol_pr
     if let Some(quota_manager) = quota_manager {
         quota_manager.finish().await;
     }
+
+    Ok(())
 }
