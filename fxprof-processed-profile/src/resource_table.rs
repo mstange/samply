@@ -51,7 +51,7 @@ impl ResourceTable {
 pub struct ResourceIndex(u32);
 
 impl ResourceIndex {
-    pub(crate) fn write_json<W: Write>(self, w: &mut Writer<W>) -> std::io::Result<()> {
-        w.number_value(self.0)
+    pub(crate) fn as_i32(self) -> i32 {
+        self.0 as i32
     }
 }

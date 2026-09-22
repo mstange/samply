@@ -47,7 +47,7 @@ expression: profile_as_json_value(&profile)
       }
     ],
     "pausedRanges": [],
-    "preprocessedProfileVersion": 71,
+    "preprocessedProfileVersion": 75,
     "processType": 0,
     "product": "test",
     "sampleUnits": {
@@ -80,12 +80,11 @@ expression: profile_as_json_value(&profile)
     },
     "funcTable": {
       "columnNumber": [],
-      "isJS": [],
+      "flags": [],
       "length": 0,
       "lineNumber": [],
       "name": [],
       "originalLocation": [],
-      "relevantForJS": [],
       "resource": [],
       "source": []
     },

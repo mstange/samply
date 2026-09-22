@@ -66,6 +66,8 @@ mod frame;
 mod frame_table;
 mod func_table;
 mod global_lib_table;
+#[cfg(test)]
+mod jslb_test_support;
 mod lib_mappings;
 mod library_info;
 mod marker_table;
@@ -103,8 +105,8 @@ pub use library_info::{LibraryInfo, Symbol, SymbolTable};
 pub use markers::{
     DynamicSchemaMarker, DynamicSchemaMarkerField, DynamicSchemaMarkerFieldFormat,
     DynamicSchemaMarkerGraph, DynamicSchemaMarkerSchema, FlowId, GraphColor, Marker, MarkerField,
-    MarkerFieldKind, MarkerFlowFieldFormat, MarkerGraph, MarkerGraphType, MarkerHandle,
-    MarkerLocations, MarkerNumberFieldFormat, MarkerStringFieldFormat, MarkerTiming,
+    MarkerFieldKind, MarkerFieldPIICategory, MarkerFlowFieldFormat, MarkerGraph, MarkerGraphType,
+    MarkerHandle, MarkerLocations, MarkerNumberFieldFormat, MarkerStringFieldFormat, MarkerTiming,
     MarkerTypeHandle, Schema,
 };
 pub use native_symbols::NativeSymbolHandle;
