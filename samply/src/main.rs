@@ -38,7 +38,7 @@ use windows::profiler;
 
 use config::{Config, ProfilesConfig};
 use profile_json_preparse::parse_libinfo_map_from_profile_file;
-use profile_store::{ProfileDir, ProfileStore, PROFILE_FILE_EXTENSION};
+use profile_store::{companion_file_path, ProfileDir, ProfileStore, PROFILE_FILE_EXTENSION};
 use server::{start_server, RunningServerInfo, ServerProps};
 use shared::presymbolicate::get_presymbolicate_info;
 use shared::prop_types::{ImportProps, SymbolProps};
@@ -249,8 +249,9 @@ async fn do_record_action(record_args: cli::RecordArgs, config: &Config) {
         // Kept ETL files sit next to the profile; make them subject to eviction too.
         #[cfg(target_os = "windows")]
         if record_args.keep_etl {
-            store.register_existing_file(&windows::etl_path_for_output(&output_path, "kernel.etl"));
-            store.register_existing_file(&windows::etl_path_for_output(&output_path, "user.etl"));
+            use crate::profile_store::companion_file_path;
+            store.register_existing_file(&companion_file_path(&output_path, "kernel.etl"));
+            store.register_existing_file(&companion_file_path(&output_path, "user.etl"));
         }
     }
 
@@ -336,7 +337,7 @@ async fn serve_profile(profile_path: &Path, server_props: ServerProps, symbol_pr
         symbol_manager.add_known_library(lib_info);
     }
 
-    let precog_path = profile_path.with_extension("syms.json");
+    let precog_path = companion_file_path(profile_path, "syms.json");
     if let Some(precog_info) = shared::symbol_precog::PrecogSymbolInfo::try_load(&precog_path) {
         for symbol_map in precog_info.into_iter() {
             let lib_info = symbol_map.library_info();

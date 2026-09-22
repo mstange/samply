@@ -1,8 +1,8 @@
 use std::error::Error;
-use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 
 use super::elevated_helper::ElevatedRecordingProps;
+use crate::profile_store::companion_file_path;
 
 const XPERF_NOT_FOUND_ERROR_MSG: &str = "\
 Could not find an xperf installation.\n\
@@ -77,7 +77,7 @@ impl Xperf {
         let xperf_path = self.get_xperf_path()?;
         // start xperf.exe, logging to the same location as the output file, just with a .etl
         // extension.
-        let kernel_etl_file = etl_path_for_output(output_path, "kernel.etl");
+        let kernel_etl_file = companion_file_path(output_path, "kernel.etl");
 
         const MIN_INTERVAL_NANOS: u64 = 122100; // 8192 kHz
         let interval_nanos = props.interval_nanos.clamp(MIN_INTERVAL_NANOS, u64::MAX);
@@ -110,7 +110,7 @@ impl Xperf {
         xperf.arg("1024");
 
         let user_etl_file = if !user_providers.is_empty() {
-            let user_etl_file = etl_path_for_output(output_path, "user.etl");
+            let user_etl_file = companion_file_path(output_path, "user.etl");
 
             xperf.arg("-start");
             xperf.arg("SamplySession");
@@ -178,17 +178,4 @@ impl Drop for Xperf {
         // we should probably xperf -cancel here instead of doing the merge on drop...
         let _ = self.stop_xperf();
     }
-}
-
-/// Returns the path of an ETL file which sits next to the output profile.
-///
-/// A trailing `.gz` is stripped and the extension is replaced with `suffix`,
-/// so `profile.jslb.gz` with suffix `kernel.etl` becomes `profile.kernel.etl`.
-pub fn etl_path_for_output(output_path: &Path, suffix: &str) -> PathBuf {
-    let mut path = output_path.to_owned();
-    if path.extension() == Some(OsStr::new("gz")) {
-        path.set_extension("");
-    }
-    path.set_extension(suffix);
-    path
 }
