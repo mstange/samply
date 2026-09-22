@@ -4,6 +4,11 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use rusqlite::{params, Connection, OpenFlags, Transaction};
 
+/// How long to wait if another process is currently executing a write
+/// transaction on the database. Once this timeout is hit, our transaction
+/// will fail with `SQLITE_BUSY`.
+const BUSY_TIMEOUT: Duration = Duration::from_secs(5);
+
 /// Stores information about files (size, last access time) in a sqlite DB.
 ///
 /// It only cares about files in the "managed directory". All file paths
@@ -109,6 +114,7 @@ impl FileInventory {
         )?;
         conn.pragma_update_and_check(None, "journal_mode", "WAL", |_| Ok(()))?;
         conn.pragma_update(None, "synchronous", "NORMAL")?;
+        conn.busy_timeout(BUSY_TIMEOUT)?;
         migrations.to_latest(&mut conn)?;
 
         Ok(conn)
