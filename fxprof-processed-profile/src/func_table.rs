@@ -84,64 +84,88 @@ impl ColumnarStore for FuncCols {
     }
 }
 
+// The bits of the func table's `flags` column, as defined by the processed
+// profile format (added in version 75). Each `HAS_*` bit determines whether
+// the value in the corresponding column is meaningful.
+// The format also has a `HasOriginalLocation` bit at `1 << 6`, but this crate
+// does not emit original locations yet - those are used by source maps which
+// our API doesn't support yet.
+const FLAG_IS_JS: u8 = 1 << 0;
+const FLAG_IS_RELEVANT_FOR_JS: u8 = 1 << 1;
+const FLAG_HAS_RESOURCE: u8 = 1 << 2;
+const FLAG_HAS_SOURCE: u8 = 1 << 3;
+const FLAG_HAS_LINE: u8 = 1 << 4;
+const FLAG_HAS_COLUMN: u8 = 1 << 5;
+
+impl FuncCols {
+    fn flags_at(&self, i: usize) -> u8 {
+        let mut flags = 0;
+        if self.flags[i].contains(FrameFlags::IS_JS) {
+            flags |= FLAG_IS_JS;
+        }
+        if self.flags[i].contains(FrameFlags::IS_RELEVANT_FOR_JS) {
+            flags |= FLAG_IS_RELEVANT_FOR_JS;
+        }
+        if self.resource[i].is_some() {
+            flags |= FLAG_HAS_RESOURCE;
+        }
+        if self.source[i].is_some() {
+            flags |= FLAG_HAS_SOURCE;
+        }
+        if self.start_line[i].is_some() {
+            flags |= FLAG_HAS_LINE;
+        }
+        if self.start_column[i].is_some() {
+            flags |= FLAG_HAS_COLUMN;
+        }
+        flags
+    }
+}
+
 impl FuncTable {
     pub fn index_for_func(&mut self, func_key: FuncKey) -> FuncIndex {
         FuncIndex(self.set.insert(func_key) as i32)
     }
 
-    pub(crate) fn write_json<W: Write>(&self, w: &mut Writer<W>) -> std::io::Result<()> {
+    pub(crate) fn write_json<'p, W: Write>(
+        &'p self,
+        w: &mut Writer<'_, 'p, W>,
+    ) -> std::io::Result<()> {
         let cols = self.set.store();
         let len = self.set.len();
         w.object(|w| {
             w.name("length")?;
             w.number_value(len)?;
+            // All columns can be typed arrays as of format version 75. The
+            // columns which are gated by a flag bit store 0 in the rows where
+            // the flag is unset.
+            w.name("flags")?;
+            w.typed_array_from_iter(len, (0..len).map(|i| cols.flags_at(i)))?;
             w.name("name")?;
-            w.array(|w| {
-                for n in &cols.name {
-                    n.write_json(w)?;
-                }
-                Ok(())
-            })?;
-            w.name("isJS")?;
-            w.array(|w| {
-                for flags in &cols.flags {
-                    w.bool_value(flags.contains(FrameFlags::IS_JS))?;
-                }
-                Ok(())
-            })?;
-            w.name("relevantForJS")?;
-            w.array(|w| {
-                for flags in &cols.flags {
-                    w.bool_value(flags.contains(FrameFlags::IS_RELEVANT_FOR_JS))?;
-                }
-                Ok(())
-            })?;
+            w.typed_array_from_iter(len, cols.name.iter().map(|n| n.as_u32() as i32))?;
             w.name("resource")?;
-            w.array(|w| {
-                for r in &cols.resource {
-                    match r {
-                        Some(r) => r.write_json(w)?,
-                        None => w.number_value(-1)?,
-                    }
-                }
-                Ok(())
-            })?;
+            w.typed_array_from_iter(
+                len,
+                cols.resource.iter().map(|r| match r {
+                    Some(r) => r.as_i32(),
+                    None => 0,
+                }),
+            )?;
             w.name("source")?;
-            w.array(|w| {
-                for s in &cols.source {
-                    match s {
-                        Some(s) => s.write_json(w)?,
-                        None => w.null_value()?,
-                    }
-                }
-                Ok(())
-            })?;
+            w.typed_array_from_iter(
+                len,
+                cols.source.iter().map(|s| match s {
+                    Some(s) => s.as_i32(),
+                    None => 0,
+                }),
+            )?;
             w.name("lineNumber")?;
-            w.optional_number_array(&cols.start_line)?;
+            w.typed_array_from_iter(len, cols.start_line.iter().map(|l| l.unwrap_or(0) as i32))?;
             w.name("columnNumber")?;
-            w.optional_number_array(&cols.start_column)?;
+            w.typed_array_from_iter(len, cols.start_column.iter().map(|c| c.unwrap_or(0) as i32))?;
+            // We never have original locations, so no func has HasOriginalLocation.
             w.name("originalLocation")?;
-            w.null_array(len)
+            w.typed_array_from_iter(len, std::iter::repeat(0i32).take(len))
         })
     }
 }
@@ -149,5 +173,123 @@ impl FuncTable {
 impl<'p> SplitOutObjectBody<'p> for &'p FuncTable {
     fn write_body<W: Write>(self, w: &mut Writer<'_, 'p, W>) -> std::io::Result<()> {
         self.write_json(w)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use json_slabs::{ParsedFile, SlabType};
+
+    use super::{FLAG_HAS_COLUMN, FLAG_HAS_LINE, FLAG_HAS_RESOURCE, FLAG_HAS_SOURCE, FLAG_IS_JS};
+    use crate::jslb_test_support::{column_slab, object_at_path};
+    use crate::{
+        CategoryHandle, FrameAddress, FrameFlags, LibraryInfo, Profile, ProfileFormat,
+        ReferenceTimestamp, SamplingInterval, SourceLocation,
+    };
+
+    /// The `funcTable` columns have to be typed arrays of the exact types the
+    /// format specifies (processed format version 75), and the flag bits have
+    /// to say which of the optional columns are meaningful.
+    #[test]
+    fn func_table_is_typed_arrays_in_jslb() {
+        let mut profile = Profile::new(
+            "test",
+            ReferenceTimestamp::from_millis_since_unix_epoch(0.0),
+            SamplingInterval::from_millis(1),
+        );
+        let lib = profile.add_lib(LibraryInfo {
+            name: "libfoo.so".into(),
+            debug_name: "libfoo.so".into(),
+            path: "/usr/lib/libfoo.so".into(),
+            debug_path: "/usr/lib/libfoo.so".into(),
+            debug_id: debugid::DebugId::nil(),
+            code_id: None,
+            arch: None,
+        });
+
+        // A plain label frame: none of the optional columns are meaningful.
+        let plain_name = profile.handle_for_string("plain label");
+        profile.handle_for_frame_with_label(plain_name, CategoryHandle::OTHER, FrameFlags::empty());
+
+        // A JS frame with a known function start location: IsJS + source + line
+        // + column.
+        let js_name = profile.handle_for_string("jsFunction");
+        let file_path = profile.handle_for_string("https://example.com/script.js");
+        profile.handle_for_frame_with_label_and_source_location(
+            js_name,
+            SourceLocation {
+                file_path: Some(file_path),
+                line: Some(20),
+                col: Some(7),
+                function_start_line: Some(10),
+                function_start_col: Some(5),
+            },
+            CategoryHandle::OTHER,
+            FrameFlags::IS_JS,
+        );
+
+        // A native frame: it has a resource (the library it came from).
+        profile.handle_for_frame_with_address(
+            FrameAddress::RelativeAddressFromInstructionPointer(lib, 0x1234),
+            CategoryHandle::OTHER,
+            FrameFlags::empty(),
+        );
+
+        let bytes = profile.to_vec(ProfileFormat::JsonSlabs);
+        let file = ParsedFile::parse(&bytes).unwrap();
+        let func_table = object_at_path(&file, &["shared", "funcTable"]);
+        assert_eq!(func_table["length"], 3);
+
+        let placeholder = |column: &str| column_slab(&func_table, column);
+        let slab_type = |column: &str| file.slab_at(placeholder(column)).unwrap().slab_type;
+        assert_eq!(slab_type("flags"), SlabType::Uint8);
+        assert_eq!(slab_type("name"), SlabType::Int32);
+        assert_eq!(slab_type("resource"), SlabType::Int32);
+        assert_eq!(slab_type("source"), SlabType::Int32);
+        assert_eq!(slab_type("lineNumber"), SlabType::Int32);
+        assert_eq!(slab_type("columnNumber"), SlabType::Int32);
+        assert_eq!(slab_type("originalLocation"), SlabType::Int32);
+
+        assert_eq!(
+            file.read::<u8>(placeholder("flags")).unwrap(),
+            [
+                0,
+                FLAG_IS_JS | FLAG_HAS_SOURCE | FLAG_HAS_LINE | FLAG_HAS_COLUMN,
+                FLAG_HAS_RESOURCE,
+            ]
+        );
+        // The unsymbolicated native frame is named after its address.
+        let native_name = profile.handle_for_string("0x1234");
+        assert_eq!(
+            file.read::<i32>(placeholder("name")).unwrap(),
+            [
+                plain_name.as_u32() as i32,
+                js_name.as_u32() as i32,
+                native_name.as_u32() as i32
+            ]
+        );
+        // The native func is the only one with a resource, and it's the first
+        // row of the resource table.
+        assert_eq!(
+            file.read::<i32>(placeholder("resource")).unwrap(),
+            [0, 0, 0]
+        );
+        // Likewise for the source: the JS func's source is the first row of the
+        // source table.
+        assert_eq!(file.read::<i32>(placeholder("source")).unwrap(), [0, 0, 0]);
+        // The line and column are the *function start* line and column, not the
+        // line and column of the frame.
+        assert_eq!(
+            file.read::<i32>(placeholder("lineNumber")).unwrap(),
+            [0, 10, 0]
+        );
+        assert_eq!(
+            file.read::<i32>(placeholder("columnNumber")).unwrap(),
+            [0, 5, 0]
+        );
+        assert_eq!(
+            file.read::<i32>(placeholder("originalLocation")).unwrap(),
+            [0, 0, 0]
+        );
     }
 }

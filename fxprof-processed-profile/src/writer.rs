@@ -85,22 +85,6 @@ impl<'p, W: Write> Writer<'_, 'p, W> {
         })
     }
 
-    #[inline]
-    pub fn optional_number_array<N: FiniteNumber + Copy>(
-        &mut self,
-        values: &[Option<N>],
-    ) -> std::io::Result<()> {
-        self.array(|w| {
-            for v in values {
-                match v {
-                    Some(v) => w.json.number_value(*v)?,
-                    None => w.json.null_value()?,
-                }
-            }
-            Ok(())
-        })
-    }
-
     // -- Primitive forwarders -----------------------------------------------
 
     #[inline]

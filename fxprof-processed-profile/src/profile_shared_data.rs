@@ -117,17 +117,11 @@ impl ProfileSharedData {
             // subobjects produce a large JSON, which is to say, as long as those
             // subobjects include JSON arrays rather than typed arrays.
             // The profile format is still in the process of evolving to accept
-            // typed arrays in more places. For example, the stackTable already
-            // uses typed arrays for all its columns, but the frameTable and
-            // funcTable do not. So that means at the moment, the frameTable and
-            // funcTable still produce a lot of JSON. So it's worth splitting them
-            // out.
-            //
-            // Once those tables have been converted to use typed-array columns in
-            // future profile versions (which requires front-end work), we'll be
-            // able to just include the table in the root JSON - it'll be small
-            // because it'll just be a JSON skeleton with placeholder objects which
-            // reference the out-of-line typed array columns.
+            // typed arrays in more places. Tables whose columns are all typed
+            // arrays only produce a small JSON skeleton with placeholder objects
+            // referencing the out-of-line columns, so for those the split-out
+            // isn't buying us much any more; it just moves a small skeleton into
+            // its own slab.
             //
             // The exception is the stringArray - that one will probably remain
             // JSON and it will keep using `split_out_object`.
