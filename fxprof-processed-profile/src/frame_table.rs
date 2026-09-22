@@ -11,7 +11,7 @@ use crate::native_symbols::NativeSymbolIndex;
 use crate::resource_table::ResourceTable;
 use crate::source_table::{SourceKey, SourceTable};
 use crate::string_table::StringHandle;
-use crate::writer::{SplitOutObjectBody, Writer};
+use crate::writer::Writer;
 use crate::{FrameHandle, SourceLocation};
 
 /// Interns frames, in two levels.
@@ -310,12 +310,6 @@ impl<'a> FrameTable<'a> {
             w.name("originalLocation")?;
             w.typed_array_from_iter(len, std::iter::repeat(0i32).take(len))
         })
-    }
-}
-
-impl<'p, 'a: 'p> SplitOutObjectBody<'p> for &'p FrameTable<'a> {
-    fn write_body<W: Write>(self, w: &mut Writer<'_, 'p, W>) -> std::io::Result<()> {
-        self.write_json(w)
     }
 }
 

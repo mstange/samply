@@ -6,7 +6,7 @@ use crate::frame::FrameFlags;
 use crate::resource_table::ResourceIndex;
 use crate::source_table::SourceIndex;
 use crate::string_table::StringHandle;
-use crate::writer::{SplitOutObjectBody, Writer};
+use crate::writer::Writer;
 
 #[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash)]
 pub struct FuncIndex(pub(crate) i32);
@@ -167,12 +167,6 @@ impl FuncTable {
             w.name("originalLocation")?;
             w.typed_array_from_iter(len, std::iter::repeat(0i32).take(len))
         })
-    }
-}
-
-impl<'p> SplitOutObjectBody<'p> for &'p FuncTable {
-    fn write_body<W: Write>(self, w: &mut Writer<'_, 'p, W>) -> std::io::Result<()> {
-        self.write_json(w)
     }
 }
 

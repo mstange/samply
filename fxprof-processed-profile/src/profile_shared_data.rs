@@ -108,30 +108,12 @@ impl ProfileSharedData {
         } = tables;
 
         ctx.object(|w| {
-            // Some of the tables in profile.shared use write_json and some
-            // use split_out_object. For JSON output, the two are equivalent.
-            //
-            // But for JSLB output, split_out_object puts the JSON into a separate
-            // JSON slab. The goal of splitting out certain subobjects is to keep
-            // the root JSON slab small. We only need to do this as long as those
-            // subobjects produce a large JSON, which is to say, as long as those
-            // subobjects include JSON arrays rather than typed arrays.
-            // The profile format is still in the process of evolving to accept
-            // typed arrays in more places. Tables whose columns are all typed
-            // arrays only produce a small JSON skeleton with placeholder objects
-            // referencing the out-of-line columns, so for those the split-out
-            // isn't buying us much any more; it just moves a small skeleton into
-            // its own slab.
-            //
-            // The exception is the stringArray - that one will probably remain
-            // JSON and it will keep using `split_out_object`.
-
             w.name("stackTable")?;
             self.stack_table.write_json(w)?;
             w.name("frameTable")?;
-            w.split_out_object(frame_table)?;
+            frame_table.write_json(w)?;
             w.name("funcTable")?;
-            w.split_out_object(func_table)?;
+            func_table.write_json(w)?;
             w.name("nativeSymbols")?;
             self.native_symbols.write_json(w)?;
             w.name("resourceTable")?;
@@ -150,6 +132,11 @@ impl ProfileSharedData {
                 w.array(|_| Ok(()))
             })?;
 
+            // Use split_out_object for `stringArray` so that, in JSLB mode,
+            // it does not increase the size of the root JSON slab. (We don't
+            // use split_out_object for the other tables because those already
+            // don't generate anything large in the JSON; most of their data
+            // ends up in typed array columns which are separate slabs.)
             w.name("stringArray")?;
             w.split_out_object(&self.string_table)
         })
