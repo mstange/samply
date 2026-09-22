@@ -336,3 +336,45 @@ async fn test_quota_manager_min_age_partial() {
     assert!(recent1.exists());
     assert!(recent2.exists());
 }
+
+/// A test which simulates multiple processes which use the same database, like
+/// a long-lived server plus any number of short-lived command line
+/// invocations. Writes from two inventories must not take each other down.
+#[tokio::test]
+async fn test_two_quota_managers_on_one_db() {
+    let temp_dir = TempDir::new().unwrap();
+    let db_path = temp_dir.path().join("quota.db");
+    let quota_dir = temp_dir.path().join("quota");
+    fs::create_dir(&quota_dir).unwrap();
+
+    let first = QuotaManager::new(&quota_dir, &db_path).unwrap();
+    let second = QuotaManager::new(&quota_dir, &db_path).unwrap();
+    first.set_max_total_size(Some(1000));
+    second.set_max_total_size(Some(1000));
+
+    // Interleave writes from both, the way two processes would.
+    let now = SystemTime::now();
+    for i in 0..20 {
+        let path = quota_dir.join(format!("f_{i}.txt"));
+        fs::write(&path, vec![0u8; 100]).unwrap();
+        let notifier = if i % 2 == 0 {
+            first.notifier()
+        } else {
+            second.notifier()
+        };
+        notifier.on_file_created(&path, 100, now);
+        notifier.on_file_accessed(&path, now);
+    }
+
+    first.notifier().trigger_eviction_if_needed();
+    second.notifier().trigger_eviction_if_needed();
+    first.finish().await;
+    second.finish().await;
+
+    // Both are still usable, and the limit was enforced.
+    let total: u64 = fs::read_dir(&quota_dir)
+        .unwrap()
+        .map(|e| e.unwrap().metadata().unwrap().len())
+        .sum();
+    assert!(total <= 1000, "{total} bytes left in the directory");
+}

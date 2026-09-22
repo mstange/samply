@@ -21,6 +21,13 @@ const BUSY_TIMEOUT: Duration = Duration::from_secs(5);
 ///
 /// The inventory never touches files directly, other than the sqlite DB file.
 /// It just stores and queries information.
+///
+/// Database errors are logged and otherwise ignored. It's not fatal if the
+/// database isn't fully accurate; the worst that could happen is that we may
+/// "forget" about a file and fail to evict it.
+/// We especially don't want to panic when we hit a database error, because
+/// one possible case to hit such an error is if another process is writing
+/// to the same database and we hit our busy timeout.
 pub struct FileInventory {
     /// The path of the managed directory.
     root_path: PathBuf,
@@ -125,9 +132,8 @@ impl FileInventory {
         transaction: &Transaction,
         existing_files: Vec<FileInfo>,
     ) {
-        let mut stmt = transaction
-            .prepare(
-                r#"
+        let stmt = transaction.prepare(
+            r#"
                     INSERT INTO files (Path, Size, CreationTime, LastAccessTime)
                     VALUES (?1, ?2, ?3, ?4)
                     ON CONFLICT(Path) DO UPDATE SET
@@ -135,8 +141,14 @@ impl FileInventory {
                         CreationTime=?3,
                         LastAccessTime=?4;
                 "#,
-            )
-            .unwrap();
+        );
+        let mut stmt = match stmt {
+            Ok(stmt) => stmt,
+            Err(e) => {
+                log::error!("Could not prepare statement to record existing files: {e}");
+                return;
+            }
+        };
         for file_info in existing_files {
             let FileInfo {
                 path,
@@ -149,7 +161,7 @@ impl FileInventory {
                 continue;
             };
 
-            stmt.execute(params![
+            let result = stmt.execute(params![
                 relative_path.to_string_lossy(),
                 size_in_bytes,
                 creation_time.duration_since(UNIX_EPOCH).unwrap().as_secs() as i64,
@@ -157,8 +169,13 @@ impl FileInventory {
                     .duration_since(UNIX_EPOCH)
                     .unwrap()
                     .as_secs() as i64
-            ])
-            .unwrap();
+            ]);
+            if let Err(e) = result {
+                log::error!(
+                    "Could not record existing file {} in the inventory: {e}",
+                    relative_path.display()
+                );
+            }
         }
     }
 
@@ -186,10 +203,8 @@ impl FileInventory {
         let creation_time = creation_time.duration_since(UNIX_EPOCH).unwrap().as_secs() as i64;
         let last_access_time = creation_time;
 
-        let mut stmt = self
-            .db_connection
-            .prepare_cached(
-                r#"
+        let stmt = self.db_connection.prepare_cached(
+            r#"
                     INSERT INTO files (Path, Size, CreationTime, LastAccessTime)
                     VALUES (?1, ?2, ?3, ?4)
                     ON CONFLICT(Path) DO UPDATE SET
@@ -197,15 +212,26 @@ impl FileInventory {
                         CreationTime=?3,
                         LastAccessTime=?4;
                 "#,
-            )
-            .unwrap();
-        stmt.execute(params![
+        );
+        let mut stmt = match stmt {
+            Ok(stmt) => stmt,
+            Err(e) => {
+                log::error!("Could not prepare statement to record a created file: {e}");
+                return;
+            }
+        };
+        let result = stmt.execute(params![
             relative_path.to_string_lossy(),
             size_in_bytes as i64,
             creation_time,
             last_access_time
-        ])
-        .unwrap();
+        ]);
+        if let Err(e) = result {
+            log::error!(
+                "Could not record created file {} in the inventory: {e}",
+                relative_path.display()
+            );
+        }
     }
 
     /// Notifies the inventory that a file has been accessed.
@@ -218,12 +244,23 @@ impl FileInventory {
 
         let access_time = access_time.duration_since(UNIX_EPOCH).unwrap().as_secs() as i64;
 
-        let mut stmt = self
+        let stmt = self
             .db_connection
-            .prepare_cached("UPDATE files SET LastAccessTime = ?1 WHERE Path = ?2")
-            .unwrap();
-        stmt.execute(params![access_time, relative_path.to_string_lossy()])
-            .unwrap();
+            .prepare_cached("UPDATE files SET LastAccessTime = ?1 WHERE Path = ?2");
+        let mut stmt = match stmt {
+            Ok(stmt) => stmt,
+            Err(e) => {
+                log::error!("Could not prepare statement to record a file access: {e}");
+                return;
+            }
+        };
+        let result = stmt.execute(params![access_time, relative_path.to_string_lossy()]);
+        if let Err(e) = result {
+            log::error!(
+                "Could not record access to {} in the inventory: {e}",
+                relative_path.display()
+            );
+        }
     }
 
     /// Notifies the inventory that a file has been deleted.
@@ -234,12 +271,23 @@ impl FileInventory {
             return;
         };
 
-        let mut stmt = self
+        let stmt = self
             .db_connection
-            .prepare_cached("DELETE FROM files WHERE Path = ?1")
-            .unwrap();
-        stmt.execute(params![relative_path.to_string_lossy()])
-            .unwrap();
+            .prepare_cached("DELETE FROM files WHERE Path = ?1");
+        let mut stmt = match stmt {
+            Ok(stmt) => stmt,
+            Err(e) => {
+                log::error!("Could not prepare statement to record a file deletion: {e}");
+                return;
+            }
+        };
+        let result = stmt.execute(params![relative_path.to_string_lossy()]);
+        if let Err(e) = result {
+            log::error!(
+                "Could not record deletion of {} in the inventory: {e}",
+                relative_path.display()
+            );
+        }
     }
 
     /// Notifies the inventory that no file has been observed at the path.
@@ -294,19 +342,28 @@ impl FileInventory {
         let mut excess_bytes = i64::try_from(total_size - max_size_bytes).unwrap();
         assert!(excess_bytes > 0);
 
-        let mut stmt = self
+        let stmt = self
             .db_connection
-            .prepare_cached("SELECT Path, Size, CreationTime, LastAccessTime FROM files WHERE LastAccessTime < ?1 ORDER BY LastAccessTime ASC")
-            .unwrap();
+            .prepare_cached("SELECT Path, Size, CreationTime, LastAccessTime FROM files WHERE LastAccessTime < ?1 ORDER BY LastAccessTime ASC");
+        let mut stmt = match stmt {
+            Ok(stmt) => stmt,
+            Err(e) => {
+                log::error!("Could not prepare statement to list files to evict: {e}");
+                return vec![];
+            }
+        };
 
         let candidate_bound = match protect_accessed_after {
             Some(protect_accessed_after) => SqliteTime::from(protect_accessed_after).0,
             None => i64::MAX,
         };
-        let files = stmt
-            .query_map([candidate_bound], |row| self.file_info_from_row(row))
-            .unwrap()
-            .filter_map(Result::ok);
+        let files = match stmt.query_map([candidate_bound], |row| self.file_info_from_row(row)) {
+            Ok(files) => files.filter_map(Result::ok),
+            Err(e) => {
+                log::error!("Could not list files to evict: {e}");
+                return vec![];
+            }
+        };
 
         // Add files to a list until we've accumulated enough size.
         let mut files_to_delete = vec![];
@@ -369,20 +426,27 @@ impl FileInventory {
             Some(protect_accessed_after) => cutoff_time.min(protect_accessed_after),
             None => cutoff_time,
         };
-        let mut stmt = self
-            .db_connection
-            .prepare_cached("SELECT Path, Size, CreationTime, LastAccessTime FROM files WHERE LastAccessTime < ?1")
-            .unwrap();
+        let stmt = self.db_connection.prepare_cached(
+            "SELECT Path, Size, CreationTime, LastAccessTime FROM files WHERE LastAccessTime < ?1",
+        );
+        let mut stmt = match stmt {
+            Ok(stmt) => stmt,
+            Err(e) => {
+                log::error!("Could not prepare statement to list expired files: {e}");
+                return vec![];
+            }
+        };
 
-        let files_to_delete = stmt
-            .query_map([SqliteTime::from(cutoff_time).0], |row| {
-                self.file_info_from_row(row)
-            })
-            .unwrap()
-            .filter_map(Result::ok)
-            .collect();
-
-        files_to_delete
+        let files = stmt.query_map([SqliteTime::from(cutoff_time).0], |row| {
+            self.file_info_from_row(row)
+        });
+        match files {
+            Ok(files) => files.filter_map(Result::ok).collect(),
+            Err(e) => {
+                log::error!("Could not list expired files: {e}");
+                vec![]
+            }
+        }
     }
 }
 
