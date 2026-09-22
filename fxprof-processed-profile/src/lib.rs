@@ -66,6 +66,8 @@ mod frame;
 mod frame_table;
 mod func_table;
 mod global_lib_table;
+#[cfg(test)]
+mod jslb_test_support;
 mod lib_mappings;
 mod library_info;
 mod marker_table;

@@ -205,8 +205,9 @@ impl NativeSymbolIndex {
 
 #[cfg(test)]
 mod tests {
-    use json_slabs::{ParsedFile, SlabPlaceholder, SlabType, SLAB_REF_KEY};
+    use json_slabs::{ParsedFile, SlabType};
 
+    use crate::jslb_test_support::{column_slab, object_at_path};
     use crate::{
         LibraryInfo, Profile, ProfileFormat, ReferenceTimestamp, SamplingInterval, Timestamp,
     };
@@ -244,16 +245,10 @@ mod tests {
 
         let bytes = profile.to_vec(ProfileFormat::JsonSlabs);
         let file = ParsedFile::parse(&bytes).unwrap();
-        let root: serde_json::Value = serde_json::from_slice(file.root_json_bytes()).unwrap();
-        let native_symbols = &root["shared"]["nativeSymbols"];
+        let native_symbols = object_at_path(&file, &["shared", "nativeSymbols"]);
         assert_eq!(native_symbols["length"], 2);
 
-        let placeholder = |column: &str| -> SlabPlaceholder {
-            let index = native_symbols[column][SLAB_REF_KEY]
-                .as_u64()
-                .unwrap_or_else(|| panic!("{column} should be a slab reference"));
-            SlabPlaceholder(index as usize)
-        };
+        let placeholder = |column: &str| column_slab(&native_symbols, column);
         let slab_type = |column: &str| file.slab_at(placeholder(column)).unwrap().slab_type;
         assert_eq!(slab_type("libIndex"), SlabType::Int32);
         assert_eq!(slab_type("address"), SlabType::Uint32);
