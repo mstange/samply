@@ -9,10 +9,12 @@ mod windows;
 
 mod cli;
 mod cli_utils;
+mod config;
 mod import;
 mod linux_shared;
 mod name;
 mod profile_json_preparse;
+mod profile_store;
 mod server;
 mod shared;
 mod symbols;
@@ -20,8 +22,9 @@ mod symbols;
 use std::ffi::OsStr;
 use std::fs::File;
 use std::io::BufReader;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::SystemTime;
 
 use fxprof_processed_profile::Profile;
 use shared::ctrl_c::CtrlC;
@@ -33,8 +36,11 @@ use mac::profiler;
 #[cfg(target_os = "windows")]
 use windows::profiler;
 
+use config::{Config, ProfilesConfig};
 use profile_json_preparse::parse_libinfo_map_from_profile_file;
+use profile_store::{ProfileStore, PROFILE_FILE_EXTENSION};
 use server::{start_server, RunningServerInfo, ServerProps};
+use shared::presymbolicate::get_presymbolicate_info;
 use shared::prop_types::{ImportProps, SymbolProps};
 use shared::save_profile::save_profile_to_file;
 use symbols::create_symbol_manager_and_quota_manager;
@@ -44,9 +50,12 @@ fn main() {
 
     use clap::Parser;
     let opt = cli::Opt::parse();
+    let config_path = opt.config.as_deref();
     match opt.action {
-        cli::Action::Load(load_args) => do_load_action(load_args),
-        cli::Action::Import(import_args) => do_import_action(import_args),
+        cli::Action::Load(load_args) => do_load_action(load_args, &load_config(config_path)),
+        cli::Action::Import(import_args) => {
+            do_import_action(import_args, &load_config(config_path))
+        }
 
         #[cfg(any(
             target_os = "android",
@@ -54,8 +63,14 @@ fn main() {
             target_os = "linux",
             target_os = "windows"
         ))]
-        cli::Action::Record(record_args) => do_record_action(record_args),
+        cli::Action::Record(record_args) => {
+            do_record_action(record_args, &load_config(config_path))
+        }
 
+        // The elevated helper doesn't use the config. Loading it would also
+        // write the config template if it's missing, and the helper runs with
+        // administrator rights, possibly as a different user than the one who
+        // launched samply.
         #[cfg(target_os = "windows")]
         cli::Action::RunElevatedHelper(args) => {
             windows::run_elevated_helper(&args.ipc_directory, args.output_path)
@@ -66,46 +81,138 @@ fn main() {
     }
 }
 
-fn do_load_action(load_args: cli::LoadArgs) {
-    run_server_serving_profile(
-        &load_args.file,
-        load_args.server_props(),
-        load_args.symbol_props(),
-    );
+fn load_config(explicit_path: Option<&Path>) -> Config {
+    config::load(explicit_path).unwrap_or_else(|e| {
+        eprintln!("{e}");
+        std::process::exit(1)
+    })
 }
 
-fn do_import_action(import_args: cli::ImportArgs) {
+fn build_runtime() -> tokio::runtime::Runtime {
+    tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .unwrap()
+}
+
+/// Picks the output path: the explicit `-o` path, or a new file in the
+/// profile store. An explicit path bypasses the store entirely.
+fn resolve_output_path(
+    explicit_output: Option<PathBuf>,
+    profiles_config: &ProfilesConfig,
+    profile_name: &str,
+    runtime: &tokio::runtime::Runtime,
+) -> (PathBuf, Option<ProfileStore>) {
+    if let Some(path) = explicit_output {
+        return (path, None);
+    }
+
+    // The store's QuotaManager spawns a tokio task, so opening it needs a
+    // runtime context. The guard is dropped right away: synchronous code
+    // which blocks on tokio (e.g. the Windows Ctrl+C wait) panics inside one.
+    let store = {
+        let _guard = runtime.enter();
+        ProfileStore::open(profiles_config)
+    };
+    match store {
+        Ok(store) => {
+            let path = store.new_profile_path(profile_name, SystemTime::now());
+            (path, Some(store))
+        }
+        Err(e) => {
+            eprintln!("Warning: {e}. Writing the profile to the current directory instead.");
+            (
+                PathBuf::from(format!("profile.{PROFILE_FILE_EXTENSION}")),
+                None,
+            )
+        }
+    }
+}
+
+fn is_inside_dir(path: &Path, dir: &Path) -> bool {
+    let path = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+    let dir = dir.canonicalize().unwrap_or_else(|_| dir.to_path_buf());
+    path.starts_with(dir)
+}
+
+fn do_load_action(load_args: cli::LoadArgs, config: &Config) {
+    let runtime = build_runtime();
+
+    // If the file lives in the profile store, mark it as recently used so
+    // that it isn't evicted soon.
+    let is_in_store = config
+        .profiles
+        .resolved_dir()
+        .is_some_and(|dir| is_inside_dir(&load_args.file, &dir));
+    let store = if is_in_store {
+        let _guard = runtime.enter();
+        ProfileStore::open(&config.profiles).ok()
+    } else {
+        None
+    };
+    if let Some(store) = &store {
+        store.on_profile_accessed(&load_args.file);
+        store.trigger_eviction();
+    }
+
+    let symbol_props = load_args.symbol_props(config.symbols.to_symbol_props());
+    runtime.block_on(serve_profile(
+        &load_args.file,
+        load_args.server_props(),
+        symbol_props,
+    ));
+
+    if let Some(store) = store {
+        runtime.block_on(store.finish());
+    }
+}
+
+fn do_import_action(import_args: cli::ImportArgs, config: &Config) {
     let input_path = &import_args.file;
     let input_file = File::open(input_path).unwrap_or_else(|err| {
         eprintln!("Could not open file {input_path:?}: {err}");
         std::process::exit(1)
     });
 
-    let import_props = import_args.import_props();
+    let runtime = build_runtime();
+    let symbol_props = import_args.symbol_props(config.symbols.to_symbol_props());
+    let import_props = import_args.import_props(symbol_props.clone());
     let presymbolicate = import_props.profile_creation_props.presymbolicate;
+    let profile_name = import_props
+        .profile_creation_props
+        .profile_name()
+        .to_string();
+    let (output_path, store) = resolve_output_path(
+        import_args.output.clone(),
+        &config.profiles,
+        &profile_name,
+        &runtime,
+    );
+
     let mut profile = convert_file_to_profile(&input_file, input_path, import_props);
 
     if presymbolicate {
         eprintln!("Symbolicating...");
-        let symbol_info = crate::shared::presymbolicate::get_presymbolicate_info(
-            &profile,
-            import_args.symbol_props(),
-        );
+        let symbol_info = runtime.block_on(get_presymbolicate_info(&profile, symbol_props.clone()));
         profile = profile.make_symbolicated_profile(&symbol_info);
         profile.set_symbolicated(true);
     }
 
-    save_profile_to_file(&profile, &import_args.output).expect("Couldn't write JSON");
+    save_profile_to_file(&profile, &output_path).expect("Couldn't write JSON");
+    eprintln!("Saved profile to {}", output_path.display());
+    if let Some(store) = &store {
+        store.on_profile_saved(&output_path);
+    }
 
     // Drop the profile so that it doesn't take up memory while the server is running.
     drop(profile);
 
     if let Some(server_props) = import_args.server_props() {
-        run_server_serving_profile(
-            &import_args.output,
-            server_props,
-            import_args.symbol_props(),
-        );
+        runtime.block_on(serve_profile(&output_path, server_props, symbol_props));
+    }
+
+    if let Some(store) = store {
+        runtime.block_on(store.finish());
     }
 }
 
@@ -115,11 +222,22 @@ fn do_import_action(import_args: cli::ImportArgs) {
     target_os = "linux",
     target_os = "windows"
 ))]
-fn do_record_action(record_args: cli::RecordArgs) {
-    let recording_props = record_args.recording_props();
+fn do_record_action(record_args: cli::RecordArgs, config: &Config) {
+    let runtime = build_runtime();
     let recording_mode = record_args.recording_mode();
     let profile_creation_props = record_args.profile_creation_props();
     let presymbolicate = profile_creation_props.presymbolicate;
+    let symbol_props = record_args.symbol_props(config.symbols.to_symbol_props());
+
+    // The output path must be known before recording starts: on Windows, the
+    // ETL file paths are derived from it.
+    let (output_path, store) = resolve_output_path(
+        record_args.output.clone(),
+        &config.profiles,
+        profile_creation_props.profile_name(),
+        &runtime,
+    );
+    let recording_props = record_args.recording_props(output_path.clone());
 
     let (mut profile, exit_status) =
         profiler::run(recording_mode, recording_props, profile_creation_props).unwrap_or_else(
@@ -131,26 +249,34 @@ fn do_record_action(record_args: cli::RecordArgs) {
 
     if presymbolicate {
         eprintln!("Symbolicating...");
-        let symbol_info = crate::shared::presymbolicate::get_presymbolicate_info(
-            &profile,
-            record_args.symbol_props(),
-        );
+        let symbol_info = runtime.block_on(get_presymbolicate_info(&profile, symbol_props.clone()));
         profile = profile.make_symbolicated_profile(&symbol_info);
         profile.set_symbolicated(true);
     }
 
-    save_profile_to_file(&profile, &record_args.output).expect("Couldn't write JSON");
+    save_profile_to_file(&profile, &output_path).expect("Couldn't write JSON");
+    eprintln!("Saved profile to {}", output_path.display());
+    if let Some(store) = &store {
+        store.on_profile_saved(&output_path);
+
+        // Kept ETL files sit next to the profile; make them subject to eviction too.
+        #[cfg(target_os = "windows")]
+        if record_args.keep_etl {
+            store.register_existing_file(&windows::etl_path_for_output(&output_path, "kernel.etl"));
+            store.register_existing_file(&windows::etl_path_for_output(&output_path, "user.etl"));
+        }
+    }
 
     // Drop the profile so that it doesn't take up memory while the server is running.
     drop(profile);
 
     // then fire up the server for the profiler front end, if not save-only
     if let Some(server_props) = record_args.server_props() {
-        run_server_serving_profile(
-            &record_args.output,
-            server_props,
-            record_args.symbol_props(),
-        );
+        runtime.block_on(serve_profile(&output_path, server_props, symbol_props));
+    }
+
+    if let Some(store) = store {
+        runtime.block_on(store.finish());
     }
 
     std::process::exit(exit_status.code().unwrap_or(0));
@@ -205,11 +331,8 @@ fn convert_file_to_profile(
     })
 }
 
-fn run_server_serving_profile(
-    profile_path: &Path,
-    server_props: ServerProps,
-    symbol_props: SymbolProps,
-) {
+/// Serves the profile and its symbols until Ctrl+C is pressed.
+async fn serve_profile(profile_path: &Path, server_props: ServerProps, symbol_props: SymbolProps) {
     let libinfo_map = {
         let profile_file = File::open(profile_path).unwrap_or_else(|err| {
             eprintln!("Could not open file {profile_path:?}: {err}");
@@ -220,63 +343,56 @@ fn run_server_serving_profile(
             .expect("Couldn't parse libinfo map from profile file")
     };
 
-    let runtime = tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .build()
-        .unwrap();
+    let (mut symbol_manager, quota_manager) =
+        create_symbol_manager_and_quota_manager(symbol_props, server_props.verbose);
+    for lib_info in libinfo_map.into_values() {
+        symbol_manager.add_known_library(lib_info);
+    }
 
-    runtime.block_on(async {
-        let (mut symbol_manager, quota_manager) =
-            create_symbol_manager_and_quota_manager(symbol_props, server_props.verbose);
-        for lib_info in libinfo_map.into_values() {
-            symbol_manager.add_known_library(lib_info);
+    let precog_path = profile_path.with_extension("syms.json");
+    if let Some(precog_info) = shared::symbol_precog::PrecogSymbolInfo::try_load(&precog_path) {
+        for symbol_map in precog_info.into_iter() {
+            let lib_info = symbol_map.library_info();
+            symbol_manager.add_known_library_symbols(lib_info, Arc::new(symbol_map));
         }
+    }
 
-        let precog_path = profile_path.with_extension("syms.json");
-        if let Some(precog_info) = shared::symbol_precog::PrecogSymbolInfo::try_load(&precog_path) {
-            for symbol_map in precog_info.into_iter() {
-                let lib_info = symbol_map.library_info();
-                symbol_manager.add_known_library_symbols(lib_info, Arc::new(symbol_map));
-            }
+    let ctrl_c_receiver = CtrlC::observe_oneshot();
+
+    let open_in_browser = server_props.open_in_browser;
+
+    let RunningServerInfo {
+        server_join_handle,
+        server_origin,
+        profiler_url,
+    } = start_server(
+        Some(profile_path),
+        server_props,
+        symbol_manager,
+        ctrl_c_receiver,
+    )
+    .await;
+
+    eprintln!("Local server listening at {server_origin}");
+    if !open_in_browser {
+        if let Some(profiler_url) = &profiler_url {
+            println!("{profiler_url}");
         }
+    }
+    eprintln!("Press Ctrl+C to stop.");
 
-        let ctrl_c_receiver = CtrlC::observe_oneshot();
-
-        let open_in_browser = server_props.open_in_browser;
-
-        let RunningServerInfo {
-            server_join_handle,
-            server_origin,
-            profiler_url,
-        } = start_server(
-            Some(profile_path),
-            server_props,
-            symbol_manager,
-            ctrl_c_receiver,
-        )
-        .await;
-
-        eprintln!("Local server listening at {server_origin}");
-        if !open_in_browser {
-            if let Some(profiler_url) = &profiler_url {
-                println!("{profiler_url}");
-            }
+    if open_in_browser {
+        if let Some(profiler_url) = &profiler_url {
+            let _ = opener::open_browser(profiler_url);
         }
-        eprintln!("Press Ctrl+C to stop.");
+    }
 
-        if open_in_browser {
-            if let Some(profiler_url) = &profiler_url {
-                let _ = opener::open_browser(profiler_url);
-            }
-        }
+    // Run this server until it stops.
+    if let Err(e) = server_join_handle.await {
+        eprintln!("server error: {e}");
+    }
 
-        // Run this server until it stops.
-        if let Err(e) = server_join_handle.await {
-            eprintln!("server error: {e}");
-        }
-
-        if let Some(quota_manager) = quota_manager {
-            quota_manager.finish().await;
-        }
-    });
+    if let Some(quota_manager) = quota_manager {
+        quota_manager.finish().await;
+    }
 }

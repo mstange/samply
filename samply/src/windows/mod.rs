@@ -14,3 +14,4 @@ mod winutils;
 mod xperf;
 
 pub use elevated_helper::run_elevated_helper;
+pub use xperf::etl_path_for_output;

@@ -270,7 +270,15 @@ impl FileInventory {
     /// Returns a list of file paths. Deleting all the listed files will reduce
     /// the total size of the managed directory below `max_size_bytes`, assuming
     /// that the information stored in the DB is complete and accurate.
-    pub fn get_files_to_delete_to_enforce_max_size(&self, max_size_bytes: u64) -> Vec<FileInfo> {
+    ///
+    /// Files which were last accessed at or after `protect_accessed_after` are
+    /// never included in the list. If protected files alone exceed the limit,
+    /// the returned list is not sufficient to get below `max_size_bytes`.
+    pub fn get_files_to_delete_to_enforce_max_size(
+        &self,
+        max_size_bytes: u64,
+        protect_accessed_after: Option<SystemTime>,
+    ) -> Vec<FileInfo> {
         let total_size = self.total_size_in_bytes();
         if total_size <= max_size_bytes {
             // Nothing needs to be deleted.
@@ -282,11 +290,15 @@ impl FileInventory {
 
         let mut stmt = self
             .db_connection
-            .prepare_cached("SELECT Path, Size, CreationTime, LastAccessTime FROM files ORDER BY LastAccessTime ASC")
+            .prepare_cached("SELECT Path, Size, CreationTime, LastAccessTime FROM files WHERE LastAccessTime < ?1 ORDER BY LastAccessTime ASC")
             .unwrap();
 
+        let candidate_bound = match protect_accessed_after {
+            Some(protect_accessed_after) => SqliteTime::from(protect_accessed_after).0,
+            None => i64::MAX,
+        };
         let files = stmt
-            .query_map([], |row| self.file_info_from_row(row))
+            .query_map([candidate_bound], |row| self.file_info_from_row(row))
             .unwrap()
             .filter_map(Result::ok);
 
@@ -329,16 +341,28 @@ impl FileInventory {
 
         // Delete the largest files first.
         files_to_delete.sort_unstable_by_key(|file_info| {
-            let size = i32::try_from(file_info.size_in_bytes).unwrap();
-            let negative_size = size.checked_neg().unwrap();
-            (negative_size, file_info.last_access_time)
+            (
+                std::cmp::Reverse(file_info.size_in_bytes),
+                file_info.last_access_time,
+            )
         });
         files_to_delete
     }
 
     /// Returns a list of file paths, listing all the files whose last access time (as
-    /// stored by the inventory) is older than `max_age_seconds`.
-    pub fn get_files_last_accessed_before(&self, cutoff_time: SystemTime) -> Vec<FileInfo> {
+    /// stored by the inventory) is before `cutoff_time`.
+    ///
+    /// Files which were last accessed at or after `protect_accessed_after` are
+    /// never included in the list.
+    pub fn get_files_last_accessed_before(
+        &self,
+        cutoff_time: SystemTime,
+        protect_accessed_after: Option<SystemTime>,
+    ) -> Vec<FileInfo> {
+        let cutoff_time = match protect_accessed_after {
+            Some(protect_accessed_after) => cutoff_time.min(protect_accessed_after),
+            None => cutoff_time,
+        };
         let mut stmt = self
             .db_connection
             .prepare_cached("SELECT Path, Size, CreationTime, LastAccessTime FROM files WHERE LastAccessTime < ?1")
