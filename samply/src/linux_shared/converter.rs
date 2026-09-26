@@ -7,8 +7,8 @@ use byteorder::LittleEndian;
 use debugid::DebugId;
 use framehop::{ExplicitModuleSectionInfo, FrameAddress, Module, Unwinder};
 use fxprof_processed_profile::{
-    Category, CategoryColor, CategoryHandle, CpuDelta, FrameFlags, LibraryHandle, LibraryInfo,
-    Marker, MarkerField, MarkerTiming, PlatformSpecificReferenceTimestamp, Profile,
+    Category, CategoryColor, CategoryHandle, CpuDelta, ExtraInfoEntry, FrameFlags, LibraryHandle,
+    LibraryInfo, Marker, MarkerField, MarkerTiming, PlatformSpecificReferenceTimestamp, Profile,
     ReferenceTimestamp, SamplingInterval, Schema, SourceLocation, StringHandle, SubcategoryHandle,
     SymbolTable, ThreadHandle,
 };
@@ -267,6 +267,16 @@ where
         self.profile.set_os_name(os_name);
     }
 
+    /// Add a section of `(label, value)` string entries to the profile's
+    /// `meta.extra`.
+    pub fn add_extra_info_section(&mut self, label: &str, entries: Vec<(String, String)>) {
+        let entries = entries
+            .iter()
+            .map(|(label, value)| ExtraInfoEntry::string(label, value))
+            .collect();
+        self.profile.add_extra_info_section(label, entries);
+    }
+
     pub fn handle_main_event_sample<C: ConvertRegs<UnwindRegs = U::UnwindRegs>>(
         &mut self,
         e: &SampleRecord,
@@ -345,13 +355,12 @@ where
             CpuDelta::from_nanos(0)
         };
 
-        let (weight, saturated) = sample_weight(
+        let (weight, saturated_period) = sample_weight(
             e.period,
             self.main_event_fixed_period,
             self.weight_by_period,
         );
-        if saturated {
-            let period = resolved_period(e.period, self.main_event_fixed_period).unwrap_or(0);
+        if let Some(period) = saturated_period {
             self.largest_saturated_period = self.largest_saturated_period.max(Some(period));
         }
 
@@ -1873,7 +1882,8 @@ fn marker_period(record_period: Option<u64>, fixed_period: Option<u64>) -> u64 {
     resolved_period(record_period, fixed_period).unwrap_or(0)
 }
 
-/// Weight of one main-event sample, and whether it saturated.
+/// Weight of one main-event sample, and the resolved period if the weight
+/// saturated at `i32::MAX`.
 ///
 /// With `weight_by_period`, the weight is the record's period, else the
 /// attribute's fixed period, capped at `i32::MAX`. Without the flag, or
@@ -1882,21 +1892,21 @@ fn sample_weight(
     record_period: Option<u64>,
     fixed_period: Option<u64>,
     weight_by_period: bool,
-) -> (i32, bool) {
+) -> (i32, Option<u64>) {
     if !weight_by_period {
-        return (1, false);
+        return (1, None);
     }
     match resolved_period(record_period, fixed_period) {
-        None => (1, false),
+        None => (1, None),
         Some(period) => match i32::try_from(period) {
-            Ok(weight) => (weight, false),
-            Err(_) => (i32::MAX, true),
+            Ok(weight) => (weight, None),
+            Err(_) => (i32::MAX, Some(period)),
         },
     }
 }
 
 /// Off-CPU sampling interval in nanoseconds and the weight of each off-CPU
-/// sample.
+/// sample. The weight is 0 when `weight_by_period` is set.
 fn off_cpu_sampling(sampling_is_time_based: Option<u64>, weight_by_period: bool) -> (u64, i32) {
     let (interval_ns, weight) = match sampling_is_time_based {
         Some(interval_ns) => (interval_ns, 1),
@@ -2089,30 +2099,36 @@ mod tests {
 
     #[test]
     fn sample_weight_uses_record_period() {
-        assert_eq!(sample_weight(Some(1234), Some(10), true), (1234, false));
+        assert_eq!(sample_weight(Some(1234), Some(10), true), (1234, None));
     }
 
     #[test]
     fn sample_weight_falls_back_to_fixed_period() {
-        assert_eq!(sample_weight(None, Some(10_000), true), (10_000, false));
+        assert_eq!(sample_weight(None, Some(10_000), true), (10_000, None));
     }
 
     #[test]
     fn sample_weight_without_any_period_is_one() {
-        assert_eq!(sample_weight(None, None, true), (1, false));
+        assert_eq!(sample_weight(None, None, true), (1, None));
     }
 
     #[test]
     fn sample_weight_is_one_without_the_flag() {
-        assert_eq!(sample_weight(Some(1234), Some(10), false), (1, false));
+        assert_eq!(sample_weight(Some(1234), Some(10), false), (1, None));
     }
 
     #[test]
     fn sample_weight_saturates_above_i32_max() {
         let max = u64::try_from(i32::MAX).unwrap();
-        assert_eq!(sample_weight(Some(max), None, true), (i32::MAX, false));
-        assert_eq!(sample_weight(Some(max + 1), None, true), (i32::MAX, true));
-        assert_eq!(sample_weight(None, Some(u64::MAX), true), (i32::MAX, true));
+        assert_eq!(sample_weight(Some(max), None, true), (i32::MAX, None));
+        assert_eq!(
+            sample_weight(Some(max + 1), None, true),
+            (i32::MAX, Some(max + 1))
+        );
+        assert_eq!(
+            sample_weight(None, Some(u64::MAX), true),
+            (i32::MAX, Some(u64::MAX))
+        );
     }
 
     #[test]

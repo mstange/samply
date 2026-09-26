@@ -18,6 +18,7 @@ pub mod vdso;
 
 pub use convert_regs::{ConvertRegs, ConvertRegsAarch64, ConvertRegsX86_64};
 pub use converter::Converter;
-#[allow(unused)]
-pub use event_interpretation::{EventInterpretation, KnownEvent, OffCpuIndicator};
+pub use event_interpretation::{
+    perf_events_section, EventInterpretation, KnownEvent, OffCpuIndicator,
+};
 pub use mmap_range_or_vec::MmapRangeOrVec;
