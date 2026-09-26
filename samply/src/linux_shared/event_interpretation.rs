@@ -25,7 +25,6 @@ pub enum OffCpuIndicator {
 #[derive(Debug, Clone)]
 pub struct EventInterpretation {
     pub main_event_attr_index: usize,
-    #[allow(unused)]
     pub main_event_name: String,
     pub sampling_is_time_based: Option<u64>,
     pub off_cpu_indicator: Option<OffCpuIndicator>,

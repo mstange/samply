@@ -101,6 +101,9 @@ pub struct ProfileCreationProps {
     /// Whether to emit context switch markers.
     #[allow(dead_code)]
     pub should_emit_cswitch_markers: bool,
+    /// Weight main-event samples by their perf event period instead of 1.
+    /// Only `samply import` of perf.data files sets this.
+    pub weight_by_period: bool,
 }
 
 impl ProfileCreationProps {

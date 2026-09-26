@@ -124,6 +124,13 @@ pub struct ImportArgs {
     /// Time range of recording to include in profile. Format is "start-stop" or "start+duration" with each part optional, e.g. "5s", "5s-", "-10s", "1s-10s" or "1s+9s".
     #[arg(long, value_parser=parse_time_range)]
     pub time_range: Option<(std::time::Duration, std::time::Duration)>,
+
+    /// Weight each sample of the first perf event by its period, so sample
+    /// totals count events such as cycles or cache misses instead of samples.
+    /// Off-CPU samples get weight 0. The Firefox Profiler still labels the
+    /// weighted totals as samples.
+    #[arg(long)]
+    pub weight_by_period: bool,
 }
 
 #[allow(unused)]
@@ -376,8 +383,11 @@ impl ImportArgs {
     pub fn profile_creation_props(&self) -> ProfileCreationProps {
         let filename = self.file.file_name().unwrap_or(self.file.as_os_str());
         let fallback_profile_name = filename.to_string_lossy().into();
-        self.profile_creation_args
-            .profile_creation_props_with_fallback_name(fallback_profile_name)
+        let mut props = self
+            .profile_creation_args
+            .profile_creation_props_with_fallback_name(fallback_profile_name);
+        props.weight_by_period = self.weight_by_period;
+        props
     }
 
     // TODO: Use for perf.data import
@@ -532,6 +542,8 @@ impl ProfileCreationArgs {
             presymbolicate: self.presymbolicate,
             should_emit_jit_markers: self.jit_markers,
             should_emit_cswitch_markers: self.cswitch_markers,
+            // Only `samply import` sets this, in `ImportArgs::profile_creation_props`.
+            weight_by_period: false,
             coreclr: self.coreclr_profile_props(),
             #[cfg(target_os = "windows")]
             unknown_event_markers: self.unknown_event_markers,
@@ -617,5 +629,20 @@ mod test {
         // Make sure you can't pass both a pid and a command name at the same time.
         let opt_res = Opt::try_parse_from(["samply", "record", "-p", "1234", "rustup"]);
         assert!(opt_res.is_err());
+    }
+
+    #[test]
+    fn verify_cli_import_weight_by_period() {
+        let opt = Opt::parse_from(["samply", "import", "perf.data", "--weight-by-period"]);
+        let Action::Import(import_args) = opt.action else {
+            panic!("expected the import action");
+        };
+        assert!(import_args.profile_creation_props().weight_by_period);
+
+        let opt = Opt::parse_from(["samply", "import", "perf.data"]);
+        let Action::Import(import_args) = opt.action else {
+            panic!("expected the import action");
+        };
+        assert!(!import_args.profile_creation_props().weight_by_period);
     }
 }
