@@ -13,6 +13,7 @@ use crate::category::{
 use crate::category_color::CategoryColor;
 use crate::counters::{Counter, CounterDisplayConfig, CounterHandle};
 use crate::cpu_delta::CpuDelta;
+use crate::extra_info::{ExtraInfoEntry, ExtraInfoSection};
 use crate::fast_hash_map::{FastHashMap, FastHashSet, FastIndexSet};
 use crate::frame::FrameAddress;
 use crate::frame_table::{
@@ -229,6 +230,7 @@ pub struct Profile {
     pub(crate) symbolicated: bool,
     used_pids: FastHashMap<u32, u32>,
     used_tids: FastHashMap<u32, u32>,
+    extra_info_sections: Vec<ExtraInfoSection>,
 }
 
 impl Profile {
@@ -266,6 +268,7 @@ impl Profile {
             used_pids: FastHashMap::default(),
             used_tids: FastHashMap::default(),
             counters: Vec::new(),
+            extra_info_sections: Vec::new(),
         }
     }
 
@@ -295,6 +298,16 @@ impl Profile {
     /// Set the name of the operating system.
     pub fn set_os_name(&mut self, os_name: &str) {
         self.os_name = Some(os_name.to_string());
+    }
+
+    /// Add a labeled section to the profile's `meta.extra`, which the Firefox
+    /// Profiler shows in its profile info panel. Sections are written in the
+    /// order they were added.
+    pub fn add_extra_info_section(&mut self, label: &str, entries: Vec<ExtraInfoEntry>) {
+        self.extra_info_sections.push(ExtraInfoSection {
+            label: label.to_string(),
+            entries,
+        });
     }
 
     /// Set the unit that the timeline should display. Default is [`TimelineUnit::Milliseconds`].
@@ -1218,6 +1231,7 @@ impl Profile {
             symbolicated,
             used_pids,
             used_tids,
+            extra_info_sections,
         } = self;
 
         let (shared_data, old_stack_to_new_stack) =
@@ -1250,6 +1264,7 @@ impl Profile {
             symbolicated,
             used_pids,
             used_tids,
+            extra_info_sections,
         }
     }
 
@@ -1592,6 +1607,16 @@ impl Profile {
                 w.array(|w| {
                     for t in &self.initial_selected_threads {
                         w.number_value(new_thread_indices[t.0])?;
+                    }
+                    Ok(())
+                })?;
+            }
+
+            if !self.extra_info_sections.is_empty() {
+                w.name("extra")?;
+                w.array(|w| {
+                    for section in &self.extra_info_sections {
+                        section.write_json(w)?;
                     }
                     Ok(())
                 })?;

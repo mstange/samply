@@ -3,8 +3,8 @@ use std::time::Duration;
 
 use debugid::DebugId;
 use fxprof_processed_profile::{
-    Category, CategoryColor, CounterDisplayConfig, CpuDelta, FlowId, FrameAddress, FrameFlags,
-    GraphColor, LibraryInfo, Marker, MarkerField, MarkerFieldPIICategory, MarkerGraph,
+    Category, CategoryColor, CounterDisplayConfig, CpuDelta, ExtraInfoEntry, FlowId, FrameAddress,
+    FrameFlags, GraphColor, LibraryInfo, Marker, MarkerField, MarkerFieldPIICategory, MarkerGraph,
     MarkerGraphType, MarkerLocations, MarkerTiming, Profile, ProfileFormat, ReferenceTimestamp,
     SamplingInterval, Schema, StringHandle, Symbol, SymbolTable, Timestamp, WeightType,
 };
@@ -482,4 +482,43 @@ fn test_flow_marker_fields() {
     );
 
     insta::assert_json_snapshot!(profile_as_json_value(&profile));
+}
+
+#[test]
+fn extra_info_sections_are_written_to_meta_extra() {
+    let mut profile = Profile::new(
+        "test",
+        ReferenceTimestamp::from_millis_since_unix_epoch(0.0),
+        SamplingInterval::from_millis(1),
+    );
+    profile.add_extra_info_section(
+        "Perf events",
+        vec![
+            ExtraInfoEntry::string("cycles", "frequency 999 Hz"),
+            ExtraInfoEntry::string("Sample weight", "1"),
+        ],
+    );
+    let json = profile_as_json_value(&profile);
+    assert_eq!(
+        json["meta"]["extra"],
+        serde_json::json!([{
+            "label": "Perf events",
+            "entries": [
+                {"label": "cycles", "format": "string", "value": "frequency 999 Hz"},
+                {"label": "Sample weight", "format": "string", "value": "1"},
+            ],
+        }])
+    );
+}
+
+#[test]
+fn meta_extra_is_absent_without_sections() {
+    let profile = Profile::new(
+        "test",
+        ReferenceTimestamp::from_millis_since_unix_epoch(0.0),
+        SamplingInterval::from_millis(1),
+    );
+    assert!(profile_as_json_value(&profile)["meta"]
+        .get("extra")
+        .is_none());
 }

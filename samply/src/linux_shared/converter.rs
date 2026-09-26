@@ -7,8 +7,8 @@ use byteorder::LittleEndian;
 use debugid::DebugId;
 use framehop::{ExplicitModuleSectionInfo, FrameAddress, Module, Unwinder};
 use fxprof_processed_profile::{
-    Category, CategoryColor, CategoryHandle, CpuDelta, FrameFlags, LibraryHandle, LibraryInfo,
-    Marker, MarkerField, MarkerTiming, PlatformSpecificReferenceTimestamp, Profile,
+    Category, CategoryColor, CategoryHandle, CpuDelta, ExtraInfoEntry, FrameFlags, LibraryHandle,
+    LibraryInfo, Marker, MarkerField, MarkerTiming, PlatformSpecificReferenceTimestamp, Profile,
     ReferenceTimestamp, SamplingInterval, Schema, SourceLocation, StringHandle, SubcategoryHandle,
     SymbolTable, ThreadHandle,
 };
@@ -80,6 +80,16 @@ where
     off_cpu_weight_per_sample: i32,
     off_cpu_indicator: Option<OffCpuIndicator>,
     event_names: Vec<String>,
+    /// Fixed sampling period per attribute, for records without `PERIOD`.
+    fixed_periods: Vec<Option<u64>>,
+    /// Whether main-event samples weigh their period instead of 1.
+    weight_by_period: bool,
+    /// Name of the main event, for the saturation warning.
+    main_event_name: String,
+    /// Fixed period of the main event, for records without `PERIOD`.
+    main_event_fixed_period: Option<u64>,
+    /// Largest main-event period that did not fit a sample weight.
+    largest_saturated_period: Option<u64>,
     kernel_symbols: Option<KernelSymbols>,
     kernel_image_mapping: Option<KernelImageMapping>,
     simpleperf: SimpleperfConverterData,
@@ -155,11 +165,15 @@ where
         if let Some(linux_version) = linux_version {
             profile.set_os_name(&format!("Linux {linux_version}"));
         }
-        let (off_cpu_sampling_interval_ns, off_cpu_weight_per_sample) =
-            match &interpretation.sampling_is_time_based {
-                Some(interval_ns) => (*interval_ns, 1),
-                None => (DEFAULT_OFF_CPU_SAMPLING_INTERVAL_NS, 0),
-            };
+        let (off_cpu_sampling_interval_ns, off_cpu_weight_per_sample) = off_cpu_sampling(
+            interpretation.sampling_is_time_based,
+            profile_creation_props.weight_by_period,
+        );
+        let main_event_fixed_period = interpretation
+            .fixed_periods
+            .get(interpretation.main_event_attr_index)
+            .copied()
+            .flatten();
         let kernel_symbols = KernelSymbols::new_for_running_kernel().ok();
 
         let timestamp_converter = TimestampConverter {
@@ -206,6 +220,11 @@ where
             unresolved_stacks: UnresolvedStacks::default(),
             off_cpu_indicator: interpretation.off_cpu_indicator,
             event_names: interpretation.event_names,
+            fixed_periods: interpretation.fixed_periods,
+            weight_by_period: profile_creation_props.weight_by_period,
+            main_event_name: interpretation.main_event_name,
+            main_event_fixed_period,
+            largest_saturated_period: None,
             kernel_symbols,
             kernel_image_mapping: None,
             simpleperf,
@@ -223,6 +242,13 @@ where
     }
 
     pub fn finish(mut self) -> Profile {
+        if let Some(period) = self.largest_saturated_period {
+            eprintln!(
+                "Warning: some {} samples have periods above {}, the largest sample weight, so their weights were capped. Largest period: {period}.",
+                self.main_event_name,
+                i32::MAX
+            );
+        }
         let mut profile = self.profile;
         self.processes.finish(
             &mut profile,
@@ -239,6 +265,16 @@ where
 
     pub fn set_os_name(&mut self, os_name: &str) {
         self.profile.set_os_name(os_name);
+    }
+
+    /// Add a section of `(label, value)` string entries to the profile's
+    /// `meta.extra`.
+    pub fn add_extra_info_section(&mut self, label: &str, entries: Vec<(String, String)>) {
+        let entries = entries
+            .iter()
+            .map(|(label, value)| ExtraInfoEntry::string(label, value))
+            .collect();
+        self.profile.add_extra_info_section(label, entries);
     }
 
     pub fn handle_main_event_sample<C: ConvertRegs<UnwindRegs = U::UnwindRegs>>(
@@ -319,6 +355,15 @@ where
             CpuDelta::from_nanos(0)
         };
 
+        let (weight, saturated_period) = sample_weight(
+            e.period,
+            self.main_event_fixed_period,
+            self.weight_by_period,
+        );
+        if let Some(period) = saturated_period {
+            self.largest_saturated_period = self.largest_saturated_period.max(Some(period));
+        }
+
         let stack_index = self.unresolved_stacks.convert(stack.iter().rev().cloned());
         process.unresolved_samples.add_sample(
             thread_handle,
@@ -326,7 +371,7 @@ where
             timestamp,
             stack_index,
             cpu_delta,
-            1,
+            weight,
             None,
         );
 
@@ -360,7 +405,7 @@ where
                 timestamp,
                 stack_index,
                 cpu_delta,
-                1,
+                weight,
                 Some(label_frame),
             );
 
@@ -375,7 +420,7 @@ where
                 timestamp,
                 stack_index,
                 CpuDelta::ZERO,
-                1,
+                weight,
                 Some(label_frame),
             );
         }
@@ -581,9 +626,13 @@ where
         if let Some(name) = self.event_names.get(attr_index) {
             let timing = MarkerTiming::Instant(timestamp);
             let name = self.profile.handle_for_string(name);
+            let period = marker_period(
+                e.period,
+                self.fixed_periods.get(attr_index).copied().flatten(),
+            );
             let marker_handle =
                 self.profile
-                    .add_marker(thread_handle, timing, OtherEventMarker(name));
+                    .add_marker(thread_handle, timing, OtherEventMarker { name, period });
             process.unresolved_samples.attach_stack_to_marker(
                 thread_handle,
                 timestamp,
@@ -1817,6 +1866,61 @@ impl SimpleperfSymbolTables {
 //     dbg!(jit_function_name(&file));
 // }
 
+/// Resolves the period of a sample or marker record: the record's own
+/// period, else the attribute's fixed period, else `None` if neither is
+/// known.
+fn resolved_period(record_period: Option<u64>, fixed_period: Option<u64>) -> Option<u64> {
+    record_period.or(fixed_period)
+}
+
+/// Period of a non-main event record: the record's own period, else the
+/// attribute's fixed period, else 0.
+fn marker_period(record_period: Option<u64>, fixed_period: Option<u64>) -> u64 {
+    // perf requests `PERIOD` for every frequency-based attribute, so the
+    // 0 case only occurs for unusual recordings. Marker fields cannot be
+    // left out, and the JSON writer rejects NaN.
+    resolved_period(record_period, fixed_period).unwrap_or(0)
+}
+
+/// Weight of one main-event sample, and the resolved period if the weight
+/// saturated at `i32::MAX`.
+///
+/// With `weight_by_period`, the weight is the record's period, else the
+/// attribute's fixed period, capped at `i32::MAX`. Without the flag, or
+/// when neither period is known, the weight is 1.
+fn sample_weight(
+    record_period: Option<u64>,
+    fixed_period: Option<u64>,
+    weight_by_period: bool,
+) -> (i32, Option<u64>) {
+    if !weight_by_period {
+        return (1, None);
+    }
+    match resolved_period(record_period, fixed_period) {
+        None => (1, None),
+        Some(period) => match i32::try_from(period) {
+            Ok(weight) => (weight, None),
+            Err(_) => (i32::MAX, Some(period)),
+        },
+    }
+}
+
+/// Off-CPU sampling interval in nanoseconds and the weight of each off-CPU
+/// sample. The weight is 0 when `weight_by_period` is set.
+fn off_cpu_sampling(sampling_is_time_based: Option<u64>, weight_by_period: bool) -> (u64, i32) {
+    let (interval_ns, weight) = match sampling_is_time_based {
+        Some(interval_ns) => (interval_ns, 1),
+        None => (DEFAULT_OFF_CPU_SAMPLING_INTERVAL_NS, 0),
+    };
+    // Period weights count events of the main event, and off-CPU time
+    // produces none, so a weight of 1 would mix units.
+    if weight_by_period {
+        (interval_ns, 0)
+    } else {
+        (interval_ns, weight)
+    }
+}
+
 fn process_off_cpu_sample_group(
     off_cpu_sample: OffCpuSampleGroup,
     thread_handle: ThreadHandle,
@@ -1979,5 +2083,65 @@ impl Marker for MmapMarker {
 
     fn field_values(&self) -> StringHandle {
         self.0
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn marker_period_prefers_the_record() {
+        assert_eq!(marker_period(Some(7), Some(10_000)), 7);
+        assert_eq!(marker_period(None, Some(10_000)), 10_000);
+        assert_eq!(marker_period(None, None), 0);
+    }
+
+    #[test]
+    fn sample_weight_uses_record_period() {
+        assert_eq!(sample_weight(Some(1234), Some(10), true), (1234, None));
+    }
+
+    #[test]
+    fn sample_weight_falls_back_to_fixed_period() {
+        assert_eq!(sample_weight(None, Some(10_000), true), (10_000, None));
+    }
+
+    #[test]
+    fn sample_weight_without_any_period_is_one() {
+        assert_eq!(sample_weight(None, None, true), (1, None));
+    }
+
+    #[test]
+    fn sample_weight_is_one_without_the_flag() {
+        assert_eq!(sample_weight(Some(1234), Some(10), false), (1, None));
+    }
+
+    #[test]
+    fn sample_weight_saturates_above_i32_max() {
+        let max = u64::try_from(i32::MAX).unwrap();
+        assert_eq!(sample_weight(Some(max), None, true), (i32::MAX, None));
+        assert_eq!(
+            sample_weight(Some(max + 1), None, true),
+            (i32::MAX, Some(max + 1))
+        );
+        assert_eq!(
+            sample_weight(None, Some(u64::MAX), true),
+            (i32::MAX, Some(u64::MAX))
+        );
+    }
+
+    #[test]
+    fn off_cpu_samples_weigh_zero_with_period_weights() {
+        assert_eq!(off_cpu_sampling(Some(1_001_001), false), (1_001_001, 1));
+        assert_eq!(off_cpu_sampling(Some(1_001_001), true), (1_001_001, 0));
+        assert_eq!(
+            off_cpu_sampling(None, false),
+            (DEFAULT_OFF_CPU_SAMPLING_INTERVAL_NS, 0)
+        );
+        assert_eq!(
+            off_cpu_sampling(None, true),
+            (DEFAULT_OFF_CPU_SAMPLING_INTERVAL_NS, 0)
+        );
     }
 }

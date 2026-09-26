@@ -342,6 +342,7 @@ fn make_converter(
         sched_switch_attr_index: None,
         known_event_indices: HashMap::new(),
         event_names: vec!["cycles".to_string()],
+        fixed_periods: vec![None],
     };
 
     let mut converter = Converter::<

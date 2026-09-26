@@ -25,13 +25,15 @@ pub enum OffCpuIndicator {
 #[derive(Debug, Clone)]
 pub struct EventInterpretation {
     pub main_event_attr_index: usize,
-    #[allow(unused)]
     pub main_event_name: String,
     pub sampling_is_time_based: Option<u64>,
     pub off_cpu_indicator: Option<OffCpuIndicator>,
     pub sched_switch_attr_index: Option<usize>,
     pub known_event_indices: HashMap<usize, KnownEvent>,
     pub event_names: Vec<String>,
+    /// The fixed sampling period of each attribute, in attribute order.
+    /// `None` for frequency-based and non-sampling attributes.
+    pub fixed_periods: Vec<Option<u64>>,
 }
 
 impl EventInterpretation {
@@ -101,6 +103,9 @@ impl EventInterpretation {
             })
             .collect();
 
+        let fixed_periods =
+            fixed_periods(attrs.iter().map(|attr_desc| attr_desc.attr.sampling_policy));
+
         Self {
             main_event_attr_index,
             main_event_name,
@@ -109,6 +114,94 @@ impl EventInterpretation {
             sched_switch_attr_index,
             known_event_indices,
             event_names,
+            fixed_periods,
         }
+    }
+}
+
+/// The fixed period of each attribute that samples every N events, in
+/// order. Frequency-based attributes get `None`, because each of their
+/// records carries its own period.
+pub fn fixed_periods(policies: impl IntoIterator<Item = SamplingPolicy>) -> Vec<Option<u64>> {
+    policies
+        .into_iter()
+        .map(|policy| match policy {
+            SamplingPolicy::Period(period) => Some(period.get()),
+            SamplingPolicy::Frequency(_) | SamplingPolicy::NoSampling => None,
+        })
+        .collect()
+}
+
+/// Value of an attribute's `Perf events` entry: `frequency N Hz` or
+/// `period N`. Non-sampling attributes, which produce no samples, read
+/// `no sampling`.
+pub fn sampling_description(policy: SamplingPolicy) -> String {
+    match policy {
+        SamplingPolicy::Frequency(hz) => format!("frequency {hz} Hz"),
+        SamplingPolicy::Period(period) => format!("period {period}"),
+        SamplingPolicy::NoSampling => "no sampling".to_string(),
+    }
+}
+
+/// Entries of the `Perf events` info section: one per attribute in
+/// attribute order, labeled with the event name and valued with its
+/// sampling, then `Sample weight`, which reads `period` with period weights
+/// and `1` otherwise. The first entry is the main event.
+pub fn perf_events_section(
+    event_names: &[String],
+    policies: &[SamplingPolicy],
+    weight_by_period: bool,
+) -> Vec<(String, String)> {
+    let mut entries: Vec<(String, String)> = event_names
+        .iter()
+        .zip(policies)
+        .map(|(name, policy)| (name.clone(), sampling_description(*policy)))
+        .collect();
+    let weight = if weight_by_period { "period" } else { "1" };
+    entries.push(("Sample weight".to_string(), weight.to_string()));
+    entries
+}
+
+#[cfg(test)]
+mod tests {
+    use std::num::NonZeroU64;
+
+    use super::*;
+
+    #[test]
+    fn fixed_periods_come_from_period_attributes_only() {
+        let policies = [
+            SamplingPolicy::Frequency(999),
+            SamplingPolicy::Period(NonZeroU64::new(10_000).unwrap()),
+            SamplingPolicy::NoSampling,
+        ];
+        assert_eq!(fixed_periods(policies), vec![None, Some(10_000), None]);
+    }
+
+    #[test]
+    fn perf_events_section_lists_every_attribute_then_the_weight_mode() {
+        let names = vec![
+            "cycles:u".to_string(),
+            "cache-misses".to_string(),
+            "<unknown event 2>".to_string(),
+        ];
+        let policies = [
+            SamplingPolicy::Frequency(999),
+            SamplingPolicy::Period(NonZeroU64::new(10_000).unwrap()),
+            SamplingPolicy::NoSampling,
+        ];
+        assert_eq!(
+            perf_events_section(&names, &policies, false),
+            vec![
+                ("cycles:u".to_string(), "frequency 999 Hz".to_string()),
+                ("cache-misses".to_string(), "period 10000".to_string()),
+                ("<unknown event 2>".to_string(), "no sampling".to_string()),
+                ("Sample weight".to_string(), "1".to_string()),
+            ]
+        );
+        assert_eq!(
+            perf_events_section(&names, &policies, true).last(),
+            Some(&("Sample weight".to_string(), "period".to_string()))
+        );
     }
 }

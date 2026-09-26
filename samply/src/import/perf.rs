@@ -7,11 +7,11 @@ use std::time::SystemTime;
 use framehop::{Module, Unwinder};
 use fxprof_processed_profile::{Profile, ReferenceTimestamp};
 use linux_perf_data::{linux_perf_event_reader, DsoInfo, DsoKey, PerfFileReader, PerfFileRecord};
-use linux_perf_event_reader::{EventRecord, RecordType};
+use linux_perf_event_reader::{EventRecord, RecordType, SamplingPolicy};
 
 use crate::linux_shared::{
-    ConvertRegs, ConvertRegsAarch64, ConvertRegsX86_64, Converter, EventInterpretation, KnownEvent,
-    MmapRangeOrVec,
+    perf_events_section, ConvertRegs, ConvertRegsAarch64, ConvertRegsX86_64, Converter,
+    EventInterpretation, KnownEvent, MmapRangeOrVec,
 };
 use crate::shared::prop_types::ProfileCreationProps;
 
@@ -105,6 +105,10 @@ where
         eprintln!("event {event_name}");
     }
     let interpretation = EventInterpretation::divine_from_attrs(attributes);
+    let sampling_policies: Vec<SamplingPolicy> = attributes
+        .iter()
+        .map(|attr_desc| attr_desc.attr.sampling_policy)
+        .collect();
     let simpleperf_symbol_tables = perf_file.simpleperf_symbol_tables().ok().flatten();
     let reference_timestamp = if let Some(seconds_since_unix_epoch) =
         get_simpleperf_timestamp(simpleperf_meta_info.as_ref())
@@ -178,6 +182,15 @@ where
         interpretation.clone(),
         simpleperf_symbol_tables,
         call_chain_return_addresses_are_preadjusted,
+    );
+
+    converter.add_extra_info_section(
+        "Perf events",
+        perf_events_section(
+            &interpretation.event_names,
+            &sampling_policies,
+            profile_creation_props.weight_by_period,
+        ),
     );
 
     if let Some(android_version) = simpleperf_meta_info
