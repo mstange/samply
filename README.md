@@ -106,6 +106,14 @@ If you still get a `mmap failed` error (an `EPERM`), you might also need to incr
 sudo sysctl kernel.perf_event_mlock_kb=2048
 ```
 
+### Weighting imported perf.data samples by period
+
+`samply import perf.data` gives every sample of the first perf event a weight of 1.
+With `perf record -F`, perf adjusts the sampling period per sample, so equal sample counts can stand for different event counts.
+Pass `--weight-by-period` to weight each sample by its period instead, so totals count events such as cycles or cache misses.
+The Firefox Profiler still labels these weighted totals as samples.
+Every import names its perf events and their sampling in the profile info panel, and each marker of a non-main event records its period.
+
 ## Examples
 
 Here's a profile from `samply record rustup check`: https://share.firefox.dev/3hteKZZ
