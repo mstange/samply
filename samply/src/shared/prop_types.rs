@@ -4,6 +4,8 @@ use std::time::Duration;
 
 use serde_derive::{Deserialize, Serialize};
 
+use crate::shared::event_display::EventDisplaySelector;
+
 use super::included_processes::IncludedProcesses;
 
 #[derive(Debug, Default, Clone, Copy, Serialize, Deserialize)]
@@ -95,6 +97,7 @@ pub struct ProfileCreationProps {
     /// Create markers for unknown events.
     #[allow(dead_code)]
     pub unknown_event_markers: bool,
+    pub events_display: Vec<EventDisplaySelector>,
     /// Whether to emit "JitFunctionAdd" markers.
     #[allow(dead_code)]
     pub should_emit_jit_markers: bool,

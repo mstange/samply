@@ -13,6 +13,7 @@ use crate::linux_shared::{
     ConvertRegs, ConvertRegsAarch64, ConvertRegsX86_64, Converter, EventInterpretation, KnownEvent,
     MmapRangeOrVec,
 };
+use crate::shared::event_display::EventDisplay;
 use crate::shared::prop_types::ProfileCreationProps;
 
 #[derive(thiserror::Error, Debug)]
@@ -104,7 +105,9 @@ where
     for event_name in attributes.iter().filter_map(|attr| attr.name()) {
         eprintln!("event {event_name}");
     }
-    let interpretation = EventInterpretation::divine_from_attrs(attributes);
+
+    let interpretation =
+        EventInterpretation::divine_from_attrs(attributes, &profile_creation_props.events_display);
     let simpleperf_symbol_tables = perf_file.simpleperf_symbol_tables().ok().flatten();
     let reference_timestamp = if let Some(seconds_since_unix_epoch) =
         get_simpleperf_timestamp(simpleperf_meta_info.as_ref())
@@ -218,16 +221,26 @@ where
                     converter.handle_main_event_sample::<C>(&e);
                 } else if Some(attr_index) == interpretation.sched_switch_attr_index {
                     converter.handle_sched_switch_sample::<C>(&e);
-                }
-
-                match interpretation.known_event_indices.get(&attr_index) {
-                    Some(KnownEvent::RssStat) => converter.handle_rss_stat_sample::<C>(&e),
-                    _ => {
-                        // the main event and sched_switch are already covered by regular samples so don't add other event markers
-                        if !(attr_index == interpretation.main_event_attr_index
-                            || Some(attr_index) == interpretation.sched_switch_attr_index)
-                        {
-                            converter.handle_other_event_sample::<C>(&e, attr_index)
+                } else {
+                    match interpretation.known_event_indices.get(&attr_index) {
+                        Some(KnownEvent::RssStat) => converter.handle_rss_stat_sample::<C>(&e),
+                        Some(KnownEvent::Display(display)) => match display {
+                            EventDisplay::Marker => {
+                                converter.handle_other_event_as_marker::<C>(&e, attr_index)
+                            }
+                            EventDisplay::Track => todo!(),
+                            EventDisplay::TimingData => {
+                                panic!("main_even_attr_index should handle TimingData")
+                            }
+                            EventDisplay::RetainedAllocations => todo!(),
+                            EventDisplay::Allocations => todo!(),
+                            EventDisplay::Deallocations => todo!(),
+                            EventDisplay::Counter => {
+                                converter.handle_other_event_as_counter::<C>(&e, attr_index)
+                            }
+                        },
+                        _ => {
+                            // there used to be a fallback to markers here, but now thats done by setting the default through KnownEvent::Display
                         }
                     }
                 }

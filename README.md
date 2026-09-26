@@ -106,6 +106,28 @@ If you still get a `mmap failed` error (an `EPERM`), you might also need to incr
 sudo sysctl kernel.perf_event_mlock_kb=2048
 ```
 
+### Using perf directly (profiling different events)
+
+Linux only.
+
+`perf` can profile different events, besides the "cpu time" (cycles) `samply` profiles by default.
+
+You can still use `samply` to visualize such a profile using `samply import`
+
+Example, profiling the `ls_dmnd_fills_from_sys.dram_io_all` event counter (data loaded from DRAM which bypassed cache): 
+```sh
+perf record -e '{ls_dmnd_fills_from_sys.dram_io_all,cycles}' -F 9997 -g -- ./my/binary
+samply import perf.data --events-display "ls_dmnd_fills_from_sys.dram_io_all=timing_data;*=counter"
+```
+With this, the time axis of the firefox profiler which will open up will show the amount of cache fills **as time**.
+This is a limitation of the firefox profiler, which always needs a "time" as the main unit, which means its only useful for relative comparisons.
+
+`--events-display`: `;`-separated list of how each event should be displayed. `<event>=<display>`, 
+with `<event>` being a glob-like match for the perf event name, and `<display>` being one of:
+  - `timing_data`: the main metric assumed by the profiler UI to mean time.
+  - `counter`: a stat counter, will be displayed as its own track
+
+
 ## Examples
 
 Here's a profile from `samply record rustup check`: https://share.firefox.dev/3hteKZZ
@@ -129,6 +151,7 @@ debug = true
 ```
 
 Similar advice applies to other compiled languages. For C++, you'll want to make sure the `-g` flag is included in the compiler invocation.
+
 
 ## Known issues
 
