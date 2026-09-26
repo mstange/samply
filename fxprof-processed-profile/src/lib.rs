@@ -61,6 +61,7 @@ mod category_color;
 mod columnar_interner;
 mod counters;
 mod cpu_delta;
+mod extra_info;
 mod fast_hash_map;
 mod frame;
 mod frame_table;
@@ -98,6 +99,7 @@ pub use counters::{
     CounterTooltipUnit,
 };
 pub use cpu_delta::CpuDelta;
+pub use extra_info::ExtraInfoEntry;
 pub use frame::{FrameAddress, FrameFlags};
 pub use global_lib_table::LibraryHandle;
 pub use lib_mappings::LibMappings;
