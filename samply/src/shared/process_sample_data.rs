@@ -173,23 +173,31 @@ impl Marker for RssStatMarker {
 }
 
 #[derive(Debug, Clone)]
-pub struct OtherEventMarker(pub StringHandle);
+pub struct OtherEventMarker {
+    pub name: StringHandle,
+    /// Events this record stands for: the record's period, or the
+    /// attribute's fixed period.
+    pub period: u64,
+}
 
 impl Marker for OtherEventMarker {
-    type FieldsType = ();
+    type FieldsType = f64;
 
     const UNIQUE_MARKER_TYPE_NAME: &'static str = "Other event";
 
     const DESCRIPTION: Option<&'static str> =
         Some("Emitted for any records in a perf.data file which don't map to a known event.");
 
-    const FIELDS: Schema<Self::FieldsType> = Schema(());
+    const FIELDS: Schema<Self::FieldsType> = Schema(MarkerField::integer("period", "Period"));
 
     fn name(&self, _profile: &mut Profile) -> StringHandle {
-        self.0
+        self.name
     }
 
-    fn field_values(&self) {}
+    fn field_values(&self) -> f64 {
+        // Marker number fields are f64, which holds periods exactly up to 2^53.
+        self.period as f64
+    }
 }
 
 #[derive(Debug, Clone)]

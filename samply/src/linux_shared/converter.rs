@@ -80,6 +80,8 @@ where
     off_cpu_weight_per_sample: i32,
     off_cpu_indicator: Option<OffCpuIndicator>,
     event_names: Vec<String>,
+    /// Fixed sampling period per attribute, for records without `PERIOD`.
+    fixed_periods: Vec<Option<u64>>,
     kernel_symbols: Option<KernelSymbols>,
     kernel_image_mapping: Option<KernelImageMapping>,
     simpleperf: SimpleperfConverterData,
@@ -206,6 +208,7 @@ where
             unresolved_stacks: UnresolvedStacks::default(),
             off_cpu_indicator: interpretation.off_cpu_indicator,
             event_names: interpretation.event_names,
+            fixed_periods: interpretation.fixed_periods,
             kernel_symbols,
             kernel_image_mapping: None,
             simpleperf,
@@ -581,9 +584,13 @@ where
         if let Some(name) = self.event_names.get(attr_index) {
             let timing = MarkerTiming::Instant(timestamp);
             let name = self.profile.handle_for_string(name);
+            let period = marker_period(
+                e.period,
+                self.fixed_periods.get(attr_index).copied().flatten(),
+            );
             let marker_handle =
                 self.profile
-                    .add_marker(thread_handle, timing, OtherEventMarker(name));
+                    .add_marker(thread_handle, timing, OtherEventMarker { name, period });
             process.unresolved_samples.attach_stack_to_marker(
                 thread_handle,
                 timestamp,
@@ -1817,6 +1824,15 @@ impl SimpleperfSymbolTables {
 //     dbg!(jit_function_name(&file));
 // }
 
+/// Period of a non-main event record: the record's own period, else the
+/// attribute's fixed period, else 0.
+fn marker_period(record_period: Option<u64>, fixed_period: Option<u64>) -> u64 {
+    // perf requests `PERIOD` for every frequency-based attribute, so the
+    // 0 case only occurs for unusual recordings. Marker fields cannot be
+    // left out, and the JSON writer rejects NaN.
+    record_period.or(fixed_period).unwrap_or(0)
+}
+
 fn process_off_cpu_sample_group(
     off_cpu_sample: OffCpuSampleGroup,
     thread_handle: ThreadHandle,
@@ -1979,5 +1995,17 @@ impl Marker for MmapMarker {
 
     fn field_values(&self) -> StringHandle {
         self.0
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn marker_period_prefers_the_record() {
+        assert_eq!(marker_period(Some(7), Some(10_000)), 7);
+        assert_eq!(marker_period(None, Some(10_000)), 10_000);
+        assert_eq!(marker_period(None, None), 0);
     }
 }

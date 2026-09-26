@@ -32,6 +32,9 @@ pub struct EventInterpretation {
     pub sched_switch_attr_index: Option<usize>,
     pub known_event_indices: HashMap<usize, KnownEvent>,
     pub event_names: Vec<String>,
+    /// The fixed sampling period of each attribute, in attribute order.
+    /// `None` for frequency-based and non-sampling attributes.
+    pub fixed_periods: Vec<Option<u64>>,
 }
 
 impl EventInterpretation {
@@ -101,6 +104,9 @@ impl EventInterpretation {
             })
             .collect();
 
+        let fixed_periods =
+            fixed_periods(attrs.iter().map(|attr_desc| attr_desc.attr.sampling_policy));
+
         Self {
             main_event_attr_index,
             main_event_name,
@@ -109,6 +115,37 @@ impl EventInterpretation {
             sched_switch_attr_index,
             known_event_indices,
             event_names,
+            fixed_periods,
         }
+    }
+}
+
+/// The fixed period of each attribute that samples every N events, in
+/// order. Frequency-based attributes get `None`, because each of their
+/// records carries its own period.
+pub fn fixed_periods(policies: impl IntoIterator<Item = SamplingPolicy>) -> Vec<Option<u64>> {
+    policies
+        .into_iter()
+        .map(|policy| match policy {
+            SamplingPolicy::Period(period) => Some(period.get()),
+            SamplingPolicy::Frequency(_) | SamplingPolicy::NoSampling => None,
+        })
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use std::num::NonZeroU64;
+
+    use super::*;
+
+    #[test]
+    fn fixed_periods_come_from_period_attributes_only() {
+        let policies = [
+            SamplingPolicy::Frequency(999),
+            SamplingPolicy::Period(NonZeroU64::new(10_000).unwrap()),
+            SamplingPolicy::NoSampling,
+        ];
+        assert_eq!(fixed_periods(policies), vec![None, Some(10_000), None]);
     }
 }
