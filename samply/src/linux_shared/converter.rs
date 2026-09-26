@@ -78,6 +78,8 @@ where
     context_switch_handler: ContextSwitchHandler,
     unresolved_stacks: UnresolvedStacks,
     off_cpu_weight_per_sample: i32,
+    /// Whether the main event's period is CPU time.
+    main_event_is_clock: bool,
     off_cpu_indicator: Option<OffCpuIndicator>,
     event_names: Vec<String>,
     kernel_symbols: Option<KernelSymbols>,
@@ -204,6 +206,7 @@ where
             off_cpu_weight_per_sample,
             context_switch_handler: ContextSwitchHandler::new(off_cpu_sampling_interval_ns),
             unresolved_stacks: UnresolvedStacks::default(),
+            main_event_is_clock: interpretation.main_event_is_clock,
             off_cpu_indicator: interpretation.off_cpu_indicator,
             event_names: interpretation.event_names,
             kernel_symbols,
@@ -311,9 +314,10 @@ where
                 self.context_switch_handler
                     .consume_cpu_delta(&mut thread.context_switch_data),
             )
-        } else if let Some(period) = e.period {
-            // If the observed perf event is one of the clock time events, or cycles, then we should convert it to a CpuDelta.
-            // TODO: Detect event type
+        } else if let (true, Some(period)) = (self.main_event_is_clock, e.period) {
+            // If the observed perf event is one of the clock time events, its
+            // period is CPU time, so convert it to a CpuDelta. Other events,
+            // such as cycles, count something other than time.
             CpuDelta::from_nanos(period)
         } else {
             CpuDelta::from_nanos(0)

@@ -28,6 +28,9 @@ pub struct EventInterpretation {
     #[allow(unused)]
     pub main_event_name: String,
     pub sampling_is_time_based: Option<u64>,
+    /// Whether the main event is `cpu-clock` or `task-clock`, whose period
+    /// is CPU time in nanoseconds.
+    pub main_event_is_clock: bool,
     pub off_cpu_indicator: Option<OffCpuIndicator>,
     pub sched_switch_attr_index: Option<usize>,
     pub known_event_indices: HashMap<usize, KnownEvent>,
@@ -62,6 +65,7 @@ impl EventInterpretation {
             }
             (_, SamplingPolicy::Period(_)) => None,
         };
+        let main_event_is_clock = is_clock_event(attrs[0].attr.type_);
         let have_context_switches = attrs[0].attr.flags.contains(AttrFlags::CONTEXT_SWITCH);
         let sched_switch_attr_index = attrs
             .iter()
@@ -105,10 +109,41 @@ impl EventInterpretation {
             main_event_attr_index,
             main_event_name,
             sampling_is_time_based,
+            main_event_is_clock,
             off_cpu_indicator,
             sched_switch_attr_index,
             known_event_indices,
             event_names,
         }
+    }
+}
+
+/// Whether the event is the software `cpu-clock` or `task-clock` event,
+/// whose period counts nanoseconds.
+pub fn is_clock_event(type_: PerfEventType) -> bool {
+    matches!(
+        type_,
+        PerfEventType::Software(SoftwareCounterType::CpuClock | SoftwareCounterType::TaskClock)
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use linux_perf_event_reader::{HardwareEventId, PmuTypeId};
+
+    use super::*;
+
+    #[test]
+    fn clock_events_are_cpu_clock_and_task_clock() {
+        assert!(is_clock_event(PerfEventType::Software(
+            SoftwareCounterType::CpuClock
+        )));
+        assert!(is_clock_event(PerfEventType::Software(
+            SoftwareCounterType::TaskClock
+        )));
+        assert!(!is_clock_event(PerfEventType::Hardware(
+            HardwareEventId::CpuCycles,
+            PmuTypeId(0)
+        )));
     }
 }
