@@ -125,8 +125,8 @@ pub struct ImportArgs {
     #[arg(long, value_parser=parse_time_range)]
     pub time_range: Option<(std::time::Duration, std::time::Duration)>,
 
-    /// Weight each sample of the first perf event by its period, so sample
-    /// totals count events such as cycles or cache misses instead of samples.
+    /// For perf.data imports, weight each sample of the first perf event by its period, so
+    /// sample totals count events such as cycles or cache misses instead of samples.
     /// Off-CPU samples get weight 0. The Firefox Profiler still labels the
     /// weighted totals as samples.
     #[arg(long)]
