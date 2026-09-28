@@ -1,8 +1,8 @@
 //! The per-user config file.
 //!
 //! The config file is a TOML file at `~/.config/samply/config.toml`
-//! (`%APPDATA%\samply\config.toml` on Windows). It configures the symbol
-//! cache and the symbol servers.
+//! (`%APPDATA%\samply\config.toml` on Windows). It configures the profile
+//! store, the symbol cache, and the symbol servers.
 //!
 //! This module must not depend on the CLI: a future daemon process will load
 //! the config on its own.
@@ -26,7 +26,52 @@ pub const CONFIG_PATH_ENV_VAR: &str = "SAMPLY_CONFIG";
 #[derive(Debug, Clone, PartialEq, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Config {
+    pub profiles: ProfilesConfig,
     pub symbols: SymbolsConfig,
+}
+
+/// The `[profiles]` section.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct ProfilesConfig {
+    /// The directory of the profile store. Defaults to `<data_dir>/profiles`.
+    pub dir: Option<PathBuf>,
+    /// Profiles which haven't been opened for this long are deleted.
+    pub max_age: DurationLimit,
+    /// Profiles opened or created within this span are never deleted.
+    pub min_age: DurationLimit,
+    /// Least-recently opened profiles are deleted when the store exceeds this size.
+    pub max_total_size: SizeLimit,
+}
+
+impl Default for ProfilesConfig {
+    fn default() -> Self {
+        Self {
+            dir: None,
+            max_age: DurationLimit(Some(Duration::from_secs(30 * 24 * 60 * 60))),
+            min_age: DurationLimit(Some(Duration::from_secs(24 * 60 * 60))),
+            max_total_size: SizeLimit(Some(5 * 1000 * 1000 * 1000)),
+        }
+    }
+}
+
+impl ProfilesConfig {
+    /// The profile store directory, with `~` expanded, falling back to the
+    /// platform default. `None` if no home directory can be determined.
+    pub fn resolved_dir(&self) -> Option<PathBuf> {
+        match &self.dir {
+            Some(dir) => Some(expand_tilde(dir)),
+            None => Some(ConfigPaths::detect()?.default_profiles_dir),
+        }
+    }
+
+    pub fn eviction(&self) -> EvictionConfig {
+        EvictionConfig {
+            max_age: self.max_age.0,
+            min_age: self.min_age.0,
+            max_total_size: self.max_total_size.0,
+        }
+    }
 }
 
 /// The `[symbols]` section.
@@ -166,19 +211,21 @@ impl TryFrom<String> for SizeLimit {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ConfigPaths {
     pub config_file: PathBuf,
+    pub default_profiles_dir: PathBuf,
     pub default_symbol_cache_dir: PathBuf,
 }
 
 impl ConfigPaths {
     /// Returns `None` if the home directory cannot be determined.
     pub fn detect() -> Option<Self> {
-        // The config uses XDG-style directories on all platforms, including
+        // Config and data use XDG-style directories on all platforms, including
         // macOS, like most other command line tools. The symbol cache keeps
         // using the native cache directory (~/Library/Caches on macOS).
         let xdg_dirs = AppDirs::new(Some(SAMPLY_NAME), true)?;
         let native_dirs = AppDirs::new(Some(SAMPLY_NAME), false)?;
         Some(Self {
             config_file: xdg_dirs.config_dir.join("config.toml"),
+            default_profiles_dir: xdg_dirs.data_dir.join("profiles"),
             default_symbol_cache_dir: native_dirs.cache_dir.join("symbols"),
         })
     }
@@ -274,15 +321,22 @@ fn write_template(path: &Path) {
 
 const CONFIG_TEMPLATE: &str = r#"# samply configuration file
 
+[profiles]
+# Where `samply record` and `samply import` store profiles when no `-o` is given.
+#dir = '{profiles_dir}'
+# Delete profiles that haven't been opened for this long.
+#max_age = "30d"
+# Delete least-recently-opened profiles when the store exceeds this size.
+#max_total_size = "5GB"
+# Never delete profiles created or opened within this time span, even if the
+# store is over its size limit.
+#min_age = "1d"
+
 [symbols]
 # Where downloaded symbol files are cached.
 #cache_dir = '{symbols_dir}'
-# Delete symbol files that haven't been used for this long.
 #max_age = "2 weeks"
-# Delete least-recently-used symbol files when the cache exceeds this size.
 #max_total_size = "10GB"
-# Never delete symbol files used within this time span, even if the cache is
-# over its size limit.
 #min_age = "1d"
 
 # Extra directories containing symbol files (same as --symbol-dir).
@@ -312,6 +366,10 @@ fn render_template(paths: &ConfigPaths) -> String {
     };
     CONFIG_TEMPLATE
         .replace(
+            "{profiles_dir}",
+            &paths.default_profiles_dir.display().to_string(),
+        )
+        .replace(
             "{symbols_dir}",
             &paths.default_symbol_cache_dir.display().to_string(),
         )
@@ -339,6 +397,7 @@ mod test {
     fn test_paths() -> ConfigPaths {
         ConfigPaths {
             config_file: PathBuf::from("/home/me/.config/samply/config.toml"),
+            default_profiles_dir: PathBuf::from("/home/me/.local/share/samply/profiles"),
             default_symbol_cache_dir: PathBuf::from("/home/me/.cache/samply/symbols"),
         }
     }
@@ -356,13 +415,19 @@ mod test {
     #[test]
     fn empty_file_parses_to_defaults() {
         assert_eq!(parse("").unwrap(), Config::default());
-        assert_eq!(parse("[symbols]\n").unwrap(), Config::default());
+        assert_eq!(parse("[profiles]\n[symbols]\n").unwrap(), Config::default());
     }
 
     #[test]
     fn full_config_round_trips() {
         let config = parse(
             r#"
+            [profiles]
+            dir = "/tmp/profiles"
+            max_age = "2 weeks"
+            min_age = "none"
+            max_total_size = "10GB"
+
             [symbols]
             cache_dir = "/tmp/symbols"
             max_age = "none"
@@ -380,6 +445,16 @@ mod test {
             "#,
         )
         .unwrap();
+        assert_eq!(config.profiles.dir, Some(PathBuf::from("/tmp/profiles")));
+        assert_eq!(
+            config.profiles.max_age,
+            DurationLimit(Some(Duration::from_secs(14 * 24 * 60 * 60)))
+        );
+        assert_eq!(config.profiles.min_age, DurationLimit(None));
+        assert_eq!(
+            config.profiles.max_total_size,
+            SizeLimit(Some(10_000_000_000))
+        );
         assert_eq!(
             config.symbols.cache_dir,
             Some(PathBuf::from("/tmp/symbols"))
@@ -408,13 +483,13 @@ mod test {
 
     #[test]
     fn unknown_key_is_an_error() {
-        let err = parse("[symbols]\nbogus = 1\n").unwrap_err();
+        let err = parse("[profiles]\nbogus = 1\n").unwrap_err();
         assert!(err.to_string().contains("bogus"), "{err}");
     }
 
     #[test]
     fn invalid_duration_names_the_key() {
-        let err = parse("[symbols]\nmax_age = \"bogus\"\n").unwrap_err();
+        let err = parse("[profiles]\nmax_age = \"bogus\"\n").unwrap_err();
         let msg = err.to_string();
         assert!(msg.contains("max_age") || msg.contains("bogus"), "{msg}");
     }

@@ -108,7 +108,9 @@ sudo sysctl kernel.perf_event_mlock_kb=2048
 
 ### Symbols and configuration
 
-Symbol servers can be configured in the config file at `~/.config/samply/config.toml` (`%APPDATA%\samply\config.toml` on Windows). You can also specify the maximum size etc. of the symbol cache.
+Symbol servers can be configured in the config file at `~/.config/samply/config.toml` (`%APPDATA%\samply\config.toml` on Windows). You can also specify the maximum size of the symbol cache and of the profile store.
+
+By default, the profiles produced by `samply record` and `samply import` are stored in `~/.local/share/samply/profiles/` (`%LOCALAPPDATA%\samply\profiles\` on Windows).
 
 ## Examples
 
