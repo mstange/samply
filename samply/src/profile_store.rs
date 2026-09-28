@@ -155,6 +155,13 @@ impl ProfileStore {
         notifier.on_file_created(path, metadata.len(), SystemTime::now());
     }
 
+    /// Marks a profile as recently used. Paths outside the store are ignored.
+    pub fn on_profile_accessed(&self, path: &Path) {
+        if let Some(notifier) = &self.notifier {
+            notifier.on_file_accessed(path, SystemTime::now());
+        }
+    }
+
     pub fn trigger_eviction(&self) {
         if let Some(notifier) = &self.notifier {
             notifier.trigger_eviction_if_needed();

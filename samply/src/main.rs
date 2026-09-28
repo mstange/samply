@@ -127,9 +127,36 @@ fn open_profile_store(
     Some(ProfileStore::for_dir(&dir, profiles_config))
 }
 
+fn is_inside_dir(path: &Path, dir: &Path) -> bool {
+    let path = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+    let dir = dir.canonicalize().unwrap_or_else(|_| dir.to_path_buf());
+    path.starts_with(dir)
+}
+
 async fn do_load_action(load_args: cli::LoadArgs, config: &Config) {
+    // If the file lives in the profile store, mark it as recently used so
+    // that it isn't evicted soon.
+    let is_in_store = config
+        .profiles
+        .resolved_dir()
+        .is_some_and(|dir| is_inside_dir(&load_args.file, &dir));
+    let profile_dir = if is_in_store {
+        ProfileDir::open(&config.profiles).ok()
+    } else {
+        None
+    };
+    let store = open_profile_store(profile_dir, &config.profiles);
+    if let Some(store) = &store {
+        store.on_profile_accessed(&load_args.file);
+        store.trigger_eviction();
+    }
+
     let symbol_props = load_args.symbol_props(config.symbols.to_symbol_props());
     serve_profile(&load_args.file, load_args.server_props(), symbol_props).await;
+
+    if let Some(store) = store {
+        store.finish().await;
+    }
 }
 
 async fn do_import_action(import_args: cli::ImportArgs, config: &Config) {
