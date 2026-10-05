@@ -9,10 +9,12 @@ mod windows;
 
 mod cli;
 mod cli_utils;
+mod config;
 mod import;
 mod linux_shared;
 mod name;
 mod profile_json_preparse;
+mod profile_store;
 mod server;
 mod shared;
 mod symbols;
@@ -20,8 +22,9 @@ mod symbols;
 use std::ffi::OsStr;
 use std::fs::File;
 use std::io::BufReader;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::SystemTime;
 
 use fxprof_processed_profile::Profile;
 use shared::ctrl_c::CtrlC;
@@ -33,21 +36,27 @@ use mac::profiler;
 #[cfg(target_os = "windows")]
 use windows::profiler;
 
+use config::{Config, ProfilesConfig};
 use profile_json_preparse::parse_libinfo_map_from_profile_file;
+use profile_store::{ProfileDir, ProfileStore, PROFILE_FILE_EXTENSION};
 use server::{start_server, RunningServerInfo, ServerProps};
 use shared::presymbolicate::get_presymbolicate_info;
 use shared::prop_types::{ImportProps, SymbolProps};
 use shared::save_profile::save_profile_to_file;
 use symbols::create_symbol_manager_and_quota_manager;
 
-fn main() {
+#[tokio::main]
+async fn main() {
     env_logger::init();
 
     use clap::Parser;
     let opt = cli::Opt::parse();
+    let config_path = opt.config.as_deref();
     match opt.action {
-        cli::Action::Load(load_args) => do_load_action(load_args),
-        cli::Action::Import(import_args) => do_import_action(import_args),
+        cli::Action::Load(load_args) => do_load_action(load_args, &load_config(config_path)).await,
+        cli::Action::Import(import_args) => {
+            do_import_action(import_args, &load_config(config_path)).await
+        }
 
         #[cfg(any(
             target_os = "android",
@@ -55,8 +64,15 @@ fn main() {
             target_os = "linux",
             target_os = "windows"
         ))]
-        cli::Action::Record(record_args) => do_record_action(record_args),
+        cli::Action::Record(record_args) => {
+            do_record_action(record_args, &load_config(config_path)).await
+        }
 
+        // Windows-only: elevated helper, to run xperf as an administrator.
+        //
+        // We don't have a load_config() call here; in fact we shouldn't put one
+        // here because doing so would create a config file if it's not there yet,
+        // possibly as a different user.
         #[cfg(target_os = "windows")]
         cli::Action::RunElevatedHelper(args) => {
             windows::run_elevated_helper(&args.ipc_directory, args.output_path)
@@ -67,55 +83,124 @@ fn main() {
     }
 }
 
-fn build_runtime() -> tokio::runtime::Runtime {
-    tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .build()
-        .unwrap()
+fn load_config(explicit_path: Option<&Path>) -> Config {
+    config::load(explicit_path).unwrap_or_else(|e| {
+        eprintln!("{e}");
+        std::process::exit(1)
+    })
 }
 
-fn do_load_action(load_args: cli::LoadArgs) {
-    let runtime = build_runtime();
-    runtime.block_on(serve_profile(
-        &load_args.file,
-        load_args.server_props(),
-        load_args.symbol_props(),
-    ));
+/// Picks the output path: the explicit `-o` path, or a new file in the
+/// profile store. An explicit path bypasses the store entirely.
+///
+/// Returns the store directory if the path is in the store.
+fn resolve_output_path(
+    explicit_output: Option<PathBuf>,
+    profiles_config: &ProfilesConfig,
+    profile_name: &str,
+) -> (PathBuf, Option<ProfileDir>) {
+    if let Some(path) = explicit_output {
+        return (path, None);
+    }
+
+    match ProfileDir::open(profiles_config) {
+        Ok(dir) => {
+            let path = dir.new_profile_path(profile_name, SystemTime::now());
+            (path, Some(dir))
+        }
+        Err(e) => {
+            eprintln!("Warning: {e}. Writing the profile to the current directory instead.");
+            (
+                PathBuf::from(format!("profile.{PROFILE_FILE_EXTENSION}")),
+                None,
+            )
+        }
+    }
 }
 
-fn do_import_action(import_args: cli::ImportArgs) {
+/// Opens eviction for the profile store, if there is a store directory.
+fn open_profile_store(
+    dir: Option<ProfileDir>,
+    profiles_config: &ProfilesConfig,
+) -> Option<ProfileStore> {
+    let dir = dir?;
+    Some(ProfileStore::for_dir(&dir, profiles_config))
+}
+
+fn is_inside_dir(path: &Path, dir: &Path) -> bool {
+    let path = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+    let dir = dir.canonicalize().unwrap_or_else(|_| dir.to_path_buf());
+    path.starts_with(dir)
+}
+
+async fn do_load_action(load_args: cli::LoadArgs, config: &Config) {
+    // If the file lives in the profile store, mark it as recently used so
+    // that it isn't evicted soon.
+    let is_in_store = config
+        .profiles
+        .resolved_dir()
+        .is_some_and(|dir| is_inside_dir(&load_args.file, &dir));
+    let profile_dir = if is_in_store {
+        ProfileDir::open(&config.profiles).ok()
+    } else {
+        None
+    };
+    let store = open_profile_store(profile_dir, &config.profiles);
+    if let Some(store) = &store {
+        store.on_profile_accessed(&load_args.file);
+        store.trigger_eviction();
+    }
+
+    let symbol_props = load_args.symbol_props(config.symbols.to_symbol_props());
+    serve_profile(&load_args.file, load_args.server_props(), symbol_props).await;
+
+    if let Some(store) = store {
+        store.finish().await;
+    }
+}
+
+async fn do_import_action(import_args: cli::ImportArgs, config: &Config) {
     let input_path = &import_args.file;
     let input_file = File::open(input_path).unwrap_or_else(|err| {
         eprintln!("Could not open file {input_path:?}: {err}");
         std::process::exit(1)
     });
 
-    let runtime = build_runtime();
-    let import_props = import_args.import_props();
+    let symbol_props = import_args.symbol_props(config.symbols.to_symbol_props());
+    let import_props = import_args.import_props(symbol_props.clone());
     let presymbolicate = import_props.profile_creation_props.presymbolicate;
+    let profile_name = import_props
+        .profile_creation_props
+        .profile_name()
+        .to_string();
+    let (output_path, profile_dir) =
+        resolve_output_path(import_args.output.clone(), &config.profiles, &profile_name);
+
     let mut profile = convert_file_to_profile(&input_file, input_path, import_props);
 
     if presymbolicate {
         eprintln!("Symbolicating...");
-        let symbol_info = runtime.block_on(get_presymbolicate_info(
-            &profile,
-            import_args.symbol_props(),
-        ));
+        let symbol_info = get_presymbolicate_info(&profile, symbol_props.clone()).await;
         profile = profile.make_symbolicated_profile(&symbol_info);
         profile.set_symbolicated(true);
     }
 
-    save_profile_to_file(&profile, &import_args.output).expect("Couldn't write JSON");
+    save_profile_to_file(&profile, &output_path).expect("Couldn't write JSON");
+    eprintln!("Saved profile to {}", output_path.display());
+    let store = open_profile_store(profile_dir, &config.profiles);
+    if let Some(store) = &store {
+        store.on_profile_saved(&output_path);
+    }
 
     // Drop the profile so that it doesn't take up memory while the server is running.
     drop(profile);
 
     if let Some(server_props) = import_args.server_props() {
-        runtime.block_on(serve_profile(
-            &import_args.output,
-            server_props,
-            import_args.symbol_props(),
-        ));
+        serve_profile(&output_path, server_props, symbol_props).await;
+    }
+
+    if let Some(store) = store {
+        store.finish().await;
     }
 }
 
@@ -125,12 +210,20 @@ fn do_import_action(import_args: cli::ImportArgs) {
     target_os = "linux",
     target_os = "windows"
 ))]
-fn do_record_action(record_args: cli::RecordArgs) {
-    let runtime = build_runtime();
-    let recording_props = record_args.recording_props();
+async fn do_record_action(record_args: cli::RecordArgs, config: &Config) {
     let recording_mode = record_args.recording_mode();
     let profile_creation_props = record_args.profile_creation_props();
     let presymbolicate = profile_creation_props.presymbolicate;
+    let symbol_props = record_args.symbol_props(config.symbols.to_symbol_props());
+
+    // The output path must be known before recording starts: on Windows, the
+    // ETL file paths are derived from it.
+    let (output_path, profile_dir) = resolve_output_path(
+        record_args.output.clone(),
+        &config.profiles,
+        profile_creation_props.profile_name(),
+    );
+    let recording_props = record_args.recording_props(output_path.clone());
 
     let (mut profile, exit_status) =
         profiler::run(recording_mode, recording_props, profile_creation_props).unwrap_or_else(
@@ -142,26 +235,35 @@ fn do_record_action(record_args: cli::RecordArgs) {
 
     if presymbolicate {
         eprintln!("Symbolicating...");
-        let symbol_info = runtime.block_on(get_presymbolicate_info(
-            &profile,
-            record_args.symbol_props(),
-        ));
+        let symbol_info = get_presymbolicate_info(&profile, symbol_props.clone()).await;
         profile = profile.make_symbolicated_profile(&symbol_info);
         profile.set_symbolicated(true);
     }
 
-    save_profile_to_file(&profile, &record_args.output).expect("Couldn't write JSON");
+    save_profile_to_file(&profile, &output_path).expect("Couldn't write JSON");
+    eprintln!("Saved profile to {}", output_path.display());
+    let store = open_profile_store(profile_dir, &config.profiles);
+    if let Some(store) = &store {
+        store.on_profile_saved(&output_path);
+
+        // Kept ETL files sit next to the profile; make them subject to eviction too.
+        #[cfg(target_os = "windows")]
+        if record_args.keep_etl {
+            store.register_existing_file(&windows::etl_path_for_output(&output_path, "kernel.etl"));
+            store.register_existing_file(&windows::etl_path_for_output(&output_path, "user.etl"));
+        }
+    }
 
     // Drop the profile so that it doesn't take up memory while the server is running.
     drop(profile);
 
     // then fire up the server for the profiler front end, if not save-only
     if let Some(server_props) = record_args.server_props() {
-        runtime.block_on(serve_profile(
-            &record_args.output,
-            server_props,
-            record_args.symbol_props(),
-        ));
+        serve_profile(&output_path, server_props, symbol_props).await;
+    }
+
+    if let Some(store) = store {
+        store.finish().await;
     }
 
     std::process::exit(exit_status.code().unwrap_or(0));
