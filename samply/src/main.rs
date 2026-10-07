@@ -49,11 +49,19 @@ use symbols::create_symbol_manager_and_quota_manager;
 async fn main() {
     env_logger::init();
 
-    use clap::Parser;
+    use clap::{CommandFactory, Parser};
     let opt = cli::Opt::parse();
     let config_path = opt.config.as_deref();
     match opt.action {
         cli::Action::Load(load_args) => do_load_action(load_args, &load_config(config_path)).await,
+        cli::Action::Completions(args) => {
+            clap_complete::generate(
+                args.shell,
+                &mut cli::Opt::command(),
+                "samply",
+                &mut std::io::stdout(),
+            );
+        }
         cli::Action::Import(import_args) => {
             do_import_action(import_args, &load_config(config_path)).await
         }
