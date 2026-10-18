@@ -234,7 +234,13 @@ impl PrecogSymbolInfo {
     pub fn try_load(path: &Path) -> Option<Self> {
         let file = File::open(path).ok()?;
         let reader = std::io::BufReader::new(file);
-        serde_json::from_reader(reader).expect("failed to parse sidecar syms.json")
+        match serde_json::from_reader::<_, Option<Self>>(reader) {
+            Ok(info) => info,
+            Err(e) => {
+                log::warn!("Ignoring unparsable symbol file {}: {e}", path.display());
+                None
+            }
+        }
     }
 
     pub fn into_iter(self) -> impl Iterator<Item = PrecogLibraySymbolMap> {

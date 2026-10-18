@@ -16,10 +16,23 @@ use samply_quota_manager::{QuotaManager, QuotaManagerNotifier};
 
 use crate::config::ProfilesConfig;
 
-/// Files in the store always use this extension. Other code derives sibling
-/// file names from the profile path (Windows ETL files, `.syms.json`), so this
-/// must stay in sync with the previous `profile.jslb.gz` default.
+/// Files in the store always use this extension.
 pub const PROFILE_FILE_EXTENSION: &str = "jslb.gz";
+
+/// Derives the path of a file which belongs to a profile, such as its
+/// `.syms.json` symbol table or its Windows ETL files.
+///
+/// A trailing `.gz` is stripped before `extension` is applied, so that for
+/// `profile.jslb.gz` we get `profile.syms.json` rather than
+/// `profile.jslb.syms.json`.
+pub fn companion_file_path(profile_path: &Path, extension: &str) -> PathBuf {
+    let mut path = profile_path.to_owned();
+    if path.extension() == Some(std::ffi::OsStr::new("gz")) {
+        path.set_extension("");
+    }
+    path.set_extension(extension);
+    path
+}
 
 /// The profile store directory, and the allocation of paths within it.
 pub struct ProfileDir {
@@ -229,6 +242,25 @@ pub fn sanitize_profile_name(name: &str) -> String {
 #[cfg(test)]
 mod test {
     use super::*;
+
+    #[test]
+    fn companion_paths() {
+        let p = |s: &str, ext: &str| {
+            companion_file_path(Path::new(s), ext)
+                .to_string_lossy()
+                .into_owned()
+        };
+        // The default profile extension has two components; only `.gz` is stripped.
+        assert_eq!(p("/d/prof.jslb.gz", "syms.json"), "/d/prof.syms.json");
+        assert_eq!(p("/d/prof.jslb.gz", "kernel.etl"), "/d/prof.kernel.etl");
+        assert_eq!(p("/d/prof.json.gz", "syms.json"), "/d/prof.syms.json");
+        assert_eq!(p("/d/prof.json", "syms.json"), "/d/prof.syms.json");
+        assert_eq!(p("/d/prof.jslb", "syms.json"), "/d/prof.syms.json");
+        // No extension at all.
+        assert_eq!(p("/d/prof", "syms.json"), "/d/prof.syms.json");
+        // Dots in the directory name must not be touched.
+        assert_eq!(p("/d.v2/prof.jslb.gz", "syms.json"), "/d.v2/prof.syms.json");
+    }
 
     #[test]
     fn sanitize() {
