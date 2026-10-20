@@ -146,6 +146,7 @@ where
         interpretation: EventInterpretation,
         simpleperf_symbol_tables: Option<Vec<SimpleperfFileRecord>>,
         call_chain_return_addresses_are_preadjusted: bool,
+        kernel_symbols_file: Option<PathBuf>,
     ) -> Self {
         let interval = match interpretation.sampling_is_time_based {
             Some(nanos) => SamplingInterval::from_nanos(nanos),
@@ -160,7 +161,7 @@ where
                 Some(interval_ns) => (*interval_ns, 1),
                 None => (DEFAULT_OFF_CPU_SAMPLING_INTERVAL_NS, 0),
             };
-        let kernel_symbols = KernelSymbols::new_for_running_kernel().ok();
+        let kernel_symbols = KernelSymbols::new_for_running_kernel(kernel_symbols_file).ok();
 
         let timestamp_converter = TimestampConverter {
             reference_raw: first_sample_time,
@@ -1182,7 +1183,10 @@ where
         let symbol_table = if dso_key == DsoKey::Kernel {
             match (&build_id, self.kernel_symbols.as_ref()) {
                 (Some(build_id), Some(kernel_symbols))
-                    if build_id == &kernel_symbols.build_id && kernel_symbols.base_avma != 0 =>
+                    if (build_id == &kernel_symbols.build_id
+                        || (kernel_symbols.build_id.len() == 1
+                            && kernel_symbols.build_id[0] == 0))
+                        && kernel_symbols.base_avma != 0 =>
                 {
                     // Run `echo '0' | sudo tee /proc/sys/kernel/kptr_restrict` to get here without root.
                     Some(kernel_symbols.symbol_table.clone())
