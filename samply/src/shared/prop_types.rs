@@ -133,6 +133,7 @@ pub struct ImportProps {
     pub user_etl: Vec<PathBuf>,
     #[allow(unused)] // todo: respect when converting perf.data
     pub time_range: Option<(std::time::Duration, std::time::Duration)>,
+    pub kallsyms_path: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone)]
