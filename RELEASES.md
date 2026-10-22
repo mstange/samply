@@ -10,6 +10,7 @@
 
 ### Features
 
+ - All platforms: Add `samply completions <shell>`, which prints a shell completion script (bash, elvish, fish, powershell, or zsh) to stdout.
  - All platforms: Add a config file at `~/.config/samply/config.toml` (`%APPDATA%\samply\config.toml` on Windows). It configures symbol servers, symbol directories, and the eviction limits of the profile store and the symbol cache. A commented template is written on first run. Use `--config <path>` or `SAMPLY_CONFIG` to point samply at a different file.
  - All platforms: Old profiles in the profile store are deleted automatically, by default after 30 days or once the store exceeds 5 GB. Profiles created or opened within the last day are never deleted.
  - All platforms: The symbol cache limits (previously fixed at 10 GB / 2 weeks) can now be configured, and symbols used within the last day are no longer deleted at startup.
