@@ -39,7 +39,7 @@ expression: response
     ],
     [
       32,
-      "cbz x20, 0x9814 <PHCMemoryUsage+0xd8>"
+      "cbz x20, 0x9814"
     ],
     [
       36,
@@ -71,7 +71,7 @@ expression: response
     ],
     [
       64,
-      "cbz x11, 0x97e4 <PHCMemoryUsage+0xa8>"
+      "cbz x11, 0x97e4"
     ],
     [
       68,
@@ -95,7 +95,7 @@ expression: response
     ],
     [
       88,
-      "b 0x97a4 <PHCMemoryUsage+0x68>"
+      "b 0x97a4"
     ],
     [
       92,
@@ -107,7 +107,7 @@ expression: response
     ],
     [
       100,
-      "b.eq 0x97e4 <PHCMemoryUsage+0xa8>"
+      "b.eq 0x97e4"
     ],
     [
       104,
@@ -119,7 +119,7 @@ expression: response
     ],
     [
       112,
-      "b.ne 0x9798 <PHCMemoryUsage+0x5c>"
+      "b.ne 0x9798"
     ],
     [
       116,
@@ -171,7 +171,7 @@ expression: response
     ],
     [
       164,
-      "b 0x9798 <PHCMemoryUsage+0x5c>"
+      "b 0x9798"
     ],
     [
       168,

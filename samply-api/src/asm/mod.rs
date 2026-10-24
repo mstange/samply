@@ -1,3 +1,4 @@
+use std::ops::Range;
 use std::str::FromStr;
 
 use samply_debugid::CodeId;
@@ -62,6 +63,7 @@ enum AsmState<FT: FileTypes> {
     /// Final symbol map fetch used to annotate branch targets.
     AwaitingBranchTargetSymbolMap {
         binary_image: BinaryImage<FT::F>,
+        start_address: u32,
         rel_address: u32,
         disassembly_len: u32,
         architecture: Option<String>,
@@ -131,7 +133,8 @@ impl<FT: FileTypes> ApiQueryState<FT> for AsmApiQueryState<FT> {
             } => {
                 let mut disassembly_len = size;
                 if let Ok(symbol_map) = result {
-                    if let Some(end_address) = function_end_address(&symbol_map, start_address) {
+                    if let Some(function_range) = function_range(&symbol_map, start_address) {
+                        let end_address = function_range.end;
                         if end_address >= start_address && end_address - start_address > size {
                             disassembly_len = end_address - start_address;
                         }
@@ -146,17 +149,24 @@ impl<FT: FileTypes> ApiQueryState<FT> for AsmApiQueryState<FT> {
             }
             AsmState::AwaitingBranchTargetSymbolMap {
                 binary_image,
+                start_address,
                 rel_address,
                 disassembly_len,
                 architecture,
             } => {
                 let symbol_map = result.ok();
+                let branch_targets = BranchTargetFormatter {
+                    function_range: symbol_map
+                        .as_ref()
+                        .and_then(|symbol_map| function_range(symbol_map, start_address)),
+                    symbol_map: symbol_map.as_ref(),
+                };
                 self.state = AsmState::Done(decode_with(
                     &binary_image,
                     architecture.as_deref(),
                     rel_address,
                     disassembly_len,
-                    symbol_map.as_ref(),
+                    &branch_targets,
                 ));
             }
             _ => panic!("provide_symbol_map called in unexpected state"),
@@ -225,6 +235,7 @@ impl<FT: FileTypes> AsmApiQueryState<FT> {
         };
         self.state = AsmState::AwaitingBranchTargetSymbolMap {
             binary_image,
+            start_address,
             rel_address,
             disassembly_len,
             architecture,
@@ -232,12 +243,15 @@ impl<FT: FileTypes> AsmApiQueryState<FT> {
     }
 }
 
-fn function_end_address<FT: FileTypes>(
+/// Returns the address range of the symbol containing `address_within_function`,
+/// if the symbol has a known size.
+fn function_range<FT: FileTypes>(
     symbol_map: &SymbolMap<FT>,
     address_within_function: u32,
-) -> Option<u32> {
+) -> Option<Range<u32>> {
     let info = symbol_map.lookup_sync(LookupAddress::Relative(address_within_function))?;
-    info.symbol.address.checked_add(info.symbol.size?)
+    let start = info.symbol.address;
+    Some(start..start.checked_add(info.symbol.size?)?)
 }
 
 fn decode_with<FT: FileTypes>(
@@ -245,7 +259,7 @@ fn decode_with<FT: FileTypes>(
     arch: Option<&str>,
     rel_address: u32,
     disassembly_len: u32,
-    symbol_map: Option<&SymbolMap<FT>>,
+    branch_targets: &BranchTargetFormatter<'_, FT>,
 ) -> Result<response_json::Response, AsmError> {
     let bytes = binary_image
         .read_bytes_at_relative_address(rel_address, disassembly_len + MAX_INSTR_LEN)
@@ -255,7 +269,7 @@ fn decode_with<FT: FileTypes>(
             CodeByteReadingError::ByteRangeNotInSection => AsmError::ByteRangeNotInSection,
             CodeByteReadingError::FileIO(e) => AsmError::FileIO(e),
         })?;
-    decode_arch::<FT>(bytes, arch, rel_address, disassembly_len, symbol_map)
+    decode_arch::<FT>(bytes, arch, rel_address, disassembly_len, branch_targets)
 }
 
 fn decode_arch<FT: FileTypes>(
@@ -263,23 +277,26 @@ fn decode_arch<FT: FileTypes>(
     arch: Option<&str>,
     rel_address: u32,
     decode_len: u32,
-    symbol_map: Option<&samply_symbols::SymbolMap<FT>>,
+    branch_targets: &BranchTargetFormatter<'_, FT>,
 ) -> Result<Response, AsmError> {
     Ok(match arch {
         Some("x86") => decode::<yaxpeax_x86::protected_mode::Arch, FT>(
             bytes,
             rel_address,
             decode_len,
-            symbol_map,
+            branch_targets,
         ),
         Some("x86_64" | "x86_64h") => {
-            decode::<yaxpeax_x86::amd64::Arch, FT>(bytes, rel_address, decode_len, symbol_map)
+            decode::<yaxpeax_x86::amd64::Arch, FT>(bytes, rel_address, decode_len, branch_targets)
         }
-        Some("arm64" | "arm64e") => {
-            decode::<yaxpeax_arm::armv8::a64::ARMv8, FT>(bytes, rel_address, decode_len, symbol_map)
-        }
+        Some("arm64" | "arm64e") => decode::<yaxpeax_arm::armv8::a64::ARMv8, FT>(
+            bytes,
+            rel_address,
+            decode_len,
+            branch_targets,
+        ),
         Some("arm") => {
-            decode::<yaxpeax_arm::armv7::ARMv7, FT>(bytes, rel_address, decode_len, symbol_map)
+            decode::<yaxpeax_arm::armv7::ARMv7, FT>(bytes, rel_address, decode_len, branch_targets)
         }
         _ => {
             return Err(AsmError::UnrecognizedArch(
@@ -289,23 +306,37 @@ fn decode_arch<FT: FileTypes>(
     })
 }
 
-/// Formats a branch target address with symbol information if available.
-/// Returns a string like "<symbol_name>" or "<symbol_name+0x123>".
-fn format_branch_symbol<FT: FileTypes>(
-    target_address: u32,
-    symbol_map: Option<&samply_symbols::SymbolMap<FT>>,
-) -> Option<String> {
-    let symbol_map = symbol_map?;
-    let lookup_result = symbol_map.lookup_sync(LookupAddress::Relative(target_address))?;
-    let symbol_name = symbol_map.resolve_symbol_name(lookup_result.symbol.name);
+struct BranchTargetFormatter<'a, FT: FileTypes> {
+    symbol_map: Option<&'a SymbolMap<FT>>,
+    /// The address range of the function containing the start address.
+    function_range: Option<Range<u32>>,
+}
 
-    // Check if we're at the function start or inside it.
-    Some(if lookup_result.symbol.address == target_address {
-        format!("<{}>", symbol_name)
-    } else {
-        let offset = target_address - lookup_result.symbol.address;
-        format!("<{}+0x{:x}>", symbol_name, offset)
-    })
+impl<FT: FileTypes> BranchTargetFormatter<'_, FT> {
+    /// Formats a branch target address with symbol information if available.
+    /// Returns a string like "<symbol_name>" or "<symbol_name+0x123>".
+    ///
+    /// Returns `None` for jumps within the current function, except if the target
+    /// is at the very start of the current function (for recursive / tail calls).
+    fn format(&self, target_address: u32) -> Option<String> {
+        if let Some(function_range) = &self.function_range {
+            if function_range.contains(&target_address) && target_address != function_range.start {
+                return None;
+            }
+        }
+
+        let symbol_map = self.symbol_map?;
+        let lookup_result = symbol_map.lookup_sync(LookupAddress::Relative(target_address))?;
+        let symbol_name = symbol_map.resolve_symbol_name(lookup_result.symbol.name);
+
+        // Check if we're at the function start or inside it.
+        Some(if lookup_result.symbol.address == target_address {
+            format!("<{}>", symbol_name)
+        } else {
+            let offset = target_address - lookup_result.symbol.address;
+            format!("<{}+0x{:x}>", symbol_name, offset)
+        })
+    }
 }
 
 trait InstructionDecoding: Arch {
@@ -317,7 +348,7 @@ trait InstructionDecoding: Arch {
         rel_address: u32,
         offset: u32,
         inst: Self::Instruction,
-        symbol_map: Option<&samply_symbols::SymbolMap<FT>>,
+        branch_targets: &BranchTargetFormatter<'_, FT>,
     ) -> DecodedInstruction;
 }
 
@@ -334,7 +365,7 @@ impl InstructionDecoding for yaxpeax_x86::amd64::Arch {
         rel_address: u32,
         offset: u32,
         inst: Self::Instruction,
-        symbol_map: Option<&samply_symbols::SymbolMap<FT>>,
+        branch_targets: &BranchTargetFormatter<'_, FT>,
     ) -> DecodedInstruction {
         use yaxpeax_x86::amd64::{Opcode, Operand};
 
@@ -380,7 +411,7 @@ impl InstructionDecoding for yaxpeax_x86::amd64::Arch {
                         + inst.len().to_const() as i64
                         + rel as i64;
                     intel_insn = format!("{} 0x{:x}", inst.opcode(), dest);
-                    if let Some(symbol_info) = format_branch_symbol(dest as u32, symbol_map) {
+                    if let Some(symbol_info) = branch_targets.format(dest as u32) {
                         intel_insn = format!("{} {}", intel_insn, symbol_info);
                     }
                     c_insn.clone_from(&intel_insn);
@@ -392,7 +423,7 @@ impl InstructionDecoding for yaxpeax_x86::amd64::Arch {
                         + inst.len().to_const() as i64
                         + rel as i64;
                     intel_insn = format!("{} 0x{:x}", inst.opcode(), dest);
-                    if let Some(symbol_info) = format_branch_symbol(dest as u32, symbol_map) {
+                    if let Some(symbol_info) = branch_targets.format(dest as u32) {
                         intel_insn = format!("{} {}", intel_insn, symbol_info);
                     }
                     c_insn.clone_from(&intel_insn);
@@ -421,7 +452,7 @@ impl InstructionDecoding for yaxpeax_x86::protected_mode::Arch {
         _rel_address: u32,
         offset: u32,
         inst: Self::Instruction,
-        _symbol_map: Option<&samply_symbols::SymbolMap<FT>>,
+        _branch_targets: &BranchTargetFormatter<'_, FT>,
     ) -> DecodedInstruction {
         // TODO: Extract branch targets for x86 protected mode if needed.
         DecodedInstruction {
@@ -444,7 +475,7 @@ impl InstructionDecoding for yaxpeax_arm::armv8::a64::ARMv8 {
         rel_address: u32,
         offset: u32,
         inst: Self::Instruction,
-        symbol_map: Option<&samply_symbols::SymbolMap<FT>>,
+        branch_targets: &BranchTargetFormatter<'_, FT>,
     ) -> DecodedInstruction {
         use yaxpeax_arm::armv8::a64::{Opcode, Operand};
 
@@ -497,7 +528,7 @@ impl InstructionDecoding for yaxpeax_arm::armv8::a64::ARMv8 {
                 };
 
                 // Add symbol information if available.
-                if let Some(symbol_info) = format_branch_symbol(dest as u32, symbol_map) {
+                if let Some(symbol_info) = branch_targets.format(dest as u32) {
                     inst_str = format!("{} {}", inst_str, symbol_info);
                 }
             }
@@ -534,7 +565,7 @@ impl InstructionDecoding for yaxpeax_arm::armv7::ARMv7 {
         rel_address: u32,
         offset: u32,
         inst: Self::Instruction,
-        symbol_map: Option<&samply_symbols::SymbolMap<FT>>,
+        branch_targets: &BranchTargetFormatter<'_, FT>,
     ) -> DecodedInstruction {
         use yaxpeax_arm::armv7::{ConditionedOpcode, Opcode, Operand};
         let mut inst_str = inst.to_string();
@@ -551,7 +582,7 @@ impl InstructionDecoding for yaxpeax_arm::armv7::ARMv7 {
                     let opcode =
                         ConditionedOpcode(inst.opcode, inst.s, inst.thumb_w, inst.condition);
                     inst_str = format!("{} 0x{:x}", opcode, dest);
-                    if let Some(symbol_info) = format_branch_symbol(dest as u32, symbol_map) {
+                    if let Some(symbol_info) = branch_targets.format(dest as u32) {
                         inst_str = format!("{} {}", inst_str, symbol_info);
                     }
                 }
@@ -563,7 +594,7 @@ impl InstructionDecoding for yaxpeax_arm::armv7::ARMv7 {
                     let opcode =
                         ConditionedOpcode(inst.opcode, inst.s, inst.thumb_w, inst.condition);
                     inst_str = format!("{} 0x{:x}", opcode, dest);
-                    if let Some(symbol_info) = format_branch_symbol(dest as u32, symbol_map) {
+                    if let Some(symbol_info) = branch_targets.format(dest as u32) {
                         inst_str = format!("{} {}", inst_str, symbol_info);
                     }
                 }
@@ -582,7 +613,7 @@ fn decode<'a, A: InstructionDecoding, FT: FileTypes>(
     bytes: &'a [u8],
     rel_address: u32,
     decode_len: u32,
-    symbol_map: Option<&samply_symbols::SymbolMap<FT>>,
+    branch_targets: &BranchTargetFormatter<'_, FT>,
 ) -> Response
 where
     u64: From<A::Address>,
@@ -600,7 +631,7 @@ where
         let before = u64::from(reader.total_offset()) as u32;
         match decoder.decode(&mut reader) {
             Ok(inst) => {
-                instructions.push(A::stringify_inst(rel_address, offset, inst, symbol_map));
+                instructions.push(A::stringify_inst(rel_address, offset, inst, branch_targets));
                 let after = u64::from(reader.total_offset()) as u32;
                 offset += after - before;
             }
