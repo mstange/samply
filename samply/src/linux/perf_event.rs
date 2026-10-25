@@ -311,6 +311,14 @@ impl PerfBuilder {
             attr.sample_type |= PERF_SAMPLE_STACK_USER;
         }
 
+        // Always request callchain so the kernel walks frame pointers at sample
+        // time. The user portion serves as a fallback when DWARF unwinding
+        // truncates (e.g. due to the 32 KB captured stack window).
+        attr.sample_type |= PERF_SAMPLE_CALLCHAIN;
+        if exclude_kernel {
+            attr.flags |= PERF_ATTR_FLAG_EXCLUDE_CALLCHAIN_KERNEL;
+        }
+
         attr.sample_regs_user = reg_mask;
         attr.sample_stack_user = stack_size;
         attr.sample_period_or_freq = frequency;
