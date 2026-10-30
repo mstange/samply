@@ -224,21 +224,28 @@ impl<I: Iterator<Item = SecondPassFrameInfo>> ConvertedStackIterD<I> {
         // Work around an imperfection in Spidermonkey's stack frames.
         // We sometimes have missing BaselineInterpreterStubs in the OSR-into-BaselineInterpreter case.
         // Usually, a BaselineInterpreter frame is directly preceded by a BaselineInterpreterStub frame.
-        // However, sometimes you get Regular(x) -> None -> None -> None -> BaselineInterpreter,
+        // However, sometimes you get InterpreterStub(x) -> None -> None -> None -> BaselineInterpreter,
         // without a BaselineInterpreterStub frame. In that case, the name "x" from the ancestor
-        // JsFrame::RegularInAdditionToNativeFrame (which is really an InterpreterStub frame for the C++ interpreter)
-        // should be used for the BaselineInterpreter frame. This will create a stack
-        // node with the right name, category and JS-only flag, and helps with correct attribution.
+        // InterpreterStub frame for the C++ interpreter should be used for the BaselineInterpreter
+        // frame. This will create a stack node with the right name, category and JS-only flag,
+        // and helps with correct attribution.
         // Unfortunately it means that we'll have two prepended JS label frames for the same function
         // in that case, but that's still better than accounting those samples to the wrong JS function.
+        // Only the C++ interpreter OSRs into the Baseline Interpreter. Below a Baseline or Ion
+        // frame, a stub-less BaselineInterpreter frame comes from a bailout and belongs to a
+        // different function, so we leave it unnamed.
         let extra_js_name = match js_frame {
             Some(JsFrame::NativeFrameIsJs) => {
                 frame_flags |= FrameFlags::IS_JS;
                 None
             }
-            Some(JsFrame::RegularInAdditionToNativeFrame(js_name)) => {
+            Some(JsFrame::InterpreterStub(js_name)) => {
                 // Remember the name for a potentially upcoming unnamed BaselineInterpreter frame.
                 self.js_name_for_baseline_interpreter = Some(js_name);
+                Some(js_name)
+            }
+            Some(JsFrame::RegularInAdditionToNativeFrame(js_name)) => {
+                self.js_name_for_baseline_interpreter = None;
                 Some(js_name)
             }
             Some(JsFrame::BaselineInterpreterStub(js_name)) => {
