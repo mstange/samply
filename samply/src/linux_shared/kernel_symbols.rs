@@ -34,14 +34,25 @@ pub struct KernelSymbols {
 }
 
 impl KernelSymbols {
-    pub fn new_for_running_kernel() -> Result<Self, KernelSymbolsError> {
-        let notes = std::fs::read("/sys/kernel/notes")
-            .map_err(KernelSymbolsError::CouldNotReadKernelNotes)?;
-        let build_id = build_id_from_notes_section_data(&notes)
-            .ok_or(KernelSymbolsError::CouldNotFindBuildIdNote)?
-            .to_owned();
-        let kallsyms = std::fs::read("/proc/kallsyms")
-            .map_err(KernelSymbolsError::CouldNotReadProcKallsyms)?;
+    pub fn new_for_running_kernel(
+        kernel_symbols_file: Option<PathBuf>,
+    ) -> Result<Self, KernelSymbolsError> {
+        let build_id = match kernel_symbols_file {
+            Some(_) => vec![0], // placeholder build id for imported kallsyms
+            None => {
+                let notes = std::fs::read("/sys/kernel/notes")
+                    .map_err(KernelSymbolsError::CouldNotReadKernelNotes)?;
+                let build_id = build_id_from_notes_section_data(&notes)
+                    .ok_or(KernelSymbolsError::CouldNotFindBuildIdNote)?
+                    .to_owned();
+                build_id
+            }
+        };
+
+        let kallsyms =
+            std::fs::read(kernel_symbols_file.unwrap_or_else(|| "/proc/kallsyms".into()))
+                .inspect_err(|e| eprintln!("failed to read kallsyms file: {e}"))
+                .map_err(KernelSymbolsError::CouldNotReadProcKallsyms)?;
         let (base_avma, symbol_table) = parse_kallsyms(&kallsyms)?;
         let symbol_table = Arc::new(symbol_table);
         Ok(KernelSymbols {
