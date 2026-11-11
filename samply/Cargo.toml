@@ -24,6 +24,7 @@ hyper-util = { version = "0.1.9", features = ["server", "http1", "tokio"] }
 http-body-util = "0.1"
 futures-util = "0.3"
 clap = { version = "4", features = ["derive"] }
+clap_complete = "4"
 byteorder = "1.4.3"
 debugid = "0.8.0"
 memchr = "2.7.2"

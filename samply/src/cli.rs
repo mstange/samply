@@ -76,6 +76,15 @@ pub enum Action {
     /// Codesign the samply binary on macOS to allow attaching to processes.
     #[cfg(target_os = "macos")]
     Setup(SetupArgs),
+
+    /// Print a shell completion script to stdout.
+    Completions(CompletionsArgs),
+}
+
+#[derive(Debug, Args)]
+pub struct CompletionsArgs {
+    /// The shell to generate completions for.
+    pub shell: clap_complete::Shell,
 }
 
 #[derive(Debug, Args)]
