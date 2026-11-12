@@ -326,6 +326,7 @@ fn convert_file_to_profile(
         binary_lookup_dirs,
         aux_file_lookup_dirs,
         import_props.profile_creation_props,
+        import_props.kallsyms_path,
     )
     .unwrap_or_else(|error| {
         eprintln!("Error importing perf.data file: {error:?}");

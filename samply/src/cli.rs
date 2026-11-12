@@ -134,6 +134,10 @@ pub struct ImportArgs {
     /// Time range of recording to include in profile. Format is "start-stop" or "start+duration" with each part optional, e.g. "5s", "5s-", "-10s", "1s-10s" or "1s+9s".
     #[arg(long, value_parser=parse_time_range)]
     pub time_range: Option<(std::time::Duration, std::time::Duration)>,
+
+    /// Load Linux kernel symbol table from the provided path
+    #[arg(long)]
+    pub kallsyms_path: Option<PathBuf>,
 }
 
 #[allow(unused)]
@@ -414,6 +418,7 @@ impl ImportArgs {
             user_etl: self.user_etl.clone(),
             aux_file_dir: self.aux_file_dir.clone(),
             time_range: self.time_range,
+            kallsyms_path: self.kallsyms_path.clone(),
         }
     }
 }
