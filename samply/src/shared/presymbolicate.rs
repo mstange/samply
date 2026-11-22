@@ -95,85 +95,84 @@ fn convert_address_info(
     }
 }
 
-pub fn get_presymbolicate_info(
+/// Looks up symbols for all native frames in the profile.
+///
+/// Must run inside a multi-threaded tokio runtime; it spawns one task per library.
+pub async fn get_presymbolicate_info(
     profile: &fxprof_processed_profile::Profile,
     symbol_props: SymbolProps,
 ) -> ProfileSymbolInfo {
-    let rt = tokio::runtime::Runtime::new().unwrap();
+    let (mut symbol_manager, quota_manager) =
+        create_symbol_manager_and_quota_manager(symbol_props, false);
 
-    rt.block_on(async {
-        let (mut symbol_manager, quota_manager) =
-            create_symbol_manager_and_quota_manager(symbol_props, false);
+    let native_frame_addresses_per_library = profile.native_frame_addresses_per_library();
+    let lib_stuff: Vec<_> = native_frame_addresses_per_library
+        .into_iter()
+        .map(|(lib_handle, rvas)| {
+            let lib = profile.get_library_info(lib_handle);
+            let lib_info = wholesym::LibraryInfo {
+                name: Some(lib.debug_name.clone()),
+                path: Some(lib.path.clone()),
+                debug_path: Some(lib.debug_path.clone()),
+                debug_id: if lib.debug_id.is_nil() {
+                    None
+                } else {
+                    Some(lib.debug_id)
+                },
+                arch: lib.arch.clone(),
+                debug_name: Some(lib.debug_name.clone()),
+                code_id: lib
+                    .code_id
+                    .as_ref()
+                    .map(|id| wholesym::CodeId::from_str(id).expect("bad codeid")),
+            };
+            let rvas: Vec<u32> = rvas.into_iter().collect();
+            (lib_handle, lib_info, rvas)
+        })
+        .collect();
 
-        let native_frame_addresses_per_library = profile.native_frame_addresses_per_library();
-        let lib_stuff: Vec<_> = native_frame_addresses_per_library
-            .into_iter()
-            .map(|(lib_handle, rvas)| {
-                let lib = profile.get_library_info(lib_handle);
-                let lib_info = wholesym::LibraryInfo {
-                    name: Some(lib.debug_name.clone()),
-                    path: Some(lib.path.clone()),
-                    debug_path: Some(lib.debug_path.clone()),
-                    debug_id: if lib.debug_id.is_nil() {
-                        None
-                    } else {
-                        Some(lib.debug_id)
-                    },
-                    arch: lib.arch.clone(),
-                    debug_name: Some(lib.debug_name.clone()),
-                    code_id: lib
-                        .code_id
-                        .as_ref()
-                        .map(|id| wholesym::CodeId::from_str(id).expect("bad codeid")),
-                };
-                let rvas: Vec<u32> = rvas.into_iter().collect();
-                (lib_handle, lib_info, rvas)
-            })
-            .collect();
+    for (_lib_handle, lib_info, _rvas) in &lib_stuff {
+        // Add the library to the symbol manager with all the info, so that load_symbol_map can find it later
+        symbol_manager.add_known_library(lib_info.clone());
+    }
 
-        for (_lib_handle, lib_info, _rvas) in &lib_stuff {
-            // Add the library to the symbol manager with all the info, so that load_symbol_map can find it later
-            symbol_manager.add_known_library(lib_info.clone());
-        }
+    let string_table = Arc::new(Mutex::new(SymbolStringTable::new()));
+    let symbol_manager = Arc::new(symbol_manager);
 
-        let string_table = Arc::new(Mutex::new(SymbolStringTable::new()));
-        let symbol_manager = Arc::new(symbol_manager);
+    let symbolication_tasks = lib_stuff.into_iter().map(|(lib_handle, lib, rvas)| {
+        let symbol_manager = Arc::clone(&symbol_manager);
+        let string_table = Arc::clone(&string_table);
+        tokio::spawn(async move {
+            get_lib_symbols(
+                lib_handle,
+                lib,
+                &rvas,
+                &symbol_manager,
+                string_table.clone(),
+            )
+            .await
+        })
+    });
 
-        let symbolication_tasks = lib_stuff.into_iter().map(|(lib_handle, lib, rvas)| {
-            let symbol_manager = Arc::clone(&symbol_manager);
-            let string_table = Arc::clone(&string_table);
-            tokio::spawn(async move {
-                get_lib_symbols(
-                    lib_handle,
-                    lib,
-                    &rvas,
-                    &symbol_manager,
-                    string_table.clone(),
-                )
-                .await
-            })
-        });
+    let symbolication_results = join_all(symbolication_tasks).await;
 
-        let symbolication_results = join_all(symbolication_tasks).await;
+    if let Some(quota_manager) = quota_manager {
+        quota_manager.finish().await;
+    }
 
-        if let Some(quota_manager) = quota_manager {
-            quota_manager.finish().await;
-        }
+    let lib_symbols: Vec<_> = symbolication_results
+        .into_iter()
+        .filter_map(|x| x.unwrap())
+        .collect();
+    let string_table = match Arc::try_unwrap(string_table) {
+        Ok(string_table) => string_table.into_inner().unwrap(),
+        Err(_string_table) => panic!("String table Arc still in use"),
+    };
 
-        let lib_symbols: Vec<_> = symbolication_results
-            .into_iter()
-            .filter_map(|x| x.unwrap())
-            .collect();
-        let string_table = match Arc::try_unwrap(string_table) {
-            Ok(string_table) => string_table.into_inner().unwrap(),
-            Err(_string_table) => panic!("String table Arc still in use"),
-        };
-
-        ProfileSymbolInfo {
-            string_table,
-            lib_symbols,
-        }
-    })
+    ProfileSymbolInfo {
+        string_table,
+        lib_symbols,
+    }
 }
 
 async fn get_lib_symbols(

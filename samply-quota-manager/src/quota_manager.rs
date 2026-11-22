@@ -51,6 +51,7 @@ impl Clone for QuotaManagerNotifier {
 struct EvictionSettings {
     max_size_bytes: Option<u64>,
     max_age_seconds: Option<u64>,
+    min_age_seconds: Option<u64>,
 }
 
 impl QuotaManager {
@@ -122,6 +123,15 @@ impl QuotaManager {
     /// Respected during the next eviction.
     pub fn set_max_age(&self, max_age_seconds: Option<u64>) {
         self.settings.lock().unwrap().max_age_seconds = max_age_seconds;
+    }
+
+    /// Change the minimum age of tracked files in the managed directory,
+    /// in seconds. Files which were accessed within this time span are never
+    /// deleted, not even to enforce the maximum total size.
+    ///
+    /// Respected during the next eviction.
+    pub fn set_min_age(&self, min_age_seconds: Option<u64>) {
+        self.settings.lock().unwrap().min_age_seconds = min_age_seconds;
     }
 
     /// Returns the current total size of the managed directory, in bytes.
@@ -246,6 +256,12 @@ impl QuotaManagerEvictionThread {
             ByteSize(total_size_before).display().si()
         );
 
+        // Files accessed after `protect_accessed_after` are never deleted.
+        let now = SystemTime::now();
+        let protect_accessed_after = settings
+            .min_age_seconds
+            .map(|min_age_seconds| now - Duration::from_secs(min_age_seconds));
+
         // Enforce max age first, and size limit second.
         // We know that files older than the max age need to be deleted anyway.
         // This may already free up some space. Then we can delete more files in
@@ -253,9 +269,9 @@ impl QuotaManagerEvictionThread {
 
         let files_to_delete_for_enforcing_max_age = match settings.max_age_seconds {
             Some(max_age_seconds) => {
-                let cutoff_time = SystemTime::now() - Duration::from_secs(max_age_seconds);
+                let cutoff_time = now - Duration::from_secs(max_age_seconds);
                 let inventory = self.inventory.lock().unwrap();
-                inventory.get_files_last_accessed_before(cutoff_time)
+                inventory.get_files_last_accessed_before(cutoff_time, protect_accessed_after)
             }
             None => vec![],
         };
@@ -273,7 +289,8 @@ impl QuotaManagerEvictionThread {
         let files_to_delete_for_enforcing_max_size = match settings.max_size_bytes {
             Some(max_size_bytes) => {
                 let inventory = self.inventory.lock().unwrap();
-                inventory.get_files_to_delete_to_enforce_max_size(max_size_bytes)
+                inventory
+                    .get_files_to_delete_to_enforce_max_size(max_size_bytes, protect_accessed_after)
             }
             None => vec![],
         };

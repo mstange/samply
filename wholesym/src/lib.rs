@@ -157,8 +157,8 @@ pub use download_error::DownloadError;
 pub use samply_debugid::{CodeId, ElfBuildId, PeCodeId};
 pub use samply_symbols;
 pub use samply_symbols::{
-    AddressInfo, Error, ExternalFileAddressInFileRef, ExternalFileAddressRef, ExternalFileRef,
-    ExternalFileSymbolMap, FrameDebugInfo, FramesLookupResult, FunctionNameHandle,
+    AccessPatternHint, AddressInfo, Error, ExternalFileAddressInFileRef, ExternalFileAddressRef,
+    ExternalFileRef, ExternalFileSymbolMap, FrameDebugInfo, FramesLookupResult, FunctionNameHandle,
     FunctionNameIndex, LibraryInfo, LookupAddress, MappedPath, MultiArchDisambiguator,
     SourceFilePath, SourceFilePathHandle, SourceFilePathIndex, SymbolInfo, SymbolMapGeneration,
     SymbolNameHandle, SymbolNameIndex, SyncAddressInfo,

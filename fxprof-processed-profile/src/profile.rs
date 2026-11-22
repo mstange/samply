@@ -310,6 +310,11 @@ impl Profile {
     /// Get or create a handle for a category.
     ///
     /// Categories are used for stack frames and markers.
+    ///
+    /// # Panics
+    ///
+    /// Panics when called for more thon 256 categories - profiles can only
+    /// contain up to 256 categories. (Use subcategories if you need more.)
     pub fn handle_for_category(&mut self, category: Category) -> CategoryHandle {
         let index = self.categories.get_index_of(&category).unwrap_or_else(|| {
             let Category(name, color) = category;
@@ -317,7 +322,12 @@ impl Profile {
                 .insert_full(InternalCategory::new(name, color))
                 .0
         });
-        CategoryHandle(index as u16)
+        assert!(
+            index <= u8::MAX as usize,
+            "The processed profile format only supports up to 256 categories; \
+             the frame table's category column is limited to 8 bits."
+        );
+        CategoryHandle(index as u8)
     }
 
     /// Get or create a handle for a subcategory.
@@ -1446,7 +1456,7 @@ impl Profile {
     fn write_json<'p, W: Write>(
         &'p self,
         ctx: &mut Writer<'_, 'p, W>,
-        tables: &'p FrameInternerTables,
+        tables: &'p FrameInternerTables<'p>,
     ) -> std::io::Result<()> {
         let (sorted_threads, first_thread_index_per_process, new_thread_indices) =
             self.sorted_threads();
@@ -1506,7 +1516,7 @@ impl Profile {
             w.name("interval")?;
             w.fp(self.interval.as_secs_f64() * 1000.0)?;
             w.name("preprocessedProfileVersion")?;
-            w.number_value(68u32)?;
+            w.number_value(75u32)?;
             w.name("processType")?;
             w.number_value(0u32)?;
             w.name("product")?;

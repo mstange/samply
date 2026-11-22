@@ -43,7 +43,7 @@ expression: response
     ],
     [
       18,
-      "bne 0x51fea <CustomElf::GetMappable() const+0x19>"
+      "bne 0x51fea"
     ],
     [
       20,

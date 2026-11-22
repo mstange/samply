@@ -1,8 +1,8 @@
 use std::error::Error;
-use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 
 use super::elevated_helper::ElevatedRecordingProps;
+use crate::profile_store::companion_file_path;
 
 const XPERF_NOT_FOUND_ERROR_MSG: &str = "\
 Could not find an xperf installation.\n\
@@ -77,11 +77,7 @@ impl Xperf {
         let xperf_path = self.get_xperf_path()?;
         // start xperf.exe, logging to the same location as the output file, just with a .etl
         // extension.
-        let mut kernel_etl_file = output_path.to_owned();
-        if kernel_etl_file.extension() == Some(OsStr::new("gz")) {
-            kernel_etl_file.set_extension("");
-        }
-        kernel_etl_file.set_extension("kernel.etl");
+        let kernel_etl_file = companion_file_path(output_path, "kernel.etl");
 
         const MIN_INTERVAL_NANOS: u64 = 122100; // 8192 kHz
         let interval_nanos = props.interval_nanos.clamp(MIN_INTERVAL_NANOS, u64::MAX);
@@ -114,11 +110,7 @@ impl Xperf {
         xperf.arg("1024");
 
         let user_etl_file = if !user_providers.is_empty() {
-            let mut user_etl_file = output_path.to_owned();
-            if user_etl_file.extension() == Some(OsStr::new("gz")) {
-                user_etl_file.set_extension("");
-            }
-            user_etl_file.set_extension("user.etl");
+            let user_etl_file = companion_file_path(output_path, "user.etl");
 
             xperf.arg("-start");
             xperf.arg("SamplySession");

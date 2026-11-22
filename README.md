@@ -16,10 +16,10 @@ On Linux, samply uses perf events. You can grant temporary access by running:
 echo '-1' | sudo tee /proc/sys/kernel/perf_event_paranoid
 ```
 
-On Windows, you can use `samply record -a` to record all processes. You'll usually also want to use some symbol servers, most importantly the Microsoft Symbol Server so that you can see symbols for Windows libraries. Here's a command which supports symbols for Windows, Firefox and Chrome:
+On Windows, you can use `samply record -a` to record all processes. The Microsoft Symbol Server is pre-configured in the [config file](#configuration), so you get symbols for Windows libraries out of the box. You can add more symbol servers either in the config file or on the command line. Here's a command which adds symbols for Firefox and Chrome:
 
 ```
-samply record -a --windows-symbol-server https://msdl.microsoft.com/download/symbols --breakpad-symbol-server https://symbols.mozilla.org/try/ --windows-symbol-server https://chromium-browser-symsrv.commondatastorage.googleapis.com
+samply record -a --breakpad-symbol-server https://symbols.mozilla.org/try/ --windows-symbol-server https://chromium-browser-symsrv.commondatastorage.googleapis.com
 ```
 
 ## Installation
@@ -106,6 +106,12 @@ If you still get a `mmap failed` error (an `EPERM`), you might also need to incr
 sudo sysctl kernel.perf_event_mlock_kb=2048
 ```
 
+### Symbols and configuration
+
+Symbol servers can be configured in the config file at `~/.config/samply/config.toml` (`%APPDATA%\samply\config.toml` on Windows). You can also specify the maximum size of the symbol cache and of the profile store.
+
+By default, the profiles produced by `samply record` and `samply import` are stored in `~/.local/share/samply/profiles/` (`%LOCALAPPDATA%\samply\profiles\` on Windows).
+
 ### Using perf directly (profiling different events)
 
 Linux only.
@@ -114,19 +120,21 @@ Linux only.
 
 You can still use `samply` to visualize such a profile using `samply import`
 
-Example, profiling the `ls_dmnd_fills_from_sys.dram_io_all` event counter (data loaded from DRAM which bypassed cache): 
+Example, profiling the `ls_dmnd_fills_from_sys.dram_io_all` event counter (data loaded from DRAM which bypassed cache):
+
 ```sh
 perf record -e '{ls_dmnd_fills_from_sys.dram_io_all,cycles}' -F 9997 -g -- ./my/binary
 samply import perf.data --events-display "ls_dmnd_fills_from_sys.dram_io_all=timing_data;*=counter"
 ```
+
 With this, the time axis of the firefox profiler which will open up will show the amount of cache fills **as time**.
 This is a limitation of the firefox profiler, which always needs a "time" as the main unit, which means its only useful for relative comparisons.
 
-`--events-display`: `;`-separated list of how each event should be displayed. `<event>=<display>`, 
+`--events-display`: `;`-separated list of how each event should be displayed. `<event>=<display>`,
 with `<event>` being a glob-like match for the perf event name, and `<display>` being one of:
-  - `timing_data`: the main metric assumed by the profiler UI to mean time.
-  - `counter`: a stat counter, will be displayed as its own track
 
+- `timing_data`: the main metric assumed by the profiler UI to mean time.
+- `counter`: a stat counter, will be displayed as its own track
 
 ## Examples
 

@@ -9,7 +9,8 @@ use super::field_format::{
 };
 use super::field_kind_counts::MarkerFieldKindCounts;
 use super::types::{
-    GraphColor, MarkerFieldKind, MarkerGraphType, MarkerLocations, MarkerTypeHandle,
+    GraphColor, MarkerFieldKind, MarkerFieldPIICategory, MarkerGraphType, MarkerLocations,
+    MarkerTypeHandle,
 };
 
 /// The trait for markers whose schema is known at compile time. Any type which implements
@@ -176,7 +177,7 @@ impl<T: Marker> DynamicSchemaMarker for T {
 
 /// The trait for types that can be used for marker field values.
 pub trait MarkerFieldValueType {
-    type FormatEnum: Clone + core::fmt::Debug + Into<DynamicSchemaMarkerFieldFormat>;
+    type FormatEnum: Copy + core::fmt::Debug + Into<DynamicSchemaMarkerFieldFormat>;
     const KIND: MarkerFieldKind;
     fn push_field_value(self, consumer: &mut impl MarkerFieldValueConsumer);
 }
@@ -302,6 +303,9 @@ pub struct MarkerField<T: MarkerFieldValueType> {
 
     /// The format of this field.
     format: <T as MarkerFieldValueType>::FormatEnum,
+
+    /// The categories of privacy-sensitive information in this field's values.
+    contains_pii: &'static [MarkerFieldPIICategory],
 }
 
 impl<T: MarkerFieldValueType> MarkerField<T> {
@@ -310,7 +314,30 @@ impl<T: MarkerFieldValueType> MarkerField<T> {
         label: &'static str,
         format: <T as MarkerFieldValueType>::FormatEnum,
     ) -> Self {
-        Self { key, label, format }
+        Self {
+            key,
+            label,
+            format,
+            contains_pii: &[],
+        }
+    }
+
+    /// Declare which categories of privacy-sensitive information can occur in
+    /// this field's values, so that the Firefox Profiler can redact them when
+    /// the user sanitizes the profile before uploading it.
+    ///
+    /// ```
+    /// # use fxprof_processed_profile::{MarkerField, MarkerFieldPIICategory, StringHandle};
+    /// const FIELD: MarkerField<StringHandle> = MarkerField::string("text", "Contents")
+    ///     .contains_pii(&[MarkerFieldPIICategory::Url]);
+    /// ```
+    pub const fn contains_pii(self, contains_pii: &'static [MarkerFieldPIICategory]) -> Self {
+        Self {
+            key: self.key,
+            label: self.label,
+            format: self.format,
+            contains_pii,
+        }
     }
 }
 
@@ -383,7 +410,8 @@ impl<T: MarkerFieldValueType> From<&MarkerField<T>> for DynamicSchemaMarkerField
         Self {
             key: schema.key.into(),
             label: schema.label.into(),
-            format: schema.format.clone().into(),
+            format: schema.format.into(),
+            contains_pii: schema.contains_pii.to_vec(),
         }
     }
 }

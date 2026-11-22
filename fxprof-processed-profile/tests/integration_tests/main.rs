@@ -4,9 +4,9 @@ use std::time::Duration;
 use debugid::DebugId;
 use fxprof_processed_profile::{
     Category, CategoryColor, CounterDisplayConfig, CpuDelta, FlowId, FrameAddress, FrameFlags,
-    GraphColor, LibraryInfo, Marker, MarkerField, MarkerGraph, MarkerGraphType, MarkerLocations,
-    MarkerTiming, Profile, ProfileFormat, ReferenceTimestamp, SamplingInterval, Schema,
-    StringHandle, Symbol, SymbolTable, Timestamp, WeightType,
+    GraphColor, LibraryInfo, Marker, MarkerField, MarkerFieldPIICategory, MarkerGraph,
+    MarkerGraphType, MarkerLocations, MarkerTiming, Profile, ProfileFormat, ReferenceTimestamp,
+    SamplingInterval, Schema, StringHandle, Symbol, SymbolTable, Timestamp, WeightType,
 };
 
 // TODO: Add tests for SubcategoryHandle, ProcessHandle, ThreadHandle
@@ -28,7 +28,11 @@ impl Marker for TextMarker {
     const UNIQUE_MARKER_TYPE_NAME: &'static str = "Text";
     const CHART_LABEL: Option<&'static str> = Some("{marker.data.name}");
     const TABLE_LABEL: Option<&'static str> = Some("{marker.name} - {marker.data.name}");
-    const FIELDS: Schema<Self::FieldsType> = Schema(MarkerField::string("name", "Details"));
+    const FIELDS: Schema<Self::FieldsType> =
+        Schema(MarkerField::string("name", "Details").contains_pii(&[
+            MarkerFieldPIICategory::Url,
+            MarkerFieldPIICategory::ExtensionId,
+        ]));
 
     fn name(&self, _profile: &mut Profile) -> StringHandle {
         self.name
@@ -128,7 +132,7 @@ fn profile_without_js() {
             },
             Symbol {
                 address: 172156,
-                size: Some(20),
+                size: None,
                 name: "libc_symbol_2".to_string(),
             },
         ])),

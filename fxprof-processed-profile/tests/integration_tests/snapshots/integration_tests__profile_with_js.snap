@@ -33,7 +33,7 @@ expression: profile_as_json_value(&profile)
     "interval": 1,
     "markerSchema": [],
     "pausedRanges": [],
-    "preprocessedProfileVersion": 68,
+    "preprocessedProfileVersion": 75,
     "processType": 0,
     "product": "test with js",
     "sampleUnits": {
@@ -52,41 +52,45 @@ expression: profile_as_json_value(&profile)
   "shared": {
     "frameTable": {
       "address": [
-        -1,
-        -1
+        0,
+        0
       ],
       "category": [
         1,
         1
       ],
       "column": [
-        null,
-        null
+        0,
+        0
+      ],
+      "flags": [
+        4,
+        4
       ],
       "func": [
         0,
         1
-      ],
-      "inlineDepth": [
-        0,
-        0
       ],
       "innerWindowID": [
         0,
         0
       ],
       "length": 2,
+      "lib": [
+        0,
+        0
+      ],
       "line": [
-        null,
-        null
+        0,
+        0
       ],
       "nativeSymbol": [
-        null,
-        null
+        0,
+        0
       ],
       "originalLocation": [
-        null,
-        null
+        0,
+        0
       ],
       "subcategory": [
         0,
@@ -95,37 +99,33 @@ expression: profile_as_json_value(&profile)
     },
     "funcTable": {
       "columnNumber": [
-        null,
-        null
+        0,
+        0
       ],
-      "isJS": [
-        true,
-        false
+      "flags": [
+        1,
+        0
       ],
       "length": 2,
       "lineNumber": [
-        null,
-        null
+        0,
+        0
       ],
       "name": [
         0,
         1
       ],
       "originalLocation": [
-        null,
-        null
-      ],
-      "relevantForJS": [
-        false,
-        false
+        0,
+        0
       ],
       "resource": [
-        -1,
-        -1
+        0,
+        0
       ],
       "source": [
-        null,
-        null
+        0,
+        0
       ]
     },
     "nativeSymbols": {
@@ -138,7 +138,6 @@ expression: profile_as_json_value(&profile)
     "resourceTable": {
       "host": [],
       "length": 0,
-      "lib": [],
       "name": [],
       "type": []
     },

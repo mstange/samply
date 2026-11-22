@@ -47,7 +47,7 @@ expression: profile_as_json_value(&profile)
       }
     ],
     "pausedRanges": [],
-    "preprocessedProfileVersion": 68,
+    "preprocessedProfileVersion": 75,
     "processType": 0,
     "product": "test",
     "sampleUnits": {
@@ -68,10 +68,11 @@ expression: profile_as_json_value(&profile)
       "address": [],
       "category": [],
       "column": [],
+      "flags": [],
       "func": [],
-      "inlineDepth": [],
       "innerWindowID": [],
       "length": 0,
+      "lib": [],
       "line": [],
       "nativeSymbol": [],
       "originalLocation": [],
@@ -79,12 +80,11 @@ expression: profile_as_json_value(&profile)
     },
     "funcTable": {
       "columnNumber": [],
-      "isJS": [],
+      "flags": [],
       "length": 0,
       "lineNumber": [],
       "name": [],
       "originalLocation": [],
-      "relevantForJS": [],
       "resource": [],
       "source": []
     },
@@ -98,7 +98,6 @@ expression: profile_as_json_value(&profile)
     "resourceTable": {
       "host": [],
       "length": 0,
-      "lib": [],
       "name": [],
       "type": []
     },

@@ -40,7 +40,7 @@ rand = "0.10"
 nix-base32 = "0.2.0"
 serde_derive = "1.0.137"
 serde = "1.0.204"
-json-slabs = "0.1.0"
+json-slabs = "0.2"
 wholesym = { version = "0.8.1", path = "../wholesym", features = ["api"]}
 platform-dirs = "0.3"
 rustc-hash = "2"
@@ -56,6 +56,9 @@ samply-debugid = { version = "0.1.0", path = "../samply-debugid" }
 samply-quota-manager = { version = "0.1.0", path = "../samply-quota-manager" }
 samply-object = { version = "0.1.0", path = "../samply-object" }
 indexmap = "2.9.0"
+toml = "1"
+bytesize = "2"
+jiff = "0.2"
 
 [target.'cfg(any(target_os = "android", target_os = "macos", target_os = "linux"))'.dependencies]
 
@@ -63,7 +66,7 @@ crossbeam-channel = "0.5.15"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 
-mach2 = "0.6"
+mach2 = "0.7"
 lazy_static = "1.5.0"
 flate2 = "1.1"
 sysctl = "0.7.1"
@@ -83,7 +86,7 @@ rangemap = "1.6"
 bitflags = "2.10.0"
 memoffset = "0.9"
 num-traits = "0.2"
-num-derive = "0.4"
+num-derive = "0.5"
 runas = "1.2.0"
 which = "8"
 winver = "1"

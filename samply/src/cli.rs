@@ -36,9 +36,19 @@ EXAMPLES:
 
     # Import perf.data files from Linux perf or Android simpleperf:
     samply import perf.data
+
+By default, recorded profiles are stored in the profile store
+(~/.local/share/samply/profiles on macOS and Linux, %LOCALAPPDATA%\samply\profiles
+on Windows) and old profiles are deleted automatically. Symbol servers and the
+eviction limits are configured in ~/.config/samply/config.toml
+(%APPDATA%\samply\config.toml on Windows).
 "#
 )]
 pub struct Opt {
+    /// Path to the config file. Defaults to $SAMPLY_CONFIG or the platform default.
+    #[arg(long, global = true, value_name = "PATH")]
+    pub config: Option<PathBuf>,
+
     #[command(subcommand)]
     pub action: Action,
 }
@@ -104,9 +114,9 @@ pub struct ImportArgs {
     #[arg(short, long)]
     pub save_only: bool,
 
-    /// Output filename.
-    #[arg(short, long, default_value = "profile.jslb.gz")]
-    pub output: PathBuf,
+    /// Output filename. Defaults to a new timestamped file in the profile store.
+    #[arg(short, long)]
+    pub output: Option<PathBuf>,
 
     #[command(flatten)]
     pub server_args: ServerArgs,
@@ -161,9 +171,9 @@ pub struct RecordArgs {
     #[arg(short, long)]
     pub save_only: bool,
 
-    /// Output filename.
-    #[arg(short, long, default_value = "profile.jslb.gz")]
-    pub output: PathBuf,
+    /// Output filename. Defaults to a new timestamped file in the profile store.
+    #[arg(short, long)]
+    pub output: Option<PathBuf>,
 
     #[command(flatten)]
     pub server_args: ServerArgs,
@@ -364,8 +374,10 @@ impl LoadArgs {
         self.server_args.server_props()
     }
 
-    pub fn symbol_props(&self) -> SymbolProps {
-        self.symbol_args.symbol_props()
+    /// Returns a combined SymbolProps which applies symbol props from the args to the passed-in
+    /// `base` props (usually from the config file).
+    pub fn symbol_props(&self, base: SymbolProps) -> SymbolProps {
+        self.symbol_args.apply_to(base)
     }
 }
 
@@ -378,8 +390,10 @@ impl ImportArgs {
         }
     }
 
-    pub fn symbol_props(&self) -> SymbolProps {
-        self.symbol_args.symbol_props()
+    /// Returns a combined SymbolProps which applies symbol props from the args to the passed-in
+    /// `base` props (usually from the config file).
+    pub fn symbol_props(&self, base: SymbolProps) -> SymbolProps {
+        self.symbol_args.apply_to(base)
     }
 
     pub fn profile_creation_props(&self) -> ProfileCreationProps {
@@ -408,10 +422,10 @@ impl ImportArgs {
         }
     }
 
-    pub fn import_props(&self) -> ImportProps {
+    pub fn import_props(&self, symbol_props: SymbolProps) -> ImportProps {
         ImportProps {
             profile_creation_props: self.profile_creation_props(),
-            symbol_props: self.symbol_props(),
+            symbol_props,
             included_processes: self.included_processes(),
             user_etl: self.user_etl.clone(),
             aux_file_dir: self.aux_file_dir.clone(),
@@ -430,12 +444,15 @@ impl RecordArgs {
         }
     }
 
-    pub fn symbol_props(&self) -> SymbolProps {
-        self.symbol_args.symbol_props()
+    /// Returns a combined SymbolProps which applies symbol props from the args to the passed-in
+    /// `base` props (usually from the config file).
+    pub fn symbol_props(&self, base: SymbolProps) -> SymbolProps {
+        self.symbol_args.apply_to(base)
     }
 
+    /// `output_file` is the resolved output path; on Windows, the ETL file paths are derived from it.
     #[allow(unused)]
-    pub fn recording_props(&self) -> RecordingProps {
+    pub fn recording_props(&self, output_file: PathBuf) -> RecordingProps {
         let time_limit = self.duration.map(Duration::from_secs_f64);
         if self.rate <= 0.0 {
             eprintln!(
@@ -446,7 +463,7 @@ impl RecordArgs {
         }
         let interval = Duration::from_secs_f64(1.0 / self.rate);
         RecordingProps {
-            output_file: self.output.clone(),
+            output_file,
             time_limit,
             interval,
             gfx: self.gfx,
@@ -591,16 +608,29 @@ impl ServerArgs {
 }
 
 impl SymbolArgs {
-    pub fn symbol_props(&self) -> SymbolProps {
-        SymbolProps {
-            symbol_dir: self.symbol_dir.clone(),
-            windows_symbol_server: self.windows_symbol_server.clone(),
-            windows_symbol_cache: self.windows_symbol_cache.clone(),
-            breakpad_symbol_server: self.breakpad_symbol_server.clone(),
-            breakpad_symbol_dir: self.breakpad_symbol_dir.clone(),
-            breakpad_symbol_cache: self.breakpad_symbol_cache.clone(),
-            simpleperf_binary_cache: self.simpleperf_binary_cache.clone(),
+    /// Returns a combined SymbolProps which applies symbol props from these args to the passed-in
+    /// `base` props (usually from the config file).
+    ///
+    /// Repeatable arguments are appended to the config lists. Single-value
+    /// arguments override the config value when given.
+    pub fn apply_to(&self, mut base: SymbolProps) -> SymbolProps {
+        base.symbol_dir.extend(self.symbol_dir.iter().cloned());
+        base.windows_symbol_server
+            .extend(self.windows_symbol_server.iter().cloned());
+        base.breakpad_symbol_server
+            .extend(self.breakpad_symbol_server.iter().cloned());
+        base.breakpad_symbol_dir
+            .extend(self.breakpad_symbol_dir.iter().cloned());
+        if let Some(cache) = &self.windows_symbol_cache {
+            base.windows_symbol_cache = Some(cache.clone());
         }
+        if let Some(cache) = &self.breakpad_symbol_cache {
+            base.breakpad_symbol_cache = Some(cache.clone());
+        }
+        if let Some(cache) = &self.simpleperf_binary_cache {
+            base.simpleperf_binary_cache = Some(cache.clone());
+        }
+        base
     }
 }
 
@@ -651,5 +681,74 @@ mod test {
         assert!(
             matches!(opt.action, Action::Import(import_args) if import_args.events_display[0].selector.matches(0, "foo") && !import_args.events_display[1].selector.matches(1, "whatever"))
         )
+    }
+
+    #[cfg(any(target_os = "android", target_os = "macos", target_os = "linux"))]
+    #[test]
+    fn verify_output_is_optional() {
+        let opt = Opt::parse_from(["samply", "record", "rustup"]);
+        assert!(matches!(opt.action, Action::Record(record_args) if record_args.output.is_none()));
+
+        let opt = Opt::parse_from(["samply", "record", "-o", "x.json", "rustup"]);
+        assert!(
+            matches!(opt.action, Action::Record(record_args) if record_args.output == Some(PathBuf::from("x.json")))
+        );
+
+        let opt = Opt::parse_from(["samply", "import", "perf.data"]);
+        assert!(matches!(opt.action, Action::Import(import_args) if import_args.output.is_none()));
+    }
+
+    #[test]
+    fn verify_global_config_flag() {
+        let opt = Opt::parse_from(["samply", "--config", "/tmp/c.toml", "load", "x.json"]);
+        assert_eq!(opt.config, Some(PathBuf::from("/tmp/c.toml")));
+
+        let opt = Opt::parse_from(["samply", "load", "--config", "/tmp/c.toml", "x.json"]);
+        assert_eq!(opt.config, Some(PathBuf::from("/tmp/c.toml")));
+
+        let opt = Opt::parse_from(["samply", "load", "x.json"]);
+        assert_eq!(opt.config, None);
+    }
+
+    #[test]
+    fn symbol_args_apply_to_merges_in_order() {
+        let opt = Opt::parse_from([
+            "samply",
+            "load",
+            "x.json",
+            "--windows-symbol-server",
+            "https://cli.example/",
+            "--symbol-dir",
+            "/cli",
+            "--breakpad-symbol-cache",
+            "/cli-cache",
+        ]);
+        let Action::Load(load_args) = opt.action else {
+            panic!("expected load");
+        };
+        let mut base = crate::config::SymbolsConfig::default().to_symbol_props();
+        base.windows_symbol_server
+            .push("https://config.example/".into());
+        base.symbol_dir.push(PathBuf::from("/config"));
+        base.breakpad_symbol_cache = Some(PathBuf::from("/config-cache"));
+        base.windows_symbol_cache = Some(PathBuf::from("/config-wcache"));
+
+        let props = load_args.symbol_props(base);
+        assert_eq!(
+            props.windows_symbol_server,
+            ["https://config.example/", "https://cli.example/"]
+        );
+        assert_eq!(
+            props.symbol_dir,
+            [PathBuf::from("/config"), PathBuf::from("/cli")]
+        );
+        assert_eq!(
+            props.breakpad_symbol_cache,
+            Some(PathBuf::from("/cli-cache"))
+        );
+        assert_eq!(
+            props.windows_symbol_cache,
+            Some(PathBuf::from("/config-wcache"))
+        );
     }
 }

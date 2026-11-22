@@ -60,13 +60,29 @@ pub struct RunningServerInfo {
     pub profiler_url: Option<String>,
 }
 
+/// The reason the local server could not start listening.
+#[derive(Debug, thiserror::Error)]
+pub enum BindError {
+    #[error("Could not bind to port {port}: {source}")]
+    Port { port: u16, source: std::io::Error },
+
+    #[error("Could not bind to any port in the range {range:?}: {source}")]
+    Range {
+        range: Range<u16>,
+        source: std::io::Error,
+    },
+
+    #[error("Could not bind to any port because the range {0:?} is empty")]
+    EmptyRange(Range<u16>),
+}
+
 pub async fn start_server(
     profile_filename: Option<&Path>,
     server_props: ServerProps,
     symbol_manager: SymbolManager,
     stop_signal: ctrl_c::Receiver,
-) -> RunningServerInfo {
-    let (listener, addr) = make_listener(server_props.address, server_props.port_selection).await;
+) -> Result<RunningServerInfo, BindError> {
+    let (listener, addr) = make_listener(server_props.address, server_props.port_selection).await?;
 
     let token = generate_token();
     let path_prefix = format!("/{token}");
@@ -113,11 +129,11 @@ pub async fn start_server(
         stop_signal,
     ));
 
-    RunningServerInfo {
+    Ok(RunningServerInfo {
         server_join_handle,
         server_origin,
         profiler_url,
-    }
+    })
 }
 
 // Returns a base32 string for 24 random bytes.
@@ -127,16 +143,16 @@ fn generate_token() -> String {
     nix_base32::to_nix_base32(&bytes)
 }
 
-async fn make_listener(addr: IpAddr, port_selection: PortSelection) -> (TcpListener, SocketAddr) {
+async fn make_listener(
+    addr: IpAddr,
+    port_selection: PortSelection,
+) -> Result<(TcpListener, SocketAddr), BindError> {
     match port_selection {
         PortSelection::OnePort(port) => {
             let addr = SocketAddr::from((addr, port));
             match TcpListener::bind(&addr).await {
-                Ok(listener) => (listener, addr),
-                Err(e) => {
-                    eprintln!("Could not bind to port {port}: {e}");
-                    std::process::exit(1)
-                }
+                Ok(listener) => Ok((listener, addr)),
+                Err(source) => Err(BindError::Port { port, source }),
             }
         }
         PortSelection::TryMultiple(range) => {
@@ -144,21 +160,16 @@ async fn make_listener(addr: IpAddr, port_selection: PortSelection) -> (TcpListe
             for port in range.clone() {
                 let addr = SocketAddr::from((addr, port));
                 match TcpListener::bind(&addr).await {
-                    Ok(listener) => return (listener, addr),
+                    Ok(listener) => return Ok((listener, addr)),
                     Err(e) => {
                         error.get_or_insert(e);
                     }
                 }
             }
             match error {
-                Some(error) => {
-                    eprintln!("Could not bind to any port in the range {range:?}: {error}",);
-                }
-                None => {
-                    eprintln!("Binding failed, port range empty? {range:?}");
-                }
+                Some(source) => Err(BindError::Range { range, source }),
+                None => Err(BindError::EmptyRange(range)),
             }
-            std::process::exit(1)
         }
     }
 }
@@ -322,6 +333,23 @@ async fn symbolication_service(
             }
         }
         (&Method::GET, "/profile.json", Some(profile_filename)) => {
+            // Stream the file. This follows the send_file example from the hyper repo.
+            // https://github.com/hyperium/hyper/blob/7206fe30302937075c51c16a69d1eb3bbce6a671/examples/send_file.rs
+            //
+            // The file can be gone by now: a profile in the store may have been
+            // evicted, or the user may have deleted it; we send a 404 in that case.
+            let file = match tokio::fs::File::open(&profile_filename).await {
+                Ok(file) => file,
+                Err(e) => {
+                    log::warn!(
+                        "Could not open profile file {}: {e}",
+                        profile_filename.display()
+                    );
+                    *response.status_mut() = StatusCode::NOT_FOUND;
+                    return Ok(response);
+                }
+            };
+
             if profile_filename.extension() == Some(OsStr::new("gz")) {
                 response.headers_mut().insert(
                     header::CONTENT_ENCODING,
@@ -332,12 +360,6 @@ async fn symbolication_service(
                 header::CONTENT_TYPE,
                 header::HeaderValue::from_static("application/json; charset=UTF-8"),
             );
-
-            // Stream the file. This follows the send_file example from the hyper repo.
-            // https://github.com/hyperium/hyper/blob/7206fe30302937075c51c16a69d1eb3bbce6a671/examples/send_file.rs
-            let file = tokio::fs::File::open(&profile_filename)
-                .await
-                .expect("couldn't open profile file");
 
             // Wrap in a buffered tokio_util::io::ReaderStream
             let reader = BufReader::with_capacity(64 * 1024, file);
@@ -354,10 +376,12 @@ async fn symbolication_service(
             let path = path.to_string();
             // Await the full body to be concatenated into a `Collected<Bytes>`.
             let request_body = req.into_body().collect().await?;
-            // Convert the `Collected<Bytes>` into a `String`.
-            let request_body =
-                String::from_utf8(request_body.to_bytes().to_vec()).expect("invalid utf-8");
-            let response_json = symbol_manager.query_json_api(&path, &request_body).await;
+            let request_body = request_body.to_bytes();
+            let Ok(request_body) = str::from_utf8(&request_body) else {
+                *response.status_mut() = StatusCode::BAD_REQUEST;
+                return Ok(response);
+            };
+            let response_json = symbol_manager.query_json_api(&path, request_body).await;
             let mut response_bytes = Vec::new();
             let response_writer = BufWriter::new(&mut response_bytes);
             serde_json::to_writer(response_writer, &response_json).expect("json writing error");

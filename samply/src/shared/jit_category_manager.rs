@@ -45,6 +45,9 @@ pub enum JsFrame {
     #[allow(dead_code)]
     NativeFrameIsJs,
     RegularInAdditionToNativeFrame(JsName),
+    /// SpiderMonkey's per-script entry trampoline for the C++ interpreter
+    /// ("Interpreter: x").
+    InterpreterStub(JsName),
     BaselineInterpreterStub(JsName),
     BaselineInterpreter,
 }
@@ -326,9 +329,13 @@ impl JitCategoryManager {
                 let category = lazy_category_handle.get(profile);
 
                 let js_name = if is_js {
-                    Some(JsFrame::RegularInAdditionToNativeFrame(
-                        Self::handle_for_js_name(profile, name_without_prefix, script_source),
-                    ))
+                    let js_name =
+                        Self::handle_for_js_name(profile, name_without_prefix, script_source);
+                    if prefix == "Interpreter: " {
+                        Some(JsFrame::InterpreterStub(js_name))
+                    } else {
+                        Some(JsFrame::RegularInAdditionToNativeFrame(js_name))
+                    }
                 } else {
                     None
                 };
@@ -487,6 +494,28 @@ mod test {
         // SpiderMonkey baked the location into the name, so there's nothing to
         // put into the source location.
         assert_eq!(source_location, SourceLocation::default());
+    }
+
+    /// Only the C++ interpreter's entry trampoline may lend its name to a
+    /// following stub-less Baseline Interpreter frame, so it needs its own kind.
+    #[test]
+    fn test_interpreter_stub() {
+        let mut manager = JitCategoryManager::new();
+        let mut profile = new_profile();
+        let (_category, js_name) =
+            manager.classify_jit_symbol("Interpreter: doWork (app.js:3:16)", None, &mut profile);
+        assert!(matches!(
+            js_name,
+            Some(JsFrame::InterpreterStub(JsName::NonBuiltin { .. }))
+        ));
+        let (_category, js_name) =
+            manager.classify_jit_symbol("Baseline: doWork (app.js:3:16)", None, &mut profile);
+        assert!(matches!(
+            js_name,
+            Some(JsFrame::RegularInAdditionToNativeFrame(
+                JsName::NonBuiltin { .. }
+            ))
+        ));
     }
 
     /// SpiderMonkey bakes the script location into the symbol name when it isn't
