@@ -539,7 +539,7 @@ where
         );
     }
 
-    pub fn handle_other_event_sample<C: ConvertRegs<UnwindRegs = U::UnwindRegs>>(
+    pub fn handle_other_event_as_marker<C: ConvertRegs<UnwindRegs = U::UnwindRegs>>(
         &mut self,
         e: &SampleRecord,
         attr_index: usize,
@@ -591,6 +591,56 @@ where
                 unresolved_stack,
                 marker_handle,
             );
+        }
+    }
+
+    pub fn handle_other_event_as_counter<C: ConvertRegs<UnwindRegs = U::UnwindRegs>>(
+        &mut self,
+        e: &SampleRecord,
+        attr_index: usize,
+    ) {
+        let pid = e.pid.expect("Can't handle samples without pids");
+        let timestamp_mono = e
+            .timestamp
+            .expect("Can't handle samples without timestamps");
+        let timestamp = self.timestamp_converter.convert_time(timestamp_mono);
+        // let tid = e.tid.expect("Can't handle samples without tids");
+        let process = self.processes.get_by_pid(pid, &mut self.profile);
+        process.check_jitdump(
+            &mut self.jit_category_manager,
+            &mut self.profile,
+            &self.timestamp_converter,
+        );
+
+        let stack = &mut self.stack_scratch;
+        Self::get_sample_stack::<C>(
+            e,
+            &process.unwinder,
+            &mut self.cache,
+            stack,
+            self.fold_recursive_prefix,
+            self.call_chain_return_addresses_are_preadjusted,
+        );
+
+        // let thread_handle = match e.tid {
+        //     Some(tid) => {
+        //         process
+        //             .threads
+        //             .get_thread_by_tid(tid, &mut self.profile)
+        //             .profile_thread
+        //     }
+        //     None => process.threads.main_thread.profile_thread,
+        // };
+
+        // let unresolved_stack = self.unresolved_stacks.convert(stack.iter().rev().cloned());
+        if let Some(name) = self.event_names.get(attr_index) {
+            let (counter, prev) =
+                process.make_event_counter_if_not_exists(attr_index, name, &mut self.profile);
+            if let Some(period) = e.period {
+                self.profile
+                    .add_counter_sample(counter, timestamp, period as f64, 1);
+                *prev = period;
+            }
         }
     }
 
