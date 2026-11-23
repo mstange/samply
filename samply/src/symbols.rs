@@ -57,8 +57,9 @@ fn create_symbol_manager_config(symbol_props: SymbolProps) -> SymbolManagerConfi
     let symbols_dir = resolved_symbol_cache_dir(&symbol_props);
     let symbols_dir = symbols_dir.as_deref();
 
-    let use_debuginfod =
-        symbol_props.use_debuginfod || std::env::var_os("SAMPLY_USE_DEBUGINFOD").is_some();
+    let use_debuginfod = symbol_props.use_debuginfod
+        || std::env::var_os("SAMPLY_USE_DEBUGINFOD").is_some()
+        || std::env::var_os("DEBUGINFOD_URLS").is_some();
     let mut config = SymbolManagerConfig::new()
         .respect_nt_symbol_path(symbol_props.respect_nt_symbol_path)
         .use_debuginfod(use_debuginfod)
