@@ -13,8 +13,9 @@ use uuid::Uuid;
 
 use crate::breakpad::BreakpadSymbolDownloader;
 use crate::config::SymbolManagerConfig;
-use crate::debuginfod::DebuginfodDownloader;
+use crate::debuginfod::{DebuginfodDownloader, DebuginfodRequestType};
 use crate::downloader::{Downloader, DownloaderObserver};
+use crate::file_resolver::WholesymFileLocation::DebuginfodSourceFile;
 use crate::vdso::get_vdso_data;
 use crate::{DownloadError, SymbolManagerObserver};
 
@@ -77,6 +78,7 @@ pub enum WholesymFileLocation {
     // Only constructed when the `api` feature is on, but matched unconditionally.
     #[cfg_attr(not(feature = "api"), allow(dead_code))]
     DebuginfodExecutable(ElfBuildId),
+    DebuginfodSourceFile(ElfBuildId, String),
     UrlForSourceFile(String),
     VdsoLoadedIntoThisProcess,
 }
@@ -137,10 +139,9 @@ impl FileLocation for WholesymFileLocation {
                         .map(|base_path| Self::LocalFile(base_path.join(source_file_path)))
                 }
             }
-            Self::DebuginfodDebugFile(_build_id) | Self::DebuginfodExecutable(_build_id) => {
-                // TODO: load source file via debuginfod
-                None
-            }
+            Self::DebuginfodDebugFile(build_id) | Self::DebuginfodExecutable(build_id) => Some(
+                Self::DebuginfodSourceFile(build_id.clone(), source_file_path.to_string()),
+            ),
             _ => {
                 // We don't have local source files for debug files from symbol servers.
                 // Ignore the absolute path in the downloaded file.
@@ -421,16 +422,23 @@ impl FileResolver {
                 .debuginfod_downloader
                 .as_ref()
                 .unwrap()
-                .get_file(&build_id.to_string(), "debuginfo")
+                .get_file(&build_id.to_string(), DebuginfodRequestType::Debuginfo)
                 .await
                 .ok_or("Debuginfod could not find debuginfo")?,
             WholesymFileLocation::DebuginfodExecutable(build_id) => self
                 .debuginfod_downloader
                 .as_ref()
                 .unwrap()
-                .get_file(&build_id.to_string(), "executable")
+                .get_file(&build_id.to_string(), DebuginfodRequestType::Executable)
                 .await
                 .ok_or("Debuginfod could not find executable")?,
+            WholesymFileLocation::DebuginfodSourceFile(build_id, path) => self
+                .debuginfod_downloader
+                .as_ref()
+                .unwrap()
+                .get_file(&build_id.to_string(), DebuginfodRequestType::Source(path))
+                .await
+                .ok_or("Debuginfod could not find source")?,
             WholesymFileLocation::VdsoLoadedIntoThisProcess => {
                 let vdso = get_vdso_data().ok_or("No vdso in this process")?;
                 // Pretend that the VDSO data came from a file.
