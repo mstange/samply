@@ -50,19 +50,26 @@ impl DebuginfodDownloader {
         let debuginfod_test_result = std::process::Command::new(OFFICIAL_DEBUGINFOD_BINARY)
             .arg("--version")
             .spawn();
-        let debuginfod_urls: Vec<String> = std::env::var("DEBUGINFOD_URLS")
+        let mut debuginfod_urls: Vec<String> = std::env::var("DEBUGINFOD_URLS")
             .unwrap_or_default()
             .split_ascii_whitespace()
             .flat_map(String::from_str)
             .collect();
 
         match debuginfod_test_result {
-            Ok(_) => Self(DebuginfodDownloaderInner::Official(
-                OfficialDebuginfodDownloader {
-                    all_urls: debuginfod_urls,
-                    observer: None,
-                },
-            )),
+            Ok(_) => {
+                for (server, _) in servers_and_caches {
+                    if !debuginfod_urls.contains(&server) {
+                        debuginfod_urls.push(server);
+                    }
+                }
+                Self(DebuginfodDownloaderInner::Official(
+                    OfficialDebuginfodDownloader {
+                        all_urls: debuginfod_urls,
+                        observer: None,
+                    },
+                ))
+            }
             Err(_) => {
                 if let Some(cache_dir) = debuginfod_cache_dir_if_not_installed {
                     if !debuginfod_urls.is_empty() {
