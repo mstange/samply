@@ -49,6 +49,8 @@ impl DebuginfodDownloader {
     ) -> Self {
         let debuginfod_test_result = std::process::Command::new(OFFICIAL_DEBUGINFOD_BINARY)
             .arg("--version")
+            .stderr(Stdio::null())
+            .stdout(Stdio::null())
             .spawn();
         let mut debuginfod_urls: Vec<String> = std::env::var("DEBUGINFOD_URLS")
             .unwrap_or_default()
@@ -209,7 +211,6 @@ impl OfficialDebuginfodDownloader {
                         }
                         ["found", path, ..] if path.ends_with("/debuginfo") => {
                             found = true;
-                            println!("from debuginfod downloader:");
                             observer.on_file_accessed(Path::new(path));
                         }
                         ["init", "server", ..] if !found => {
