@@ -40,7 +40,7 @@ reqwest = { version = "0.13", default-features = false, features = [
 rustls = { version = "0.23", default-features = false, features = ["ring"] } # So that reqwest uses rustls with ring
 bytes = "1.10"
 memmap2 = "0.9.9"
-tokio = { version = "1.52", features = ["fs", "macros"] }
+tokio = { version = "1.52", features = ["fs", "macros", "process"] }
 futures-util = "0.3.30"
 fs4 = "0.13"
 thiserror = "2"

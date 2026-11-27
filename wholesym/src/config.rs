@@ -144,22 +144,13 @@ impl SymbolManagerConfig {
         self
     }
 
-    /// Whether debuginfod should be used, i.e. whether the `DEBUGINFOD_URLS` environment variable should be respected.
-    ///
-    /// At the moment this will only work if you specify a custom cache directory with `debuginfod_cache_dir_if_not_installed`.
-    // TODO: Once "official debuginfod" is supported, change this to:
-    // /// If debuginfod is not installed, this will only work if you specify a custom cache directory with `debuginfod_cache_dir_if_not_installed`.
+    /// When debuginfod-find is not found in $PATH, you need to specify a custom cache directory with `debuginfod_cache_dir_if_not_installed`.
     pub fn use_debuginfod(mut self, flag: bool) -> Self {
         self.use_debuginfod = flag;
         self
     }
 
-    /// If `use_debuginfod` is set, use this directory as a cache directory. At the moment
-    /// this is used even if debuginfod is installed, despite the function name, because
-    /// wholesym is still missing a way to use the installed debuginfod and currently
-    /// always runs its own code for downloading files from debuginfod servers.
-    // TODO: Once "official debuginfod" is supported, change this to:
-    // /// If `use_debuginfod` is set, and debuginfod is not installed (e.g. on non-Linux), use this directory as a cache directory.
+    /// If `use_debuginfod` is set, and debuginfod is not installed (e.g. on non-Linux), use this directory as a cache directory.
     pub fn debuginfod_cache_dir_if_not_installed(mut self, cache_dir: impl Into<PathBuf>) -> Self {
         self.debuginfod_cache_dir_if_not_installed = Some(cache_dir.into());
         self
@@ -169,6 +160,8 @@ impl SymbolManagerConfig {
     /// These servers are consulted independently of `use_debuginfod`.
     ///
     /// This method can be called multiple times; the servers and caches will be tried in the order of those calls.
+    ///
+    /// Note: `cache_dir` is ignored when `debuginfod-find` is found in $PATH
     pub fn extra_debuginfod_server(
         mut self,
         base_url: impl Into<String>,
