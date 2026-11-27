@@ -15,7 +15,6 @@ use crate::breakpad::BreakpadSymbolDownloader;
 use crate::config::SymbolManagerConfig;
 use crate::debuginfod::{DebuginfodDownloader, DebuginfodRequestType};
 use crate::downloader::{Downloader, DownloaderObserver};
-use crate::file_resolver::WholesymFileLocation::DebuginfodSourceFile;
 use crate::vdso::get_vdso_data;
 use crate::{DownloadError, SymbolManagerObserver};
 
