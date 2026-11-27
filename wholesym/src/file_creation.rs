@@ -1,6 +1,7 @@
-use std::fs::TryLockError;
 use std::io;
 use std::path::Path;
+
+use fs4::fs_std::FileExt;
 
 /// The error type for the `create_file_cleanly` function.
 #[derive(thiserror::Error, Debug)]
@@ -200,13 +201,11 @@ async fn lock_file_exclusive(file: std::fs::File) -> Result<std::fs::File, io::E
 
     // We have a retry loop here because file locking can be interrupted by signals.
     for _ in 0..5 {
-        match file.try_lock() {
-            Ok(_) => return Ok(file),
-            Err(TryLockError::WouldBlock) => {
-                return lock_file_exclusive_with_blocking_thread(file).await
-            }
-            Err(TryLockError::Error(e)) if e.kind() == io::ErrorKind::Interrupted => continue,
-            Err(TryLockError::Error(e)) => return Err(e),
+        match file.try_lock_exclusive() {
+            Ok(true) => return Ok(file),
+            Ok(false) => return lock_file_exclusive_with_blocking_thread(file).await,
+            Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
+            Err(e) => return Err(e),
         }
     }
     Err(io::Error::new(
@@ -246,7 +245,7 @@ fn lock_file_exclusive_blocking_this_thread(
 ) -> Result<std::fs::File, io::Error> {
     // We have a retry loop here because file locking can be interrupted by signals.
     for _ in 0..5 {
-        match file.lock() {
+        match file.lock_exclusive() {
             // can block
             Ok(()) => return Ok(file),
             Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
